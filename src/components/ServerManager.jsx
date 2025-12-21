@@ -11,10 +11,16 @@ const ServerManager = ({ open, onClose }) => {
   const [form] = Form.useForm();
 
   const handleAddSession = (values) => {
+    // 确保端口号是数字类型
+    const sessionData = {
+      ...values,
+      port: parseInt(values.port) || 22,
+    };
+    
     if (editingSession) {
-      updateSession({ ...values, id: editingSession.id });
+      updateSession({ ...sessionData, id: editingSession.id });
     } else {
-      const newSession = { ...values, id: uuidv4() };
+      const newSession = { ...sessionData, id: uuidv4() };
       addSession(newSession);
     }
     setIsModalOpen(false);
@@ -62,7 +68,8 @@ const ServerManager = ({ open, onClose }) => {
         placement="left"
         onClose={onClose}
         open={open}
-        width={300}
+        size="default"
+        styles={{ body: { width: 300 } }}
       >
         <div className="flex flex-col h-full">
           <div className="flex-1 overflow-y-auto">
@@ -140,8 +147,8 @@ const ServerManager = ({ open, onClose }) => {
           <Form.Item name="host" label="Host" rules={[{ required: true, message: 'Host is required' }]}>
             <Input placeholder="192.168.1.1" />
           </Form.Item>
-          <Form.Item name="port" label="Port" initialValue={22}>
-            <Input type="number" />
+          <Form.Item name="port" label="Port" initialValue={22} rules={[{ required: true, message: 'Port is required' }]}>
+            <Input type="number" min={1} max={65535} placeholder="22" />
           </Form.Item>
           <Form.Item name="username" label="Username" rules={[{ required: true, message: 'Username is required' }]}>
             <Input placeholder="root" />

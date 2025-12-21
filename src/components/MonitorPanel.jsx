@@ -37,7 +37,7 @@ const MonitorPanel = () => {
       <div className="w-1/4 flex flex-col gap-2">
         <div className="bg-[#2d2d2d] p-2 rounded">
           <div className="text-gray-400 text-xs">CPU Usage</div>
-          <div className="text-xl font-bold text-blue-400">{currentStats.cpu_usage.toFixed(1)}%</div>
+          <div className="text-xl font-bold text-blue-400">{currentStats.cpu_usage.toFixed(1)}</div>
         </div>
         <div className="bg-[#2d2d2d] p-2 rounded">
           <div className="text-gray-400 text-xs">Memory</div>

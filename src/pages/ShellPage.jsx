@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import Topbar from "../components/Topbar";
 import LeftPanel from "../components/LeftPanel";
 import ServerManager from "../components/ServerManager";
 import TerminalPanel from "../components/TerminalPanel";
@@ -28,10 +29,13 @@ function ShellPage() {
   ];
 
   return (
-    <Layout className="h-screen w-screen overflow-hidden bg-[#1e1e1e]">
+    <Layout className="h-screen w-screen overflow-hidden bg-[#1e1e1e] flex flex-col">
+      <Topbar />
+      
+      <Layout className="flex-1 overflow-hidden">
       <ServerManager open={showServerManager} onClose={() => setShowServerManager(false)} />
       
-      <Sider width={250} className="border-r border-[#333] bg-[#252526] flex flex-col">
+      <Sider width={250} className="border-r border-[#333] flex flex-col" style={{ background: '#252526' }}>
         <div className="p-2 border-b border-[#333] bg-[#2d2d2d] flex-shrink-0 space-y-2">
           <Button
             type="primary"
@@ -66,10 +70,11 @@ function ShellPage() {
           </div>
         </Content>
         {showAssistant && (
-          <Sider width={350} className="border-l border-[#333] bg-[#1e1e1e]">
+          <Sider width={350} className="border-l border-[#333]" style={{ background: '#1e1e1e' }}>
             <AssistantPanel />
           </Sider>
         )}
+      </Layout>
       </Layout>
     </Layout>
   );

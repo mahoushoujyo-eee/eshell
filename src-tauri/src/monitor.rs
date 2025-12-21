@@ -17,6 +17,16 @@ pub struct ProcessInfo {
 }
 
 #[derive(Serialize, Clone)]
+pub struct DiskInfo {
+    filesystem: String,
+    size: String,
+    used: String,
+    available: String,
+    use_percent: String,
+    mounted_on: String,
+}
+
+#[derive(Serialize, Clone)]
 pub struct SystemStats {
     cpu_usage: f32,
     cpu_count: usize,
@@ -196,4 +206,40 @@ pub async fn get_top_processes(
     }
 
     Ok(processes)
+}
+
+#[tauri::command]
+pub async fn get_disk_usage(
+    ssh_state: tauri::State<'_, crate::ssh::AppState>,
+    session_id: String,
+) -> Result<Vec<DiskInfo>, String> {
+    let sessions = ssh_state.sessions.lock().map_err(|e| e.to_string())?;
+    let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
+    let session = shell_session.session.lock().map_err(|e| e.to_string())?;
+
+    // Get disk usage using df -h
+    let mut channel = session.channel_session().map_err(|e| e.to_string())?;
+    channel.exec("df -h | grep -v tmpfs | grep -v devtmpfs").map_err(|e| e.to_string())?;
+    let mut output = String::new();
+    channel.read_to_string(&mut output).map_err(|e| e.to_string())?;
+    channel.wait_close().ok();
+
+    let mut disks = Vec::new();
+    
+    // Skip header line
+    for line in output.lines().skip(1) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 6 {
+            disks.push(DiskInfo {
+                filesystem: parts[0].to_string(),
+                size: parts[1].to_string(),
+                used: parts[2].to_string(),
+                available: parts[3].to_string(),
+                use_percent: parts[4].to_string(),
+                mounted_on: parts[5].to_string(),
+            });
+        }
+    }
+
+    Ok(disks)
 }

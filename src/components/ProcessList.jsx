@@ -25,10 +25,41 @@ const ProcessList = () => {
   }, [activeSessionId]);
 
   const columns = [
-    { title: 'PID', dataIndex: 'pid', key: 'pid', width: 60, className: 'text-xs' },
-    { title: 'CPU%', dataIndex: 'cpu', key: 'cpu', width: 55, className: 'text-xs' },
-    { title: 'Memory', dataIndex: 'memory', key: 'memory', width: 60, className: 'text-xs' },
-    { title: 'Name', dataIndex: 'name', key: 'name', ellipsis: true, className: 'text-xs' },
+    { 
+      title: 'PID', 
+      dataIndex: 'pid', 
+      key: 'pid', 
+      width: 50, 
+      className: 'text-xs',
+      ellipsis: false,
+      render: (text) => <div className="whitespace-nowrap overflow-hidden text-ellipsis">{text}</div>
+    },
+    { 
+      title: 'CPU', 
+      dataIndex: 'cpu', 
+      key: 'cpu', 
+      width: 50, 
+      className: 'text-xs',
+      ellipsis: false,
+      render: (text) => <div className="whitespace-nowrap overflow-hidden text-ellipsis">{text}</div>
+    },
+    { 
+      title: 'Mem', 
+      dataIndex: 'memory', 
+      key: 'memory', 
+      width: 50, 
+      className: 'text-xs',
+      ellipsis: false,
+      render: (text) => <div className="whitespace-nowrap overflow-hidden text-ellipsis">{text}</div>
+    },
+    { 
+      title: 'Name', 
+      dataIndex: 'name', 
+      key: 'name', 
+      className: 'text-xs',
+      ellipsis: true,
+      render: (text) => <div className="whitespace-nowrap overflow-hidden text-ellipsis" title={text}>{text}</div>
+    },
   ];
 
   if (!activeSessionId) {

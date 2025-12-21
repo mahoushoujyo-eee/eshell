@@ -10,7 +10,12 @@ const Sidebar = () => {
   const [form] = Form.useForm();
 
   const handleAddSession = (values) => {
-    const newSession = { ...values, id: uuidv4() };
+    // 确保端口号是数字类型
+    const sessionData = {
+      ...values,
+      port: parseInt(values.port) || 22,
+    };
+    const newSession = { ...sessionData, id: uuidv4() };
     addSession(newSession);
     setIsModalOpen(false);
     form.resetFields();
@@ -69,8 +74,8 @@ const Sidebar = () => {
           <Form.Item name="host" label="Host" rules={[{ required: true, message: 'Host is required' }]}>
             <Input placeholder="192.168.1.1" />
           </Form.Item>
-          <Form.Item name="port" label="Port" initialValue={22}>
-            <Input type="number" />
+          <Form.Item name="port" label="Port" initialValue={22} rules={[{ required: true, message: 'Port is required' }]}>
+            <Input type="number" min={1} max={65535} placeholder="22" />
           </Form.Item>
           <Form.Item name="username" label="Username" rules={[{ required: true, message: 'Username is required' }]}>
             <Input placeholder="root" />

@@ -4,15 +4,17 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { listen, emit } from '@tauri-apps/api/event';
 import useStore from '../store/useStore';
 
 const Terminal = ({ terminalId, sessionId }) => {
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
-  const { sessions } = useStore();
+  const { sessions, activeTerminalId, connectedSessions, markSessionConnected } = useStore();
   const session = sessions.find(s => s.id === sessionId);
+  const isActiveTerminal = activeTerminalId === terminalId;
+  const isSessionConnected = connectedSessions[sessionId] === true;
 
   useEffect(() => {
     if (!terminalRef.current || !session) return;
@@ -57,14 +59,9 @@ const Terminal = ({ terminalId, sessionId }) => {
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Connect to SSH
-    invoke('connect_ssh', { config: session }).catch(err => {
-      term.writeln(`\r\nError connecting: ${err}\r\n`);
-    });
-
     // Handle input
-    term.onData(data => {
-      invoke('send_command', { id: session.id, command: data });
+    const onDataHandler = term.onData(data => {
+      invoke('send_command', { id: sessionId, command: data });
     });
 
     // Handle resize
@@ -72,48 +69,78 @@ const Terminal = ({ terminalId, sessionId }) => {
       fitAddon.fit();
       if (xtermRef.current) {
         const { rows, cols } = xtermRef.current;
-        invoke('resize_term', { id: session.id, rows, cols });
+        invoke('resize_term', { id: sessionId, rows, cols });
       }
     };
     
     window.addEventListener('resize', handleResize);
-    term.onResize(size => {
-        invoke('resize_term', { id: session.id, rows: size.rows, cols: size.cols });
+    const onResizeHandler = term.onResize(size => {
+        invoke('resize_term', { id: sessionId, rows: size.rows, cols: size.cols });
     });
 
-    term.onSelectionChange(() => {
+    const onSelectionHandler = term.onSelectionChange(() => {
         useStore.getState().setActiveTerminalSelection(term.getSelection());
     });
 
     // Listen for data from Rust
-    const unlistenPromise = listen(`ssh_data_${session.id}`, (event) => {
+    const unlistenPromise = listen(`ssh_data_${sessionId}`, (event) => {
       term.write(event.payload);
     });
     
-    const unlistenErrorPromise = listen(`ssh_error_${session.id}`, (event) => {
+    const unlistenErrorPromise = listen(`ssh_error_${sessionId}`, (event) => {
         term.writeln(`\r\nSSH Error: ${event.payload}\r\n`);
     });
 
-    const unlistenConnectedPromise = listen(`ssh_connected_${session.id}`, (event) => {
+    const unlistenConnectedPromise = listen(`ssh_connected_${sessionId}`, (event) => {
         term.writeln(`\r\nSSH Connected.\r\n`);
         handleResize(); // Resize after connection
     });
 
-    const unlistenClosedPromise = listen(`ssh_closed_${session.id}`, (event) => {
+    const unlistenClosedPromise = listen(`ssh_closed_${sessionId}`, (event) => {
         term.writeln(`\r\nSSH Connection Closed.\r\n`);
     });
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      onDataHandler.dispose();
+      onResizeHandler.dispose();
+      onSelectionHandler.dispose();
       term.dispose();
       unlistenPromise.then(unlisten => unlisten());
       unlistenErrorPromise.then(unlisten => unlisten());
       unlistenConnectedPromise.then(unlisten => unlisten());
       unlistenClosedPromise.then(unlisten => unlisten());
     };
-  }, [session]);
+  }, [sessionId]); // 只依赖sessionId
 
-  return <div className="h-full w-full" ref={terminalRef} />;
+  // 连接SSH - 只在session未连接时执行
+  useEffect(() => {
+    if (!session || isSessionConnected) return;
+
+    // 立即标记为连接中，防止重复调用
+    markSessionConnected(sessionId);
+
+    invoke('connect_ssh', { config: session })
+      .then(() => {
+        console.log(`Session ${sessionId} connected successfully`);
+        // 发送连接成功事件给FileManager等组件
+        emit(`ssh_connected_${sessionId}`, {});
+      })
+      .catch(err => {
+        console.error(`Failed to connect session ${sessionId}:`, err);
+        // 连接失败时移除标记
+        useStore.getState().markSessionDisconnected(sessionId);
+      });
+  }, [sessionId, session, isSessionConnected, markSessionConnected]); // 依赖sessionId和连接状态
+
+  // 当标签页切换时通知后端设置活跃会话
+  useEffect(() => {
+    if (isActiveTerminal && sessionId) {
+      invoke('set_active_session', { id: sessionId }).catch(console.error);
+    }
+  }, [isActiveTerminal, sessionId]);
+
+  return <div className="h-full w-full p-2 pb-3 px-3" ref={terminalRef} />;
 };
 
 export default Terminal;
