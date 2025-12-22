@@ -6,8 +6,8 @@ import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import useStore from '../store/useStore';
 
-const FileManager = ({ initialPath = '/' }) => {
-  const { activeSessionId } = useStore();
+const FileManager = ({ initialPath = '/', terminalId }) => {
+  const { activeSessionId, getTabCache, setTabCache } = useStore();
   const [files, setFiles] = useState([]);
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [pathParts, setPathParts] = useState(['/']);
@@ -53,13 +53,23 @@ const FileManager = ({ initialPath = '/' }) => {
   }, [activeSessionId]);
 
   useEffect(() => {
-    if (activeSessionId && isConnected) {
+    if (activeSessionId && isConnected && terminalId) {
+      // 先尝试从缓存加载数据
+      const cache = getTabCache(terminalId);
+      if (cache && cache.fileManager) {
+        const { currentPath: cachedPath, files: cachedFiles, treeData: cachedTree } = cache.fileManager;
+        setCurrentPath(cachedPath || currentPath);
+        setFiles(cachedFiles || []);
+        setTreeData(cachedTree || []);
+      }
+      // 然后异步刷新最新数据
       loadFiles(currentPath);
       loadRootTree();
     }
-  }, [activeSessionId, currentPath, isConnected]);
+  }, [activeSessionId, currentPath, isConnected, terminalId]);
 
   const loadRootTree = async () => {
+    if (!activeSessionId || !terminalId) return;
     setTreeLoading(true);
     try {
       const files = await invoke('list_files', {
@@ -82,6 +92,14 @@ const FileManager = ({ initialPath = '/' }) => {
       };
       
       setTreeData([rootNode]);
+      
+      // 保存到缓存
+      const cache = getTabCache(terminalId);
+      setTabCache(terminalId, 'fileManager', {
+        currentPath: cache?.fileManager?.currentPath || currentPath,
+        files: cache?.fileManager?.files || files,
+        treeData: [rootNode]
+      });
     } catch (error) {
       console.error('Failed to load file tree:', error);
     } finally {
@@ -90,7 +108,7 @@ const FileManager = ({ initialPath = '/' }) => {
   };
 
   const onLoadTreeData = async (node) => {
-    if (node.children) {
+    if (node.children || !activeSessionId || !terminalId) {
       return;
     }
 
@@ -109,9 +127,16 @@ const FileManager = ({ initialPath = '/' }) => {
           isLeaf: false
         }));
 
-      setTreeData(origin =>
-        updateTreeData(origin, node.key, children)
-      );
+      const newTreeData = updateTreeData(treeData, node.key, children);
+      setTreeData(newTreeData);
+      
+      // 保存到缓存
+      const cache = getTabCache(terminalId);
+      setTabCache(terminalId, 'fileManager', {
+        currentPath: cache?.fileManager?.currentPath || currentPath,
+        files: cache?.fileManager?.files || files,
+        treeData: newTreeData
+      });
     } catch (error) {
       console.error('Failed to load directory:', error);
     }
@@ -186,7 +211,7 @@ const FileManager = ({ initialPath = '/' }) => {
   ];
 
   const loadFiles = async (path) => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || !terminalId) return;
     setLoading(true);
     try {
       const result = await invoke('list_files', {
@@ -194,6 +219,14 @@ const FileManager = ({ initialPath = '/' }) => {
         path: path
       });
       setFiles(result);
+      
+      // 保存到缓存
+      const cache = getTabCache(terminalId);
+      setTabCache(terminalId, 'fileManager', {
+        currentPath: path,
+        files: result,
+        treeData: cache?.fileManager?.treeData || treeData
+      });
     } catch (error) {
       message.error(`Failed to load files: ${error}`);
       setFiles([]);

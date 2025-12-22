@@ -2,19 +2,29 @@ import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import useStore from '../store/useStore';
 
-const DiskUsage = () => {
-  const { activeSessionId } = useStore();
+const DiskUsage = ({ terminalId }) => {
+  const { activeSessionId, getTabCache, setTabCache } = useStore();
   const [disks, setDisks] = useState([]);
 
   useEffect(() => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || !terminalId) return;
     
+    // 先尝试从缓存加载数据
+    const cache = getTabCache(terminalId);
+    if (cache && cache.diskUsage) {
+      setDisks(cache.diskUsage);
+    }
+    
+    // 然后异步刷新最新数据
     const fetchDiskUsage = async () => {
       try {
         const result = await invoke('get_disk_usage', {
           sessionId: activeSessionId
         });
         setDisks(result);
+        
+        // 保存到缓存
+        setTabCache(terminalId, 'diskUsage', result);
       } catch (e) {
         console.error('Failed to get disk usage:', e);
       }
@@ -24,7 +34,7 @@ const DiskUsage = () => {
     const interval = setInterval(fetchDiskUsage, 10000); // 每10秒更新一次
 
     return () => clearInterval(interval);
-  }, [activeSessionId]);
+  }, [activeSessionId, terminalId]);
 
   if (!activeSessionId) {
     return null;

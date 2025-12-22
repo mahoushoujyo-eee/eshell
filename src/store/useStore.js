@@ -8,6 +8,8 @@ const useStore = create((set, get) => ({
   activeTerminalId: null,
   activeTerminalSelection: "",
   connectedSessions: {}, // 跟踪已连接的session {sessionId: true}
+  tabCache: {}, // 标签页缓存，key为terminalId
+                // value: { fileManager: { currentPath, files, treeData }, processes, resources }
   
   loadSessions: async () => {
     try {
@@ -79,11 +81,16 @@ const useStore = create((set, get) => ({
     const newActiveSessionId = newActiveTerminalId ? 
       newTerminals.find(t => t.id === newActiveTerminalId)?.sessionId : null;
     
+    // 清除被删除标签页的缓存
+    const newCache = { ...state.tabCache };
+    delete newCache[id];
+    
     return { 
       terminals: newTerminals,
       activeTerminalId: newActiveTerminalId,
       activeSessionId: newActiveSessionId,
-      connectedSessions: newConnected
+      connectedSessions: newConnected,
+      tabCache: newCache
     };
   }),
   
@@ -100,6 +107,28 @@ const useStore = create((set, get) => ({
     const newConnected = { ...state.connectedSessions };
     delete newConnected[sessionId];
     return { connectedSessions: newConnected };
+  }),
+  
+  // 缓存相关方法
+  setTabCache: (terminalId, cacheType, data) => set((state) => {
+    const currentCache = state.tabCache[terminalId] || {};
+    return {
+      tabCache: {
+        ...state.tabCache,
+        [terminalId]: {
+          ...currentCache,
+          [cacheType]: data
+        }
+      }
+    };
+  }),
+  
+  getTabCache: (terminalId) => get().tabCache[terminalId] || {},
+  
+  clearTabCache: (terminalId) => set((state) => {
+    const newCache = { ...state.tabCache };
+    delete newCache[terminalId];
+    return { tabCache: newCache };
   }),
 }));
 

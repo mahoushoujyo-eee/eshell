@@ -5,8 +5,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import useStore from '../store/useStore';
 
-const FileTree = ({ onSelect }) => {
-  const { activeSessionId } = useStore();
+const FileTree = ({ onSelect, terminalId }) => {
+  const { activeSessionId, getTabCache, setTabCache } = useStore();
   const [treeData, setTreeData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -31,10 +31,16 @@ const FileTree = ({ onSelect }) => {
   }, [activeSessionId]);
 
   useEffect(() => {
-    if (activeSessionId && isConnected) {
-      loadRootTree();
+    if (activeSessionId && isConnected && terminalId) {
+      // 先尝试从缓存加载数据
+      const cache = getTabCache(terminalId);
+      if (cache && cache.fileTree) {
+        setTreeData(cache.fileTree);
+      } else {
+        loadRootTree();
+      }
     }
-  }, [activeSessionId, isConnected]);
+  }, [activeSessionId, isConnected, terminalId]);
 
   const loadRootTree = async () => {
     setLoading(true);
@@ -58,7 +64,13 @@ const FileTree = ({ onSelect }) => {
           }))
       };
       
-      setTreeData([rootNode]);
+      const rootTreeData = [rootNode];
+      setTreeData(rootTreeData);
+      
+      // 保存到缓存
+      if (terminalId) {
+        setTabCache(terminalId, 'fileTree', rootTreeData);
+      }
     } catch (error) {
       console.error('Failed to load file tree:', error);
     } finally {

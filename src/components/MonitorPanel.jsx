@@ -3,32 +3,54 @@ import { invoke } from '@tauri-apps/api/core';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import useStore from '../store/useStore';
 
-const MonitorPanel = () => {
-  const { activeSessionId } = useStore();
+const MonitorPanel = ({ terminalId }) => {
+  const { activeSessionId, getTabCache, setTabCache } = useStore();
   const [data, setData] = useState([]);
   const [currentStats, setCurrentStats] = useState(null);
 
   useEffect(() => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || !terminalId) return;
     
-    const interval = setInterval(async () => {
-      try {
-        const stats = await invoke('get_system_stats', {
-          sessionId: activeSessionId
-        });
-        setCurrentStats(stats);
-        setData(prev => {
-          const newData = [...prev, { ...stats, time: new Date().toLocaleTimeString() }];
-          if (newData.length > 20) newData.shift();
-          return newData;
-        });
-      } catch (e) {
-        console.error(e);
-      }
+    // 先尝试从缓存加载数据
+    const cache = getTabCache(terminalId);
+    if (cache && cache.monitor) {
+      setData(cache.monitor.data);
+      setCurrentStats(cache.monitor.currentStats);
+    }
+    
+    // 然后异步刷新最新数据
+    loadMonitorData();
+    
+    const interval = setInterval(() => {
+      loadMonitorData();
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [activeSessionId]);
+  }, [activeSessionId, terminalId]);
+  
+  const loadMonitorData = async () => {
+    if (!activeSessionId || !terminalId) return;
+    try {
+      const stats = await invoke('get_system_stats', {
+        sessionId: activeSessionId
+      });
+      setCurrentStats(stats);
+      setData(prev => {
+        const newData = [...prev, { ...stats, time: new Date().toLocaleTimeString() }];
+        if (newData.length > 20) newData.shift();
+        
+        // 保存到缓存
+        setTabCache(terminalId, 'monitor', {
+          data: newData,
+          currentStats: stats
+        });
+        
+        return newData;
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   if (!currentStats) return <div className="text-white p-4">Loading stats...</div>;
 

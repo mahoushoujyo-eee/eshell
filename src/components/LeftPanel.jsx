@@ -3,13 +3,15 @@ import { Divider } from 'antd';
 import ResourceMonitor from './ResourceMonitor';
 import ProcessList from './ProcessList';
 import DiskUsage from './DiskUsage';
+import useStore from '../store/useStore';
 
 const LeftPanel = () => {
+  const activeTerminalId = useStore((state) => state.activeTerminalId);
   return (
     <div className="h-full bg-[#252526] flex flex-col">
       {/* 资源监控 */}
       <div className="flex-shrink-0">
-        <ResourceMonitor />
+        <ResourceMonitor terminalId={activeTerminalId} />
       </div>
 
       <Divider className="my-0 border-[#333]" />
@@ -20,8 +22,8 @@ const LeftPanel = () => {
           Top Processes
         </div>
         <div className="flex-1 overflow-hidden">
-          <ProcessList />
-        </div>
+        <ProcessList terminalId={activeTerminalId} />
+      </div>
       </div>
 
       <Divider className="my-0 border-[#333]" />
@@ -32,8 +34,8 @@ const LeftPanel = () => {
           Disk Usage
         </div>
         <div className="flex-1 overflow-auto px-3 py-2">
-          <DiskUsage />
-        </div>
+        <DiskUsage terminalId={activeTerminalId} />
+      </div>
       </div>
     </div>
   );

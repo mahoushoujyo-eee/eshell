@@ -3,26 +3,44 @@ import { Table } from 'antd';
 import { invoke } from '@tauri-apps/api/core';
 import useStore from '../store/useStore';
 
-const ProcessList = () => {
-  const { activeSessionId } = useStore();
+const ProcessList = ({ terminalId }) => {
+  const { activeSessionId, getTabCache, setTabCache } = useStore();
   const [processes, setProcesses] = useState([]);
 
   useEffect(() => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || !terminalId) return;
     
-    const interval = setInterval(async () => {
-      try {
-        const result = await invoke('get_top_processes', {
-          sessionId: activeSessionId
-        });
-        setProcesses(result);
-      } catch (e) {
-        console.error('Failed to get processes:', e);
-      }
+    // 先尝试从缓存加载数据
+    const cache = getTabCache(terminalId);
+    if (cache && cache.processes) {
+      setProcesses(cache.processes);
+    }
+    
+    // 然后异步刷新最新数据
+    loadProcesses();
+    
+    const interval = setInterval(() => {
+      loadProcesses();
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [activeSessionId]);
+  }, [activeSessionId, terminalId]);
+  
+  const loadProcesses = async () => {
+    if (!activeSessionId || !terminalId) return;
+    try {
+      const result = await invoke('get_top_processes', {
+        sessionId: activeSessionId
+      });
+      setProcesses(result);
+      
+      // 保存到缓存
+      const cache = getTabCache(terminalId);
+      setTabCache(terminalId, 'processes', result);
+    } catch (e) {
+      console.error('Failed to get processes:', e);
+    }
+  };
 
   const columns = [
     { 

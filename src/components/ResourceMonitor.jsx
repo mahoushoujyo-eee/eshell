@@ -3,8 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { Progress, Select } from 'antd';
 import useStore from '../store/useStore';
 
-const ResourceMonitor = () => {
-  const { activeSessionId } = useStore();
+const ResourceMonitor = ({ terminalId }) => {
+  const { activeSessionId, getTabCache, setTabCache } = useStore();
   const [stats, setStats] = useState(null);
   const [selectedNetwork, setSelectedNetwork] = useState(null);
   const [networkSpeed, setNetworkSpeed] = useState({ rx: 0, tx: 0 });
@@ -12,56 +12,81 @@ const ResourceMonitor = () => {
   const lastUpdateTime = useRef(Date.now());
 
   useEffect(() => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || !terminalId) return;
     
-    const interval = setInterval(async () => {
-      try {
-        const result = await invoke('get_system_stats', {
-          sessionId: activeSessionId
-        });
-        
-        // Calculate network speed
-        const now = Date.now();
-        const elapsed = (now - lastUpdateTime.current) / 1000; // seconds
-        
-        if (result.networks && result.networks.length > 0) {
-          const currentNet = selectedNetwork ? 
-            result.networks.find(n => n.name === selectedNetwork) : 
-            result.networks[0];
-          
-          if (currentNet && lastNetworkData.current[currentNet.name] && elapsed > 0) {
-            const lastData = lastNetworkData.current[currentNet.name];
-            const rxDiff = currentNet.rx_bytes - lastData.rx_bytes;
-            const txDiff = currentNet.tx_bytes - lastData.tx_bytes;
-            
-            setNetworkSpeed({
-              rx: Math.max(0, rxDiff / elapsed),
-              tx: Math.max(0, txDiff / elapsed)
-            });
-          }
-          
-          // Store current data for next calculation
-          const newLastData = {};
-          result.networks.forEach(net => {
-            newLastData[net.name] = { rx_bytes: net.rx_bytes, tx_bytes: net.tx_bytes };
-          });
-          lastNetworkData.current = newLastData;
-        }
-        
-        lastUpdateTime.current = now;
-        setStats(result);
-        
-        // Auto select first network
-        if (!selectedNetwork && result.networks && result.networks.length > 0) {
-          setSelectedNetwork(result.networks[0].name);
-        }
-      } catch (e) {
-        console.error(e);
-      }
+    // 先尝试从缓存加载数据
+    const cache = getTabCache(terminalId);
+    if (cache && cache.resources) {
+      setStats(cache.resources.stats);
+      setSelectedNetwork(cache.resources.selectedNetwork);
+      setNetworkSpeed(cache.resources.networkSpeed);
+    }
+    
+    // 然后异步刷新最新数据
+    loadResources();
+    
+    const interval = setInterval(() => {
+      loadResources();
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [activeSessionId, selectedNetwork]);
+  }, [activeSessionId, terminalId]);
+  
+  const loadResources = async () => {
+    if (!activeSessionId || !terminalId) return;
+    try {
+      const result = await invoke('get_system_stats', {
+        sessionId: activeSessionId
+      });
+      
+      // Calculate network speed
+      const now = Date.now();
+      const elapsed = (now - lastUpdateTime.current) / 1000; // seconds
+      
+      let updatedNetworkSpeed = networkSpeed;
+      if (result.networks && result.networks.length > 0) {
+        const currentNet = selectedNetwork ? 
+          result.networks.find(n => n.name === selectedNetwork) : 
+          result.networks[0];
+        
+        if (currentNet && lastNetworkData.current[currentNet.name] && elapsed > 0) {
+          const lastData = lastNetworkData.current[currentNet.name];
+          const rxDiff = currentNet.rx_bytes - lastData.rx_bytes;
+          const txDiff = currentNet.tx_bytes - lastData.tx_bytes;
+          
+          updatedNetworkSpeed = {
+            rx: Math.max(0, rxDiff / elapsed),
+            tx: Math.max(0, txDiff / elapsed)
+          };
+          setNetworkSpeed(updatedNetworkSpeed);
+        }
+        
+        // Store current data for next calculation
+        const newLastData = {};
+        result.networks.forEach(net => {
+          newLastData[net.name] = { rx_bytes: net.rx_bytes, tx_bytes: net.tx_bytes };
+        });
+        lastNetworkData.current = newLastData;
+      }
+      
+      lastUpdateTime.current = now;
+      setStats(result);
+      
+      // Auto select first network
+      if (!selectedNetwork && result.networks && result.networks.length > 0) {
+        setSelectedNetwork(result.networks[0].name);
+      }
+      
+      // 保存到缓存
+      setTabCache(terminalId, 'resources', {
+        stats: result,
+        selectedNetwork,
+        networkSpeed: updatedNetworkSpeed
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   if (!activeSessionId) {
     return (

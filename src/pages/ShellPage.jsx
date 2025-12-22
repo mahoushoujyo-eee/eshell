@@ -17,15 +17,16 @@ function ShellPage() {
   const [showAssistant, setShowAssistant] = useState(false);
   const [showServerManager, setShowServerManager] = useState(false);
   const loadSessions = useStore((state) => state.loadSessions);
+  const activeTerminalId = useStore((state) => state.activeTerminalId);
 
   useEffect(() => {
     loadSessions();
   }, [loadSessions]);
 
   const bottomItems = [
-    { key: 'files', label: 'Files', children: <FileManager /> },
-    { key: 'scripts', label: 'Scripts', children: <ScriptManager /> },
-    { key: 'commands', label: 'Commands', children: <CommandEditor /> },
+    { key: 'files', label: 'Files', children: <FileManager terminalId={activeTerminalId} /> },
+    { key: 'scripts', label: 'Scripts', children: <ScriptManager terminalId={activeTerminalId} /> },
+    { key: 'commands', label: 'Commands', children: <CommandEditor terminalId={activeTerminalId} /> },
   ];
 
   return (
