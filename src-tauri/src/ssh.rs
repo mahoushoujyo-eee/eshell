@@ -325,6 +325,9 @@ pub async fn connect_ssh(
     if !sess_cmd.authenticated() {
         return Err("Command session authentication failed".to_string());
     }
+    
+    // 设置命令执行会话为阻塞模式，确保通道操作同步完成
+    sess_cmd.set_blocking(true);
 
     // 保存会话到状态管理
     let mut sessions = state.sessions.write().unwrap();
