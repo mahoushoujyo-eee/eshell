@@ -26,15 +26,25 @@ pub fn list_files(
     session_id: String,
     path: String,
 ) -> Result<Vec<FileInfo>, String> {
-    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
-    let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
+    let sessions = ssh_state.sessions.read().map_err(|e| format!("Failed to read sessions: {}", e))?;
+    let shell_session = sessions.get(&session_id).ok_or(format!("Session {} not found", session_id))?;
+    
+    // 检查会话状态
+    if let Ok(status) = shell_session.status.read() {
+        if !status.connected || !status.active {
+            return Err(format!("Session {} is not connected or inactive", session_id));
+        }
+    } else {
+        return Err(format!("Failed to get status for session {}", session_id));
+    }
+    
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| e.to_string())?;
+    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
     let dir_path = Path::new(&path);
 
     let mut files = Vec::new();
-    let entries = sftp.readdir(dir_path).map_err(|e| e.to_string())?;
+    let entries = sftp.readdir(dir_path).map_err(|e| format!("[Session({})] Failed to list directory {}: {}", session_id, path, e))?;
 
     for (path, stat) in entries {
         let name = path
@@ -71,19 +81,29 @@ pub fn download_file(
     session_id: String,
     remote_path: String,
 ) -> Result<Vec<u8>, String> {
-    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
-    let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
+    let sessions = ssh_state.sessions.read().map_err(|e| format!("Failed to read sessions: {}", e))?;
+    let shell_session = sessions.get(&session_id).ok_or(format!("Session {} not found", session_id))?;
+    
+    // 检查会话状态
+    if let Ok(status) = shell_session.status.read() {
+        if !status.connected || !status.active {
+            return Err(format!("Session {} is not connected or inactive", session_id));
+        }
+    } else {
+        return Err(format!("Failed to get status for session {}", session_id));
+    }
+    
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| e.to_string())?;
+    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
     let mut remote_file = sftp
         .open(Path::new(&remote_path))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("[Session({})] Failed to open file {}: {}", session_id, remote_path, e))?;
 
     let mut contents = Vec::new();
     remote_file
         .read_to_end(&mut contents)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("[Session({})] Failed to read file {}: {}", session_id, remote_path, e))?;
 
     Ok(contents)
 }
@@ -96,16 +116,26 @@ pub fn upload_file(
     remote_path: String,
     content: Vec<u8>,
 ) -> Result<(), String> {
-    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
-    let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
+    let sessions = ssh_state.sessions.read().map_err(|e| format!("Failed to read sessions: {}", e))?;
+    let shell_session = sessions.get(&session_id).ok_or(format!("Session {} not found", session_id))?;
+    
+    // 检查会话状态
+    if let Ok(status) = shell_session.status.read() {
+        if !status.connected || !status.active {
+            return Err(format!("Session {} is not connected or inactive", session_id));
+        }
+    } else {
+        return Err(format!("Failed to get status for session {}", session_id));
+    }
+    
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| e.to_string())?;
+    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
     let mut remote_file = sftp
         .create(Path::new(&remote_path))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("[Session({})] Failed to create file {}: {}", session_id, remote_path, e))?;
 
-    remote_file.write_all(&content).map_err(|e| e.to_string())?;
+    remote_file.write_all(&content).map_err(|e| format!("[Session({})] Failed to write to file {}: {}", session_id, remote_path, e))?;
 
     Ok(())
 }
@@ -118,16 +148,26 @@ pub fn delete_file(
     path: String,
     is_dir: bool,
 ) -> Result<(), String> {
-    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
-    let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
+    let sessions = ssh_state.sessions.read().map_err(|e| format!("Failed to read sessions: {}", e))?;
+    let shell_session = sessions.get(&session_id).ok_or(format!("Session {} not found", session_id))?;
+    
+    // 检查会话状态
+    if let Ok(status) = shell_session.status.read() {
+        if !status.connected || !status.active {
+            return Err(format!("Session {} is not connected or inactive", session_id));
+        }
+    } else {
+        return Err(format!("Failed to get status for session {}", session_id));
+    }
+    
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| e.to_string())?;
+    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
 
     if is_dir {
-        sftp.rmdir(Path::new(&path)).map_err(|e| e.to_string())?;
+        sftp.rmdir(Path::new(&path)).map_err(|e| format!("[Session({})] Failed to remove directory {}: {}", session_id, path, e))?;
     } else {
-        sftp.unlink(Path::new(&path)).map_err(|e| e.to_string())?;
+        sftp.unlink(Path::new(&path)).map_err(|e| format!("[Session({})] Failed to remove file {}: {}", session_id, path, e))?;
     }
 
     Ok(())
@@ -140,13 +180,23 @@ pub fn create_directory(
     session_id: String,
     path: String,
 ) -> Result<(), String> {
-    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
-    let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
+    let sessions = ssh_state.sessions.read().map_err(|e| format!("Failed to read sessions: {}", e))?;
+    let shell_session = sessions.get(&session_id).ok_or(format!("Session {} not found", session_id))?;
+    
+    // 检查会话状态
+    if let Ok(status) = shell_session.status.read() {
+        if !status.connected || !status.active {
+            return Err(format!("Session {} is not connected or inactive", session_id));
+        }
+    } else {
+        return Err(format!("Failed to get status for session {}", session_id));
+    }
+    
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| e.to_string())?;
+    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
     sftp.mkdir(Path::new(&path), 0o755)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("[Session({})] Failed to create directory {}: {}", session_id, path, e))?;
 
     Ok(())
 }
@@ -159,13 +209,23 @@ pub fn rename_file(
     old_path: String,
     new_path: String,
 ) -> Result<(), String> {
-    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
-    let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
+    let sessions = ssh_state.sessions.read().map_err(|e| format!("Failed to read sessions: {}", e))?;
+    let shell_session = sessions.get(&session_id).ok_or(format!("Session {} not found", session_id))?;
+    
+    // 检查会话状态
+    if let Ok(status) = shell_session.status.read() {
+        if !status.connected || !status.active {
+            return Err(format!("Session {} is not connected or inactive", session_id));
+        }
+    } else {
+        return Err(format!("Failed to get status for session {}", session_id));
+    }
+    
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| e.to_string())?;
+    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
     sftp.rename(Path::new(&old_path), Path::new(&new_path), None)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("[Session({})] Failed to rename {} to {}: {}", session_id, old_path, new_path, e))?;
 
     Ok(())
 }

@@ -76,29 +76,45 @@ pub async fn get_system_stats(
     session_id: String,
 ) -> Result<SystemStats, String> {
     let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
-    let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
+    let shell_session = sessions.get(&session_id).ok_or(format!("[Session({})] Session not found", session_id))?;
+    
+    // Check session status
+    if let Ok(status) = shell_session.status.read() {
+        if !status.connected || !status.active {
+            return Err(format!("[Session({})] Session is not connected or inactive", session_id));
+        }
+    } else {
+        return Err(format!("[Session({})] Failed to get status for session", session_id));
+    }
+    
     let session = &shell_session.session;
 
     // Get memory info
-    let mut channel = session.channel_session().map_err(|e| e.to_string())?;
-    channel.exec("free -b").map_err(|e| e.to_string())?;
     let mut mem_output = String::new();
-    channel.read_to_string(&mut mem_output).map_err(|e| e.to_string())?;
-    channel.wait_close().ok();
+    {
+        let mut channel = session.channel_session().map_err(|e| e.to_string())?;
+        channel.exec("free -b").map_err(|e| e.to_string())?;
+        channel.read_to_string(&mut mem_output).map_err(|e| e.to_string())?;
+        channel.wait_close().map_err(|e| e.to_string())?;
+    }
 
     // Get CPU and process count
-    let mut channel = session.channel_session().map_err(|e| e.to_string())?;
-    channel.exec("top -bn1 | head -20").map_err(|e| e.to_string())?;
     let mut top_output = String::new();
-    channel.read_to_string(&mut top_output).map_err(|e| e.to_string())?;
-    channel.wait_close().ok();
+    {
+        let mut channel = session.channel_session().map_err(|e| e.to_string())?;
+        channel.exec("top -bn1 | head -20").map_err(|e| e.to_string())?;
+        channel.read_to_string(&mut top_output).map_err(|e| e.to_string())?;
+        channel.wait_close().map_err(|e| e.to_string())?;
+    }
 
     // Get network stats
-    let mut channel = session.channel_session().map_err(|e| e.to_string())?;
-    channel.exec("cat /proc/net/dev").map_err(|e| e.to_string())?;
     let mut net_output = String::new();
-    channel.read_to_string(&mut net_output).map_err(|e| e.to_string())?;
-    channel.wait_close().ok();
+    {
+        let mut channel = session.channel_session().map_err(|e| e.to_string())?;
+        channel.exec("cat /proc/net/dev").map_err(|e| e.to_string())?;
+        channel.read_to_string(&mut net_output).map_err(|e| e.to_string())?;
+        channel.wait_close().map_err(|e| e.to_string())?;
+    }
 
     // Parse memory
     let mut total_memory = 0u64;
@@ -158,15 +174,27 @@ pub async fn get_top_processes(
     session_id: String,
 ) -> Result<Vec<ProcessInfo>, String> {
     let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
-    let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
+    let shell_session = sessions.get(&session_id).ok_or(format!("[Session({})] Session not found", session_id))?;
+    
+    // Check session status
+    if let Ok(status) = shell_session.status.read() {
+        if !status.connected || !status.active {
+            return Err(format!("[Session({})] Session is not connected or inactive", session_id));
+        }
+    } else {
+        return Err(format!("[Session({})] Failed to get status for session", session_id));
+    }
+    
     let session = &shell_session.session;
 
     // Get top processes
-    let mut channel = session.channel_session().map_err(|e| e.to_string())?;
-    channel.exec("ps aux --sort=-%cpu | head -6").map_err(|e| e.to_string())?;
     let mut output = String::new();
-    channel.read_to_string(&mut output).map_err(|e| e.to_string())?;
-    channel.wait_close().ok();
+    {
+        let mut channel = session.channel_session().map_err(|e| e.to_string())?;
+        channel.exec("ps aux --sort=-%cpu | head -6").map_err(|e| e.to_string())?;
+        channel.read_to_string(&mut output).map_err(|e| e.to_string())?;
+        channel.wait_close().map_err(|e| e.to_string())?;
+    }
 
     let mut processes = Vec::new();
     
@@ -214,15 +242,27 @@ pub async fn get_disk_usage(
     session_id: String,
 ) -> Result<Vec<DiskInfo>, String> {
     let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
-    let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
+    let shell_session = sessions.get(&session_id).ok_or(format!("[Session({})] Session not found", session_id))?;
+    
+    // Check session status
+    if let Ok(status) = shell_session.status.read() {
+        if !status.connected || !status.active {
+            return Err(format!("[Session({})] Session is not connected or inactive", session_id));
+        }
+    } else {
+        return Err(format!("[Session({})] Failed to get status for session", session_id));
+    }
+    
     let session = &shell_session.session;
 
     // Get disk usage using df -h
-    let mut channel = session.channel_session().map_err(|e| e.to_string())?;
-    channel.exec("df -h | grep -v tmpfs | grep -v devtmpfs").map_err(|e| e.to_string())?;
     let mut output = String::new();
-    channel.read_to_string(&mut output).map_err(|e| e.to_string())?;
-    channel.wait_close().ok();
+    {
+        let mut channel = session.channel_session().map_err(|e| e.to_string())?;
+        channel.exec("df -h | grep -v tmpfs | grep -v devtmpfs").map_err(|e| e.to_string())?;
+        channel.read_to_string(&mut output).map_err(|e| e.to_string())?;
+        channel.wait_close().map_err(|e| e.to_string())?;
+    }
 
     let mut disks = Vec::new();
     

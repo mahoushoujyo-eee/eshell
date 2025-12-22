@@ -310,27 +310,27 @@ pub async fn connect_ssh(
         let _ = app_handle_clone.emit(&format!("ssh_closed_{}", config_clone.id), "Closed");
     });
 
-    // 为SFTP创建另一个SSH会话
-    let tcp2 = TcpStream::connect(format!("{}:{}", config.host, config.port))
+    // 创建并初始化命令执行会话
+    let tcp_cmd = TcpStream::connect(format!("{}:{}", config.host, config.port))
         .map_err(|e| e.to_string())?;
-    let mut sess2 = Session::new().map_err(|e| e.to_string())?;
-    sess2.set_tcp_stream(tcp2);
-    sess2.handshake().map_err(|e| e.to_string())?;
+    let mut sess_cmd = Session::new().map_err(|e| e.to_string())?;
+    sess_cmd.set_tcp_stream(tcp_cmd);
+    sess_cmd.handshake().map_err(|e| e.to_string())?;
     
     if let Some(pwd) = &config.password {
-        sess2.userauth_password(&config.username, pwd)
+        sess_cmd.userauth_password(&config.username, pwd)
             .map_err(|e| e.to_string())?;
     }
     
-    if !sess2.authenticated() {
-        return Err("SFTP session authentication failed".to_string());
+    if !sess_cmd.authenticated() {
+        return Err("Command session authentication failed".to_string());
     }
 
     // 保存会话到状态管理
     let mut sessions = state.sessions.write().unwrap();
     sessions.insert(session_id.clone(), ShellSession { 
         sender: tx,
-        session: sess2,
+        session: sess_cmd, // 使用命令执行会话
         thread_handle: Some(thread_handle),
         status,
         config: config.clone(),
@@ -350,8 +350,11 @@ pub fn send_command(
     id: String,
     command: String,
 ) -> Result<(), String> {
-    let sessions = state.sessions.read().unwrap();
+    let sessions = state.sessions.read().map_err(|e| e.to_string())?;
     if let Some(session) = sessions.get(&id) {
+        if !is_session_valid(session) {
+            return Err("Session is not connected or inactive".to_string());
+        }
         session.update_activity();
         let _ = session.sender.send(ShellCommand::Write(command.into_bytes()));
         Ok(())
@@ -368,8 +371,11 @@ pub fn resize_term(
     rows: u32,
     cols: u32,
 ) -> Result<(), String> {
-    let sessions = state.sessions.read().unwrap();
+    let sessions = state.sessions.read().map_err(|e| e.to_string())?;
     if let Some(session) = sessions.get(&id) {
+        if !is_session_valid(session) {
+            return Err("Session is not connected or inactive".to_string());
+        }
         let _ = session.sender.send(ShellCommand::Resize { rows, cols });
         Ok(())
     } else {
@@ -398,15 +404,17 @@ pub fn set_active_session(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
-    let sessions = state.sessions.read().unwrap();
-    if sessions.contains_key(&id) {
-        let mut active = state.active_session.write().unwrap();
+    let sessions = state.sessions.read().map_err(|e| e.to_string())?;
+    if let Some(session) = sessions.get(&id) {
+        if !is_session_valid(session) {
+            return Err("Session is not connected or inactive".to_string());
+        }
+        
+        let mut active = state.active_session.write().map_err(|e| e.to_string())?;
         *active = Some(id.clone());
         
         // 发送keepalive确保会话活跃
-        if let Some(session) = sessions.get(&id) {
-            let _ = session.sender.send(ShellCommand::KeepAlive);
-        }
+        let _ = session.sender.send(ShellCommand::KeepAlive);
         Ok(())
     } else {
         Err("Session not found".to_string())
@@ -419,6 +427,15 @@ pub fn get_sessions_status(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<SessionStatus>, String> {
     Ok(state.get_all_status())
+}
+
+/// 检查会话是否有效且连接正常
+fn is_session_valid(shell_session: &ShellSession) -> bool {
+    if let Ok(status) = shell_session.status.read() {
+        status.connected && status.active
+    } else {
+        false
+    }
 }
 
 /// 重新连接会话

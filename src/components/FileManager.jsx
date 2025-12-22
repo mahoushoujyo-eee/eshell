@@ -61,12 +61,13 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
         setCurrentPath(cachedPath || currentPath);
         setFiles(cachedFiles || []);
         setTreeData(cachedTree || []);
+      } else {
+        // 只有在没有缓存时才加载初始数据
+        loadFiles(currentPath);
+        loadRootTree();
       }
-      // 然后异步刷新最新数据
-      loadFiles(currentPath);
-      loadRootTree();
     }
-  }, [activeSessionId, currentPath, isConnected, terminalId]);
+  }, [activeSessionId, isConnected, terminalId]);
 
   const loadRootTree = async () => {
     if (!activeSessionId || !terminalId) return;
@@ -80,7 +81,7 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
       const rootNode = {
         title: '/',
         key: '/',
-        icon: <FolderOutlined />,
+        icon: <FolderOpenOutlined />, // 使用打开文件夹图标
         children: files
           .filter(f => f.is_dir)
           .map(f => ({
@@ -100,6 +101,9 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
         files: cache?.fileManager?.files || files,
         treeData: [rootNode]
       });
+      
+      // 自动加载根目录的子节点（展开根目录）
+      onLoadTreeData(rootNode);
     } catch (error) {
       console.error('Failed to load file tree:', error);
     } finally {
@@ -162,7 +166,8 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
       const path = selectedKeys[0];
       setCurrentPath(path);
       setPathParts(path.split('/').filter(p => p));
-      // 不再自动刷新文件列表，用户需要双击或通过面包屑导航
+      // 当用户点击树节点时，加载对应目录的文件列表
+      loadFiles(path);
     }
   };
 
@@ -240,18 +245,24 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
       const newPath = currentPath === '/' ? `/${record.name}` : `${currentPath}/${record.name}`;
       setCurrentPath(newPath);
       setPathParts(newPath.split('/').filter(p => p));
+      // 当用户点击文件列表中的目录时，加载对应目录的文件列表
+      loadFiles(newPath);
     }
   };
 
   const handleBreadcrumbClick = (index) => {
+    let newPath;
     if (index === -1) {
-      setCurrentPath('/');
+      newPath = '/';
+      setCurrentPath(newPath);
       setPathParts(['/']);
     } else {
-      const newPath = '/' + pathParts.slice(0, index + 1).join('/');
+      newPath = '/' + pathParts.slice(0, index + 1).join('/');
       setCurrentPath(newPath);
       setPathParts(pathParts.slice(0, index + 1));
     }
+    // 当用户点击面包屑时，加载对应目录的文件列表
+    loadFiles(newPath);
   };
 
   const handleCreateFolder = async () => {

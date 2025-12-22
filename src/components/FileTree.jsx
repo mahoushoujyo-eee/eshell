@@ -53,7 +53,7 @@ const FileTree = ({ onSelect, terminalId }) => {
       const rootNode = {
         title: '/',
         key: '/',
-        icon: <FolderOutlined />,
+        icon: <FolderOpenOutlined />, // 使用打开文件夹图标
         children: files
           .filter(f => f.is_dir)
           .map(f => ({
@@ -71,6 +71,9 @@ const FileTree = ({ onSelect, terminalId }) => {
       if (terminalId) {
         setTabCache(terminalId, 'fileTree', rootTreeData);
       }
+      
+      // 自动加载根目录的子节点（展开根目录）
+      onLoadData(rootNode);
     } catch (error) {
       console.error('Failed to load file tree:', error);
     } finally {
