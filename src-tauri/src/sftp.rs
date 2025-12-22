@@ -28,7 +28,7 @@ pub fn list_files(
 ) -> Result<Vec<FileInfo>, String> {
     let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
-    let session = shell_session.session.lock().map_err(|e| e.to_string())?;
+    let session = &shell_session.session;
 
     let sftp = session.sftp().map_err(|e| e.to_string())?;
     let dir_path = Path::new(&path);
@@ -71,9 +71,9 @@ pub fn download_file(
     session_id: String,
     remote_path: String,
 ) -> Result<Vec<u8>, String> {
-    let sessions = ssh_state.sessions.lock().map_err(|e| e.to_string())?;
+    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
-    let session = shell_session.session.lock().map_err(|e| e.to_string())?;
+    let session = &shell_session.session;
 
     let sftp = session.sftp().map_err(|e| e.to_string())?;
     let mut remote_file = sftp
@@ -96,9 +96,9 @@ pub fn upload_file(
     remote_path: String,
     content: Vec<u8>,
 ) -> Result<(), String> {
-    let sessions = ssh_state.sessions.lock().map_err(|e| e.to_string())?;
+    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
-    let session = shell_session.session.lock().map_err(|e| e.to_string())?;
+    let session = &shell_session.session;
 
     let sftp = session.sftp().map_err(|e| e.to_string())?;
     let mut remote_file = sftp
@@ -118,9 +118,9 @@ pub fn delete_file(
     path: String,
     is_dir: bool,
 ) -> Result<(), String> {
-    let sessions = ssh_state.sessions.lock().map_err(|e| e.to_string())?;
+    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
-    let session = shell_session.session.lock().map_err(|e| e.to_string())?;
+    let session = &shell_session.session;
 
     let sftp = session.sftp().map_err(|e| e.to_string())?;
 
@@ -140,9 +140,9 @@ pub fn create_directory(
     session_id: String,
     path: String,
 ) -> Result<(), String> {
-    let sessions = ssh_state.sessions.lock().map_err(|e| e.to_string())?;
+    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
-    let session = shell_session.session.lock().map_err(|e| e.to_string())?;
+    let session = &shell_session.session;
 
     let sftp = session.sftp().map_err(|e| e.to_string())?;
     sftp.mkdir(Path::new(&path), 0o755)
@@ -159,9 +159,9 @@ pub fn rename_file(
     old_path: String,
     new_path: String,
 ) -> Result<(), String> {
-    let sessions = ssh_state.sessions.lock().map_err(|e| e.to_string())?;
+    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
-    let session = shell_session.session.lock().map_err(|e| e.to_string())?;
+    let session = &shell_session.session;
 
     let sftp = session.sftp().map_err(|e| e.to_string())?;
     sftp.rename(Path::new(&old_path), Path::new(&new_path), None)

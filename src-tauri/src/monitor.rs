@@ -77,7 +77,7 @@ pub async fn get_system_stats(
 ) -> Result<SystemStats, String> {
     let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
-    let session = shell_session.session.lock().map_err(|e| e.to_string())?;
+    let session = &shell_session.session;
 
     // Get memory info
     let mut channel = session.channel_session().map_err(|e| e.to_string())?;
@@ -157,9 +157,9 @@ pub async fn get_top_processes(
     ssh_state: tauri::State<'_, crate::ssh::AppState>,
     session_id: String,
 ) -> Result<Vec<ProcessInfo>, String> {
-    let sessions = ssh_state.sessions.lock().map_err(|e| e.to_string())?;
+    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
-    let session = shell_session.session.lock().map_err(|e| e.to_string())?;
+    let session = &shell_session.session;
 
     // Get top processes
     let mut channel = session.channel_session().map_err(|e| e.to_string())?;
@@ -213,9 +213,9 @@ pub async fn get_disk_usage(
     ssh_state: tauri::State<'_, crate::ssh::AppState>,
     session_id: String,
 ) -> Result<Vec<DiskInfo>, String> {
-    let sessions = ssh_state.sessions.lock().map_err(|e| e.to_string())?;
+    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
-    let session = shell_session.session.lock().map_err(|e| e.to_string())?;
+    let session = &shell_session.session;
 
     // Get disk usage using df -h
     let mut channel = session.channel_session().map_err(|e| e.to_string())?;

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::{mpsc, Arc, Mutex, RwLock};
+use std::sync::{mpsc, Arc, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime};
 use ssh2::Session;
@@ -38,7 +38,7 @@ pub enum ShellCommand {
 /// 单个SSH会话的完整管理结构
 pub struct ShellSession {
     pub sender: mpsc::Sender<ShellCommand>,
-    pub session: Arc<Mutex<Session>>,
+    pub session: Session,
     pub thread_handle: Option<JoinHandle<()>>,
     pub status: Arc<RwLock<SessionStatus>>,
     pub config: SshConfig,
@@ -326,13 +326,11 @@ pub async fn connect_ssh(
         return Err("SFTP session authentication failed".to_string());
     }
 
-    let session_arc = Arc::new(Mutex::new(sess2));
-    
     // 保存会话到状态管理
     let mut sessions = state.sessions.write().unwrap();
     sessions.insert(session_id.clone(), ShellSession { 
         sender: tx,
-        session: session_arc,
+        session: sess2,
         thread_handle: Some(thread_handle),
         status,
         config: config.clone(),
@@ -370,7 +368,7 @@ pub fn resize_term(
     rows: u32,
     cols: u32,
 ) -> Result<(), String> {
-    let sessions = state.sessions.lock().unwrap();
+    let sessions = state.sessions.read().unwrap();
     if let Some(session) = sessions.get(&id) {
         let _ = session.sender.send(ShellCommand::Resize { rows, cols });
         Ok(())
@@ -385,7 +383,7 @@ pub fn close_session(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
-    let mut sessions = state.sessions.lock().unwrap();
+    let mut sessions = state.sessions.write().unwrap();
     if let Some(session) = sessions.remove(&id) {
         let _ = session.sender.send(ShellCommand::Close);
         Ok(())
@@ -400,9 +398,9 @@ pub fn set_active_session(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
-    let sessions = state.sessions.lock().unwrap();
+    let sessions = state.sessions.read().unwrap();
     if sessions.contains_key(&id) {
-        let mut active = state.active_session.lock().unwrap();
+        let mut active = state.active_session.write().unwrap();
         *active = Some(id.clone());
         
         // 发送keepalive确保会话活跃
@@ -432,7 +430,7 @@ pub async fn reconnect_session(
 ) -> Result<String, String> {
     // 先关闭旧会话
     let config = {
-        let mut sessions = state.sessions.lock().unwrap();
+        let mut sessions = state.sessions.write().unwrap();
         if let Some(session) = sessions.remove(&id) {
             let _ = session.sender.send(ShellCommand::Close);
             session.config.clone()
@@ -453,7 +451,7 @@ pub async fn reconnect_session(
 pub fn cleanup_sessions(
     state: tauri::State<'_, AppState>,
 ) -> Result<usize, String> {
-    let mut sessions = state.sessions.lock().unwrap();
+    let mut sessions = state.sessions.write().unwrap();
     let before_count = sessions.len();
     sessions.retain(|_, session| session.is_alive());
     let after_count = sessions.len();
