@@ -70,28 +70,28 @@ impl ShellSession {
 
 /// 全局会话池管理器
 pub struct AppState {
-    pub sessions: Arc<Mutex<HashMap<String, ShellSession>>>,
-    pub active_session: Arc<Mutex<Option<String>>>,
+    pub sessions: Arc<RwLock<HashMap<String, ShellSession>>>,
+    pub active_session: Arc<RwLock<Option<String>>>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
-            sessions: Arc::new(Mutex::new(HashMap::new())),
-            active_session: Arc::new(Mutex::new(None)),
+            sessions: Arc::new(RwLock::new(HashMap::new())),
+            active_session: Arc::new(RwLock::new(None)),
         }
     }
 
     /// 清理已断开的会话
     pub fn cleanup_dead_sessions(&self) {
-        if let Ok(mut sessions) = self.sessions.lock() {
+        if let Ok(mut sessions) = self.sessions.write() {
             sessions.retain(|_, session| session.is_alive());
         }
     }
 
     /// 获取所有会话状态
     pub fn get_all_status(&self) -> Vec<SessionStatus> {
-        if let Ok(sessions) = self.sessions.lock() {
+        if let Ok(sessions) = self.sessions.read() {
             sessions.values()
                 .filter_map(|s| s.get_status())
                 .collect()
@@ -112,7 +112,7 @@ pub async fn connect_ssh(
     
     // 检查会话是否已存在
     {
-        let sessions = state.sessions.lock().unwrap();
+        let sessions = state.sessions.read().unwrap();
         if sessions.contains_key(&session_id) {
             return Err("Session already exists".to_string());
         }
@@ -329,7 +329,7 @@ pub async fn connect_ssh(
     let session_arc = Arc::new(Mutex::new(sess2));
     
     // 保存会话到状态管理
-    let mut sessions = state.sessions.lock().unwrap();
+    let mut sessions = state.sessions.write().unwrap();
     sessions.insert(session_id.clone(), ShellSession { 
         sender: tx,
         session: session_arc,
@@ -339,7 +339,7 @@ pub async fn connect_ssh(
     });
 
     // 设置为活跃会话
-    let mut active = state.active_session.lock().unwrap();
+    let mut active = state.active_session.write().unwrap();
     *active = Some(session_id.clone());
 
     Ok(session_id)
@@ -352,7 +352,7 @@ pub fn send_command(
     id: String,
     command: String,
 ) -> Result<(), String> {
-    let sessions = state.sessions.lock().unwrap();
+    let sessions = state.sessions.read().unwrap();
     if let Some(session) = sessions.get(&id) {
         session.update_activity();
         let _ = session.sender.send(ShellCommand::Write(command.into_bytes()));

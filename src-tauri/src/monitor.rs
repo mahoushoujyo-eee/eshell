@@ -75,7 +75,7 @@ pub async fn get_system_stats(
     ssh_state: tauri::State<'_, crate::ssh::AppState>,
     session_id: String,
 ) -> Result<SystemStats, String> {
-    let sessions = ssh_state.sessions.lock().map_err(|e| e.to_string())?;
+    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
     let session = shell_session.session.lock().map_err(|e| e.to_string())?;
 

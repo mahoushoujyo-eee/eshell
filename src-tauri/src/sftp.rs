@@ -26,7 +26,7 @@ pub fn list_files(
     session_id: String,
     path: String,
 ) -> Result<Vec<FileInfo>, String> {
-    let sessions = ssh_state.sessions.lock().map_err(|e| e.to_string())?;
+    let sessions = ssh_state.sessions.read().map_err(|e| e.to_string())?;
     let shell_session = sessions.get(&session_id).ok_or("Session not found")?;
     let session = shell_session.session.lock().map_err(|e| e.to_string())?;
 
