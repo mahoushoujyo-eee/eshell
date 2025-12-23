@@ -80,9 +80,9 @@ const DiskUsage = ({ terminalId }) => {
       <table className="disk-table w-full text-gray-300 border-collapse">
         <thead>
           <tr className="text-gray-400 border-b border-[#333]">
-            <th className="text-left" style={{ minWidth: '60px' }}>路径</th>
-            <th className="text-right" style={{ minWidth: '55px' }}>可用/大小</th>
-            <th className="text-right" style={{ minWidth: '35px' }}>使用率</th>
+            <th className="text-left" style={{ minWidth: '60px' }}>Path</th>
+            <th className="text-right" style={{ minWidth: '55px' }}>Avail/Size</th>
+            <th className="text-right" style={{ minWidth: '35px' }}>Usage</th>
           </tr>
         </thead>
         <tbody>
