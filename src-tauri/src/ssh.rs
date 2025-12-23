@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::{mpsc, Arc, RwLock};
+use std::sync::{mpsc, Arc, RwLock, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime};
 use ssh2::Session;
 use tauri::{Emitter, AppHandle};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SshConfig {
@@ -38,7 +39,7 @@ pub enum ShellCommand {
 /// 单个SSH会话的完整管理结构
 pub struct ShellSession {
     pub sender: mpsc::Sender<ShellCommand>,
-    pub session: Session,
+    pub session: Arc<Mutex<Session>>,
     pub thread_handle: Option<JoinHandle<()>>,
     pub status: Arc<RwLock<SessionStatus>>,
     pub config: SshConfig,
@@ -135,6 +136,8 @@ pub async fn connect_ssh(
     }));
 
     let status_clone = status.clone();
+    let connection_ready = Arc::new(AtomicBool::new(false));
+    let connection_ready_clone = connection_ready.clone();
 
     // 在独立线程中运行SSH会话
     let thread_handle = thread::spawn(move || {
@@ -213,8 +216,9 @@ pub async fn connect_ssh(
                 s.active = true;
             }
         }
-        
-        let _ = app_handle_clone.emit(&format!("ssh_connected_{}", config_clone.id), "Connected");
+
+        // 标记连接已准备好
+        connection_ready_clone.store(true, Ordering::SeqCst);
 
         sess.set_blocking(false);
 
@@ -329,11 +333,23 @@ pub async fn connect_ssh(
     // 设置命令执行会话为阻塞模式，确保通道操作同步完成
     sess_cmd.set_blocking(true);
 
+    // 等待连接完成（最多等待10秒）
+    let mut timeout = 0;
+    while !connection_ready.load(Ordering::SeqCst) && timeout < 100 {
+        thread::sleep(Duration::from_millis(100));
+        timeout += 1;
+    }
+
+    // 检查连接是否成功
+    if !connection_ready.load(Ordering::SeqCst) {
+        return Err("Connection timeout or failed".to_string());
+    }
+
     // 保存会话到状态管理
     let mut sessions = state.sessions.write().unwrap();
     sessions.insert(session_id.clone(), ShellSession { 
         sender: tx,
-        session: sess_cmd, // 使用命令执行会话
+        session: Arc::new(Mutex::new(sess_cmd)), // 使用命令执行会话，包装在 Arc<Mutex> 中
         thread_handle: Some(thread_handle),
         status,
         config: config.clone(),

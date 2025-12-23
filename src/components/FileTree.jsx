@@ -1,34 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Tree, Spin } from 'antd';
+import { Tree, Spin, Button } from 'antd';
 import { FolderOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import useStore from '../store/useStore';
 
 const FileTree = ({ onSelect, terminalId }) => {
-  const { activeSessionId, getTabCache, setTabCache } = useStore();
+  const { activeSessionId, getTabCache, setTabCache, connectedSessions } = useStore();
   const [treeData, setTreeData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    if (!activeSessionId) {
-      setIsConnected(false);
-      setTreeData([]);
-      return;
-    }
-
-    setIsConnected(false);
-    setTreeData([]);
-
-    const unlistenPromise = listen(`ssh_connected_${activeSessionId}`, () => {
-      setIsConnected(true);
-    });
-
-    return () => {
-      unlistenPromise.then(unlisten => unlisten());
-    };
-  }, [activeSessionId]);
+    setIsConnected(connectedSessions[activeSessionId] === true);
+  }, [activeSessionId, connectedSessions]);
 
   useEffect(() => {
     if (activeSessionId && isConnected && terminalId) {
@@ -36,9 +20,9 @@ const FileTree = ({ onSelect, terminalId }) => {
       const cache = getTabCache(terminalId);
       if (cache && cache.fileTree) {
         setTreeData(cache.fileTree);
-      } else {
-        loadRootTree();
       }
+      // 自动加载文件树
+      loadRootTree();
     }
   }, [activeSessionId, isConnected, terminalId]);
 
@@ -148,6 +132,16 @@ const FileTree = ({ onSelect, terminalId }) => {
 
   return (
     <div className="p-2 h-full overflow-auto custom-scrollbar">
+      <div className="mb-2">
+        <Button 
+          size="small" 
+          icon={<FolderOpenOutlined />} 
+          onClick={loadRootTree}
+          className="w-full"
+        >
+          Load File Tree
+        </Button>
+      </div>
       {loading ? (
         <div className="text-center text-gray-500">
           <Spin size="small" />

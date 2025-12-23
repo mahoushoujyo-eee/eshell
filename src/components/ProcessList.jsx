@@ -4,11 +4,12 @@ import { invoke } from '@tauri-apps/api/core';
 import useStore from '../store/useStore';
 
 const ProcessList = ({ terminalId }) => {
-  const { activeSessionId, getTabCache, setTabCache } = useStore();
+  const { activeSessionId, getTabCache, setTabCache, connectedSessions } = useStore();
   const [processes, setProcesses] = useState([]);
+  const isSessionConnected = connectedSessions[activeSessionId] === true;
 
   useEffect(() => {
-    if (!activeSessionId || !terminalId) return;
+    if (!activeSessionId || !terminalId || !isSessionConnected) return;
     
     // 先尝试从缓存加载数据
     const cache = getTabCache(terminalId);
@@ -24,7 +25,7 @@ const ProcessList = ({ terminalId }) => {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [activeSessionId, terminalId]);
+  }, [activeSessionId, terminalId, isSessionConnected]);
   
   const loadProcesses = async () => {
     if (!activeSessionId || !terminalId) return;

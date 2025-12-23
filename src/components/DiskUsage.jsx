@@ -3,11 +3,12 @@ import { invoke } from '@tauri-apps/api/core';
 import useStore from '../store/useStore';
 
 const DiskUsage = ({ terminalId }) => {
-  const { activeSessionId, getTabCache, setTabCache } = useStore();
+  const { activeSessionId, getTabCache, setTabCache, connectedSessions } = useStore();
   const [disks, setDisks] = useState([]);
+  const isSessionConnected = connectedSessions[activeSessionId] === true;
 
   useEffect(() => {
-    if (!activeSessionId || !terminalId) return;
+    if (!activeSessionId || !terminalId || !isSessionConnected) return;
     
     // 先尝试从缓存加载数据
     const cache = getTabCache(terminalId);
@@ -34,7 +35,7 @@ const DiskUsage = ({ terminalId }) => {
     const interval = setInterval(fetchDiskUsage, 10000); // 每10秒更新一次
 
     return () => clearInterval(interval);
-  }, [activeSessionId, terminalId]);
+  }, [activeSessionId, terminalId, isSessionConnected]);
 
   if (!activeSessionId) {
     return null;

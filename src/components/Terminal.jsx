@@ -91,11 +91,6 @@ const Terminal = ({ terminalId, sessionId }) => {
         term.writeln(`\r\nSSH Error: ${event.payload}\r\n`);
     });
 
-    const unlistenConnectedPromise = listen(`ssh_connected_${sessionId}`, (event) => {
-        term.writeln(`\r\nSSH Connected.\r\n`);
-        handleResize(); // Resize after connection
-    });
-
     const unlistenClosedPromise = listen(`ssh_closed_${sessionId}`, (event) => {
         term.writeln(`\r\nSSH Connection Closed.\r\n`);
     });
@@ -108,7 +103,6 @@ const Terminal = ({ terminalId, sessionId }) => {
       term.dispose();
       unlistenPromise.then(unlisten => unlisten());
       unlistenErrorPromise.then(unlisten => unlisten());
-      unlistenConnectedPromise.then(unlisten => unlisten());
       unlistenClosedPromise.then(unlisten => unlisten());
     };
   }, [sessionId]); // 只依赖sessionId
@@ -117,19 +111,15 @@ const Terminal = ({ terminalId, sessionId }) => {
   useEffect(() => {
     if (!session || isSessionConnected) return;
 
-    // 立即标记为连接中，防止重复调用
-    markSessionConnected(sessionId);
-
     invoke('connect_ssh', { config: session })
       .then(() => {
         console.log(`Session ${sessionId} connected successfully`);
-        // 发送连接成功事件给FileManager等组件
-        emit(`ssh_connected_${sessionId}`, {});
+        // 连接成功后才标记为已连接
+        markSessionConnected(sessionId);
       })
       .catch(err => {
         console.error(`Failed to connect session ${sessionId}:`, err);
-        // 连接失败时移除标记
-        useStore.getState().markSessionDisconnected(sessionId);
+        // 连接失败时不标记，允许重试
       });
   }, [sessionId, session, isSessionConnected, markSessionConnected]); // 依赖sessionId和连接状态
 

@@ -40,7 +40,8 @@ pub fn list_files(
     
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
+    let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+    let sftp = sess.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
     let dir_path = Path::new(&path);
 
     let mut files = Vec::new();
@@ -95,7 +96,8 @@ pub fn download_file(
     
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
+    let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+    let sftp = sess.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
     let mut remote_file = sftp
         .open(Path::new(&remote_path))
         .map_err(|e| format!("[Session({})] Failed to open file {}: {}", session_id, remote_path, e))?;
@@ -130,7 +132,8 @@ pub fn upload_file(
     
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
+    let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+    let sftp = sess.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
     let mut remote_file = sftp
         .create(Path::new(&remote_path))
         .map_err(|e| format!("[Session({})] Failed to create file {}: {}", session_id, remote_path, e))?;
@@ -162,7 +165,8 @@ pub fn delete_file(
     
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
+    let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+    let sftp = sess.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
 
     if is_dir {
         sftp.rmdir(Path::new(&path)).map_err(|e| format!("[Session({})] Failed to remove directory {}: {}", session_id, path, e))?;
@@ -194,7 +198,8 @@ pub fn create_directory(
     
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
+    let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+    let sftp = sess.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
     sftp.mkdir(Path::new(&path), 0o755)
         .map_err(|e| format!("[Session({})] Failed to create directory {}: {}", session_id, path, e))?;
 
@@ -223,7 +228,8 @@ pub fn rename_file(
     
     let session = &shell_session.session;
 
-    let sftp = session.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
+    let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+    let sftp = sess.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
     sftp.rename(Path::new(&old_path), Path::new(&new_path), None)
         .map_err(|e| format!("[Session({})] Failed to rename {} to {}: {}", session_id, old_path, new_path, e))?;
 

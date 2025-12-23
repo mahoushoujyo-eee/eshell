@@ -92,7 +92,8 @@ pub async fn get_system_stats(
     // Get memory info
     let mut mem_output = String::new();
     {
-        let mut channel = session.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for memory info: {}", session_id, e))?;
+        let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+        let mut channel = sess.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for memory info: {}", session_id, e))?;
         channel.exec("free -b").map_err(|e| format!("[Session({})] Failed to execute memory command: {}", session_id, e))?;
         channel.read_to_string(&mut mem_output).map_err(|e| format!("[Session({})] Failed to read memory output: {}", session_id, e))?;
         channel.wait_close().map_err(|e| format!("[Session({})] Failed to close memory channel: {}", session_id, e))?;
@@ -103,7 +104,8 @@ pub async fn get_system_stats(
     // Get CPU and process count
     let mut top_output = String::new();
     {
-        let mut channel = session.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for CPU info: {}", session_id, e))?;
+        let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+        let mut channel = sess.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for CPU info: {}", session_id, e))?;
         channel.exec("top -bn1 | head -20").map_err(|e| format!("[Session({})] Failed to execute CPU command: {}", session_id, e))?;
         channel.read_to_string(&mut top_output).map_err(|e| format!("[Session({})] Failed to read CPU output: {}", session_id, e))?;
         channel.wait_close().map_err(|e| format!("[Session({})] Failed to close CPU channel: {}", session_id, e))?;
@@ -114,7 +116,8 @@ pub async fn get_system_stats(
     // Get network stats
     let mut net_output = String::new();
     {
-        let mut channel = session.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for network info: {}", session_id, e))?;
+        let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+        let mut channel = sess.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for network info: {}", session_id, e))?;
         channel.exec("cat /proc/net/dev").map_err(|e| format!("[Session({})] Failed to execute network command: {}", session_id, e))?;
         channel.read_to_string(&mut net_output).map_err(|e| format!("[Session({})] Failed to read network output: {}", session_id, e))?;
         channel.wait_close().map_err(|e| format!("[Session({})] Failed to close network channel: {}", session_id, e))?;
@@ -196,7 +199,8 @@ pub async fn get_top_processes(
     // Get top processes
     let mut output = String::new();
     {
-        let mut channel = session.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for process info: {}", session_id, e))?;
+        let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+        let mut channel = sess.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for process info: {}", session_id, e))?;
         channel.exec("ps aux --sort=-%cpu | head -6").map_err(|e| format!("[Session({})] Failed to execute process command: {}", session_id, e))?;
         channel.read_to_string(&mut output).map_err(|e| format!("[Session({})] Failed to read process output: {}", session_id, e))?;
         channel.wait_close().map_err(|e| format!("[Session({})] Failed to close process channel: {}", session_id, e))?;
@@ -266,7 +270,8 @@ pub async fn get_disk_usage(
     // Get disk usage using df -h
     let mut output = String::new();
     {
-        let mut channel = session.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for disk info: {}", session_id, e))?;
+        let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
+        let mut channel = sess.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for disk info: {}", session_id, e))?;
         channel.exec("df -h | grep -v tmpfs | grep -v devtmpfs").map_err(|e| format!("[Session({})] Failed to execute disk command: {}", session_id, e))?;
         channel.read_to_string(&mut output).map_err(|e| format!("[Session({})] Failed to read disk output: {}", session_id, e))?;
         channel.wait_close().map_err(|e| format!("[Session({})] Failed to close disk channel: {}", session_id, e))?;

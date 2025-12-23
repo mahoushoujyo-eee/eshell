@@ -4,15 +4,16 @@ import { Progress, Select } from 'antd';
 import useStore from '../store/useStore';
 
 const ResourceMonitor = ({ terminalId }) => {
-  const { activeSessionId, getTabCache, setTabCache } = useStore();
+  const { activeSessionId, getTabCache, setTabCache, connectedSessions } = useStore();
   const [stats, setStats] = useState(null);
   const [selectedNetwork, setSelectedNetwork] = useState(null);
   const [networkSpeed, setNetworkSpeed] = useState({ rx: 0, tx: 0 });
   const lastNetworkData = useRef({});
   const lastUpdateTime = useRef(Date.now());
+  const isSessionConnected = connectedSessions[activeSessionId] === true;
 
   useEffect(() => {
-    if (!activeSessionId || !terminalId) return;
+    if (!activeSessionId || !terminalId || !isSessionConnected) return;
     
     // 先尝试从缓存加载数据
     const cache = getTabCache(terminalId);
@@ -30,7 +31,7 @@ const ResourceMonitor = ({ terminalId }) => {
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [activeSessionId, terminalId]);
+  }, [activeSessionId, terminalId, isSessionConnected]);
   
   const loadResources = async () => {
     if (!activeSessionId || !terminalId) return;

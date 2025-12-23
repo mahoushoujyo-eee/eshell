@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Table, Button, Breadcrumb, Modal, Input, message, Upload, Tree, Spin, Dropdown } from 'antd';
 import { FileOutlined, FolderOutlined, UploadOutlined, PlusOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, FolderOpenOutlined, ReloadOutlined } from '@ant-design/icons';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { save } from '@tauri-apps/plugin-dialog';
 import useStore from '../store/useStore';
 
 const FileManager = ({ initialPath = '/', terminalId }) => {
-  const { activeSessionId, getTabCache, setTabCache } = useStore();
+  const { activeSessionId, getTabCache, setTabCache, connectedSessions } = useStore();
   const [files, setFiles] = useState([]);
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [pathParts, setPathParts] = useState(['/']);
@@ -32,25 +31,8 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
   }, [initialPath, isConnected]);
 
   useEffect(() => {
-    if (!activeSessionId) {
-      setIsConnected(false);
-      setFiles([]);
-      return;
-    }
-
-    setIsConnected(false);
-    setFiles([]);
-    setCurrentPath('/');
-    setPathParts(['/']);
-
-    const unlistenPromise = listen(`ssh_connected_${activeSessionId}`, () => {
-      setIsConnected(true);
-    });
-
-    return () => {
-      unlistenPromise.then(unlisten => unlisten());
-    };
-  }, [activeSessionId]);
+    setIsConnected(connectedSessions[activeSessionId] === true);
+  }, [activeSessionId, connectedSessions]);
 
   useEffect(() => {
     if (activeSessionId && isConnected && terminalId) {
@@ -61,11 +43,10 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
         setCurrentPath(cachedPath || currentPath);
         setFiles(cachedFiles || []);
         setTreeData(cachedTree || []);
-      } else {
-        // 只有在没有缓存时才加载初始数据
-        loadFiles(currentPath);
-        loadRootTree();
       }
+      // 自动加载文件列表
+      loadFiles(currentPath);
+      loadRootTree();
     }
   }, [activeSessionId, isConnected, terminalId]);
 
@@ -81,7 +62,7 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
       const rootNode = {
         title: '/',
         key: '/',
-        icon: <FolderOpenOutlined />, // 使用打开文件夹图标
+        icon: <FolderOpenOutlined />,
         children: files
           .filter(f => f.is_dir)
           .map(f => ({
@@ -102,8 +83,7 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
         treeData: [rootNode]
       });
       
-      // 自动加载根目录的子节点（展开根目录）
-      onLoadTreeData(rootNode);
+      // 不再自动加载根目录的子节点
     } catch (error) {
       console.error('Failed to load file tree:', error);
     } finally {
@@ -524,6 +504,9 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
         <div className="flex justify-between items-center mb-2">
           <Breadcrumb items={breadcrumbItems} className="text-gray-300" />
           <div className="flex gap-2">
+            <Button icon={<ReloadOutlined />} size="small" className="w-24" onClick={() => loadFiles(currentPath)}>
+              Refresh
+            </Button>
             <Upload beforeUpload={handleUpload} showUploadList={false}>
               <Button icon={<UploadOutlined />} size="small" className="w-24">Upload</Button>
             </Upload>
