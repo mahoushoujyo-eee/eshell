@@ -85,7 +85,6 @@ pub fn download_file(
     let sessions = ssh_state.sessions.read().map_err(|e| format!("Failed to read sessions: {}", e))?;
     let shell_session = sessions.get(&session_id).ok_or(format!("Session {} not found", session_id))?;
     
-    // 检查会话状态
     if let Ok(status) = shell_session.status.read() {
         if !status.connected || !status.active {
             return Err(format!("Session {} is not connected or inactive", session_id));
@@ -98,9 +97,32 @@ pub fn download_file(
 
     let sess = session.lock().map_err(|e| format!("[Session({})] Failed to lock session: {}", session_id, e))?;
     let sftp = sess.sftp().map_err(|e| format!("[Session({})] Unable to startup SFTP channel: {}", session_id, e))?;
+    
+    let path = Path::new(&remote_path);
+    
+    let stat = sftp.stat(path).map_err(|e| {
+        format!("[Session({})] Failed to stat file {}: {} (SFTP error code: {:?})", session_id, remote_path, e, e)
+    })?;
+    
+    eprintln!("[Session({})] File stats for {}: size={}, is_dir={}, perms={:o}", 
+        session_id, remote_path, stat.size.unwrap_or(0), stat.is_dir(), stat.perm.unwrap_or(0));
+    
+    if stat.is_dir() {
+        return Err(format!("[Session({})] Cannot download directory: {}", session_id, remote_path));
+    }
+    
+    let perms = stat.perm.unwrap_or(0);
+    if perms & 0o400 == 0 {
+        return Err(format!("[Session({})] No read permission for file: {} (permissions: {:o})", 
+            session_id, remote_path, perms));
+    }
+    
     let mut remote_file = sftp
-        .open(Path::new(&remote_path))
-        .map_err(|e| format!("[Session({})] Failed to open file {}: {}", session_id, remote_path, e))?;
+        .open(path)
+        .map_err(|e| {
+            format!("[Session({})] Failed to open file {}: {} (SFTP error code: {:?}). Possible causes: insufficient permissions, file not found, disk full, or file locked.", 
+                session_id, remote_path, e, e)
+        })?;
 
     let mut contents = Vec::new();
     remote_file

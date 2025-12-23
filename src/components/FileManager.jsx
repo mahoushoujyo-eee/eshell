@@ -4,6 +4,7 @@ import { FileOutlined, FolderOutlined, UploadOutlined, PlusOutlined, DeleteOutli
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import useStore from '../store/useStore';
+import FileEditor from './FileEditor';
 
 const FileManager = ({ initialPath = '/', terminalId }) => {
   const { activeSessionId, getTabCache, setTabCache, connectedSessions } = useStore();
@@ -22,6 +23,9 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
   const [treeData, setTreeData] = useState([]);
   const [treeLoading, setTreeLoading] = useState(false);
   const [rightClickNodeKey, setRightClickNodeKey] = useState(null);
+  const [editorVisible, setEditorVisible] = useState(false);
+  const [editingFile, setEditingFile] = useState(null);
+  const [editorContent, setEditorContent] = useState('');
 
   useEffect(() => {
     if (initialPath && initialPath !== currentPath && isConnected) {
@@ -332,12 +336,16 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
         remotePath: fullPath
       });
       
+      console.log('Downloaded content type:', typeof content);
+      console.log('Downloaded content length:', content?.length);
+      
       const savePath = await save({
         defaultPath: record.name,
       });
       
       if (savePath) {
-        const blob = new Blob([new Uint8Array(content)]);
+        const uint8Array = new Uint8Array(content);
+        const blob = new Blob([uint8Array], { type: 'application/octet-stream' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -347,7 +355,11 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
         message.success('Downloaded');
       }
     } catch (error) {
-      message.error(`Failed to download: ${error}`);
+      console.error('Download error:', error);
+      message.error({
+        content: `Failed to download ${record.name}: ${error}`,
+        duration: 8
+      });
     }
   };
 
@@ -372,13 +384,69 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
     return false;
   };
 
+  const handleEditFile = async (record) => {
+    if (!activeSessionId || record.is_dir) return;
+    try {
+      const fullPath = currentPath === '/' ? `/${record.name}` : `${currentPath}/${record.name}`;
+      const content = await invoke('download_file', {
+        sessionId: activeSessionId,
+        remotePath: fullPath
+      });
+      
+      const uint8Array = new Uint8Array(content);
+      const decoder = new TextDecoder('utf-8');
+      const textContent = decoder.decode(uint8Array);
+      
+      setEditingFile(record);
+      setEditorContent(textContent);
+      setEditorVisible(true);
+    } catch (error) {
+      console.error('Edit error:', error);
+      message.error({
+        content: `Failed to open ${record.name} for editing: ${error}`,
+        duration: 8
+      });
+    }
+  };
+
+  const handleSaveFile = async (content) => {
+    if (!activeSessionId || !editingFile) return;
+    try {
+      const encoder = new TextEncoder();
+      const uint8Array = encoder.encode(content);
+      const arrayContent = Array.from(uint8Array);
+      
+      const fullPath = currentPath === '/' ? `/${editingFile.name}` : `${currentPath}/${editingFile.name}`;
+      
+      await invoke('upload_file', {
+        sessionId: activeSessionId,
+        remotePath: fullPath,
+        content: arrayContent
+      });
+      
+      message.success(`Saved ${editingFile.name}`);
+      setEditorVisible(false);
+      loadFiles(currentPath);
+    } catch (error) {
+      console.error('Save error:', error);
+      message.error({
+        content: `Failed to save ${editingFile.name}: ${error}`,
+        duration: 8
+      });
+    }
+  };
+
   const columns = [
     {
       title: 'Name',
       dataIndex: 'name',
       key: 'name',
       render: (text, record) => (
-        <span className="cursor-pointer hover:text-blue-400" onClick={() => handleNavigate(record)}>
+        <span 
+          className="cursor-pointer hover:text-blue-400" 
+          onClick={() => handleNavigate(record)}
+          onDoubleClick={() => handleEditFile(record)}
+        >
           {record.is_dir ? <FolderOutlined className="mr-2 text-yellow-500" /> : <FileOutlined className="mr-2 text-blue-400" />}
           {text}
         </span>
@@ -579,6 +647,14 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
           onPressEnter={handleRename}
         />
       </Modal>
+
+      <FileEditor
+        visible={editorVisible}
+        onClose={() => setEditorVisible(false)}
+        fileName={editingFile?.name}
+        content={editorContent}
+        onSave={handleSaveFile}
+      />
       </div>
     </div>
   );
