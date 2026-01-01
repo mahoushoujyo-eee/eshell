@@ -84,14 +84,14 @@ function ShellPage() {
   ];
 
   return (
-    <Layout className="h-screen w-screen overflow-hidden bg-[#1e1e1e] flex flex-col">
+    <Layout className="h-screen w-screen overflow-hidden bg-[var(--bg-primary)] flex flex-col">
       <Topbar />
       
       <Layout className="flex-1 overflow-hidden">
       <ServerManager open={showServerManager} onClose={() => setShowServerManager(false)} />
       
-        <Sider width={leftSiderWidth} className="border-r border-[#333] flex flex-col relative" style={{ background: '#252526' }}>
-          <div className="p-2 border-b border-[#333] bg-[#2d2d2d] flex-shrink-0 space-y-2">
+        <Sider width={leftSiderWidth} className="border-r border-[var(--border-color)] flex flex-col relative" style={{ backgroundColor: 'var(--bg-primary)' }}>
+          <div className="p-2 border-b border-[var(--border-color)] flex-shrink-0 space-y-2" style={{ backgroundColor: 'var(--bg-secondary)' }}>
             <Button
               type="primary"
               icon={<DatabaseOutlined />}
@@ -102,7 +102,7 @@ function ShellPage() {
               Servers
             </Button>
             <Button
-              type="default"
+              type={showAssistant ? "primary" : "default"}
               icon={<RobotOutlined />}
               onClick={() => setShowAssistant(!showAssistant)}
               block
@@ -125,15 +125,15 @@ function ShellPage() {
             <div className="absolute top-0 left-[-2px] right-[-2px] h-full" />
           </div>
         </Sider>
-        <Layout className="bg-[#1e1e1e]">
+        <Layout style={{ backgroundColor: 'var(--bg-primary)' }}>
           <Content className="flex flex-col h-full overflow-hidden">
             <div className="flex-1 overflow-hidden relative">
               <TerminalPanel />
             </div>
             
             <div 
-              className="border-t border-[#333] bg-[#1e1e1e] relative flex flex-col"
-              style={{ height: `${bottomPanelHeight}px` }}
+              className="border-t border-[var(--border-color)] relative flex flex-col"
+              style={{ height: `${bottomPanelHeight}px`, backgroundColor: 'var(--bg-primary)' }}
             >
               {/* Vertical Resizer Handle */}
               <div
@@ -150,11 +150,11 @@ function ShellPage() {
               </div>
             </div>
           </Content>
-        {showAssistant && (
-          <Sider width={350} className="border-l border-[#333]" style={{ background: '#1e1e1e' }}>
-            <AssistantPanel />
-          </Sider>
-        )}
+          {showAssistant && (
+            <Sider width={350} className="border-l border-[var(--border-color)]" style={{ backgroundColor: 'var(--bg-primary)' }}>
+              <AssistantPanel />
+            </Sider>
+          )}
       </Layout>
       </Layout>
     </Layout>

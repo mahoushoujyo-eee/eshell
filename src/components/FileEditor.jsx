@@ -2,8 +2,10 @@ import React, { useEffect, useState, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { Modal, Button, message } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
+import useStore from '../store/useStore';
 
 const FileEditor = ({ visible, onClose, fileName, content, onSave }) => {
+  const { theme } = useStore();
   const [editorContent, setEditorContent] = useState('');
   const [language, setLanguage] = useState('plaintext');
 
@@ -109,7 +111,7 @@ const FileEditor = ({ visible, onClose, fileName, content, onSave }) => {
           language={language}
           value={editorContent}
           onChange={(value) => setEditorContent(value)}
-          theme="vs-dark"
+          theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
           options={{
             minimap: { enabled: true },
             fontSize: 14,

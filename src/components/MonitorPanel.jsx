@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import useStore from '../store/useStore';
 
 const MonitorPanel = ({ terminalId }) => {
-  const { activeSessionId, getTabCache, setTabCache } = useStore();
+  const { activeSessionId, getTabCache, setTabCache, theme: appTheme } = useStore();
   const [data, setData] = useState([]);
   const [currentStats, setCurrentStats] = useState(null);
 
@@ -52,35 +52,37 @@ const MonitorPanel = ({ terminalId }) => {
     }
   };
 
-  if (!currentStats) return <div className="text-white p-4">Loading stats...</div>;
+  if (!currentStats) return <div className="text-[var(--text-primary)] p-4">Loading stats...</div>;
+
+  const isDark = appTheme === 'dark';
 
   return (
-    <div className="h-full flex bg-[#1e1e1e] text-white p-2 gap-4">
+    <div className="h-full flex bg-[var(--bg-primary)] text-[var(--text-primary)] p-2 gap-4">
       <div className="w-1/4 flex flex-col gap-2">
-        <div className="bg-[#2d2d2d] p-2 rounded">
-          <div className="text-gray-400 text-xs">CPU Usage</div>
+        <div className="bg-[var(--bg-secondary)] p-2 rounded">
+          <div className="text-[var(--text-secondary)] text-xs">CPU Usage</div>
           <div className="text-xl font-bold text-blue-400">{currentStats.cpu_usage.toFixed(1)}</div>
         </div>
-        <div className="bg-[#2d2d2d] p-2 rounded">
-          <div className="text-gray-400 text-xs">Memory</div>
+        <div className="bg-[var(--bg-secondary)] p-2 rounded">
+          <div className="text-[var(--text-secondary)] text-xs">Memory</div>
           <div className="text-xl font-bold text-green-400">
             {(currentStats.memory_usage / 1024 / 1024 / 1024).toFixed(2)} / {(currentStats.total_memory / 1024 / 1024 / 1024).toFixed(2)} GB
           </div>
         </div>
-        <div className="bg-[#2d2d2d] p-2 rounded">
-          <div className="text-gray-400 text-xs">Network RX/TX</div>
+        <div className="bg-[var(--bg-secondary)] p-2 rounded">
+          <div className="text-[var(--text-secondary)] text-xs">Network RX/TX</div>
           <div className="text-sm font-bold text-yellow-400">
             {(currentStats.rx_bytes / 1024).toFixed(1)} KB/s / {(currentStats.tx_bytes / 1024).toFixed(1)} KB/s
           </div>
         </div>
       </div>
-      <div className="flex-1 bg-[#2d2d2d] rounded p-2">
+      <div className="flex-1 bg-[var(--bg-secondary)] rounded p-2">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-            <XAxis dataKey="time" stroke="#888" fontSize={10} />
-            <YAxis stroke="#888" fontSize={10} />
-            <Tooltip contentStyle={{ backgroundColor: '#333', border: 'none' }} />
+            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#444" : "#ddd"} />
+            <XAxis dataKey="time" stroke={isDark ? "#888" : "#666"} fontSize={10} />
+            <YAxis stroke={isDark ? "#888" : "#666"} fontSize={10} />
+            <Tooltip contentStyle={{ backgroundColor: isDark ? '#333' : '#fff', border: 'none', color: isDark ? '#fff' : '#333' }} />
             <Line type="monotone" dataKey="cpu_usage" stroke="#8884d8" dot={false} />
             <Line type="monotone" dataKey="memory_usage" stroke="#82ca9d" dot={false} />
           </LineChart>

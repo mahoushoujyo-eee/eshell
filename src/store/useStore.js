@@ -7,10 +7,14 @@ const useStore = create((set, get) => ({
   terminals: [], // { id, sessionId, title }
   activeTerminalId: null,
   activeTerminalSelection: "",
+  theme: 'dark', // 'light' or 'dark'
   connectedSessions: {}, // 跟踪已连接的session {sessionId: true}
   tabCache: {}, // 标签页缓存，key为terminalId
                 // value: { fileManager: { currentPath, files, treeData }, processes, resources }
   
+  toggleTheme: () => set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
+  setTheme: (theme) => set({ theme }),
+
   loadSessions: async () => {
     try {
       const config = await invoke('load_config');

@@ -142,7 +142,7 @@ const ScriptManager = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#1e1e1e] text-white p-4 overflow-hidden">
+    <div className="h-full flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)] p-4 overflow-hidden">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold">Script Manager</h3>
         <Button 
@@ -160,7 +160,7 @@ const ScriptManager = () => {
           dataSource={scripts}
           renderItem={script => (
             <List.Item
-              className="border-b border-[#333] hover:bg-[#2d2d2d] px-2"
+              className="border-b border-[var(--border-color)] hover:bg-[var(--bg-tertiary)] px-2"
               actions={[
                 <Button
                   key="run"
@@ -199,7 +199,7 @@ const ScriptManager = () => {
             >
               <List.Item.Meta
                 title={
-                  <span className="text-white">
+                  <span className="text-[var(--text-primary)]">
                     {script.name}
                     {script.id.startsWith('preset_') && (
                       <span className="ml-2 text-xs text-gray-500">(Preset)</span>

@@ -1,8 +1,11 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useState, useEffect } from 'react';
+import { SunOutlined, MoonOutlined } from '@ant-design/icons';
+import useStore from '../store/useStore';
 
 function Topbar() {
   const [isMaximized, setIsMaximized] = useState(false);
+  const { theme, toggleTheme } = useStore();
 
   useEffect(() => {
     const checkMaximized = async () => {
@@ -49,6 +52,13 @@ function Topbar() {
         </div>
         
         <div className="titlebar-controls">
+          <button 
+            className="titlebar-button theme-toggle" 
+            onClick={toggleTheme}
+            title={theme === 'dark' ? "切换到白天模式" : "切换到黑夜模式"}
+          >
+            {theme === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+          </button>
           <button 
             className="titlebar-button minimize" 
             onClick={handleMinimize}

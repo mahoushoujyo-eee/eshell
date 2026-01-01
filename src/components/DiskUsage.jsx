@@ -43,17 +43,17 @@ const DiskUsage = ({ terminalId }) => {
 
   if (disks.length === 0) {
     return (
-      <div className="text-gray-500 text-xs text-center py-2">
+      <div className="text-[var(--text-secondary)] text-xs text-center py-2">
         Loading disk info...
       </div>
     );
   }
 
   return (
-    <div className="overflow-auto" style={{ maxHeight: '200px' }}>
+    <div className="overflow-auto">
       <style>{`
         .disk-table {
-          font-size: 10px;
+          font-size: 11px;
         }
         .disk-table th,
         .disk-table td {
@@ -70,16 +70,16 @@ const DiskUsage = ({ terminalId }) => {
           background: transparent;
         }
         .disk-table::-webkit-scrollbar-thumb {
-          background: #424242;
+          background: var(--border-color);
           border-radius: 2px;
         }
         .disk-table::-webkit-scrollbar-thumb:hover {
-          background: #555;
+          background: var(--text-secondary);
         }
       `}</style>
-      <table className="disk-table w-full text-gray-300 border-collapse">
+      <table className="disk-table w-full text-[var(--text-primary)] border-collapse">
         <thead>
-          <tr className="text-gray-400 border-b border-[#333]">
+          <tr className="text-[var(--text-secondary)] border-b border-[var(--border-color)]">
             <th className="text-left" style={{ minWidth: '60px' }}>Path</th>
             <th className="text-right" style={{ minWidth: '55px' }}>Avail/Size</th>
             <th className="text-right" style={{ minWidth: '35px' }}>Usage</th>
@@ -87,7 +87,7 @@ const DiskUsage = ({ terminalId }) => {
         </thead>
         <tbody>
           {disks.map((disk, index) => (
-            <tr key={index} className="border-b border-[#2a2a2a] hover:bg-[#2d2d2d]">
+            <tr key={index} className="border-b border-[var(--border-color)] hover:bg-[var(--bg-secondary)]">
               <td className="text-left" title={disk.mounted_on}>
                 {disk.mounted_on.length > 15 ? `${disk.mounted_on.substring(0, 15)}...` : disk.mounted_on}
               </td>

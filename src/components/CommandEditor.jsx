@@ -56,7 +56,7 @@ const CommandEditor = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#1e1e1e] text-white p-4">
+    <div className="h-full flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)] p-4">
       <div className="mb-4">
         <h3 className="text-lg font-semibold mb-2">Command Editor</h3>
         <TextArea
@@ -86,13 +86,13 @@ const CommandEditor = () => {
 
       <div className="flex-1 overflow-hidden flex flex-col">
         <div className="flex justify-between items-center mb-2">
-          <h4 className="text-sm font-semibold text-gray-400">Command History</h4>
+          <h4 className="text-sm font-semibold text-[var(--text-secondary)]">Command History</h4>
           {history.length > 0 && (
             <Button 
               type="text" 
               size="small" 
               onClick={handleClearHistory}
-              className="text-gray-400"
+              className="text-[var(--text-secondary)]"
             >
               Clear All
             </Button>
@@ -101,7 +101,7 @@ const CommandEditor = () => {
         
         <div className="flex-1 overflow-auto">
           {history.length === 0 ? (
-            <div className="text-center text-gray-500 text-sm mt-8">
+            <div className="text-center text-[var(--text-secondary)] text-sm mt-8">
               No command history yet
             </div>
           ) : (
@@ -109,7 +109,7 @@ const CommandEditor = () => {
               dataSource={history}
               renderItem={item => (
                 <List.Item
-                  className="border-b border-[#333] hover:bg-[#2d2d2d] px-2"
+                  className="border-b border-[var(--border-color)] hover:bg-[var(--bg-secondary)] px-2"
                   actions={[
                     <Button
                       key="use"
@@ -139,8 +139,8 @@ const CommandEditor = () => {
                   ]}
                 >
                   <List.Item.Meta
-                    title={<span className="text-white text-xs font-mono">{item.command}</span>}
-                    description={<span className="text-gray-500 text-xs">{item.timestamp}</span>}
+                    title={<span className="text-[var(--text-primary)] text-xs font-mono">{item.command}</span>}
+                    description={<span className="text-[var(--text-secondary)] text-xs">{item.timestamp}</span>}
                   />
                 </List.Item>
               )}

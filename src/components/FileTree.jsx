@@ -116,7 +116,7 @@ const FileTree = ({ onSelect, terminalId }) => {
 
   if (!activeSessionId) {
     return (
-      <div className="p-4 text-gray-500 text-sm text-center">
+      <div className="p-4 text-[var(--text-secondary)] text-sm text-center">
         Connect to a server to browse files
       </div>
     );
@@ -124,7 +124,7 @@ const FileTree = ({ onSelect, terminalId }) => {
 
   if (!isConnected) {
     return (
-      <div className="p-4 text-gray-500 text-sm text-center">
+      <div className="p-4 text-[var(--text-secondary)] text-sm text-center">
         <Spin size="small" /> Connecting...
       </div>
     );
@@ -143,7 +143,7 @@ const FileTree = ({ onSelect, terminalId }) => {
         </Button>
       </div>
       {loading ? (
-        <div className="text-center text-gray-500">
+        <div className="text-center text-[var(--text-secondary)]">
           <Spin size="small" />
         </div>
       ) : (
@@ -152,7 +152,7 @@ const FileTree = ({ onSelect, terminalId }) => {
           loadData={onLoadData}
           treeData={treeData}
           onSelect={handleSelect}
-          className="bg-transparent text-gray-300"
+          className="bg-transparent text-[var(--text-primary)]"
         />
       )}
     </div>

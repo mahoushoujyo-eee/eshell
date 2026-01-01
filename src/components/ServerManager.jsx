@@ -75,12 +75,12 @@ const ServerManager = ({ open, onClose }) => {
           <div className="flex-1 overflow-y-auto">
             <div className="space-y-1">
               {sessions.map(s => (
-                <div key={s.id} className="flex items-center justify-between px-4 py-2 hover:bg-[#2d2d2d] rounded group">
+                <div key={s.id} className="flex items-center justify-between px-4 py-2 hover:bg-[var(--bg-secondary)] rounded group">
                   <div className="flex items-center flex-1 cursor-pointer" onClick={() => handleConnect(s)}>
-                    <DesktopOutlined className="mr-2 text-gray-400" />
+                    <DesktopOutlined className="mr-2 text-[var(--text-secondary)]" />
                     <div className="flex-1">
-                      <div className="text-gray-300 text-sm">{s.name || s.host}</div>
-                      <div className="text-gray-500 text-xs">{s.username}@{s.host}:{s.port}</div>
+                      <div className="text-[var(--text-primary)] text-sm">{s.name || s.host}</div>
+                      <div className="text-[var(--text-secondary)] text-xs">{s.username}@{s.host}:{s.port}</div>
                     </div>
                   </div>
                   <div className="opacity-0 group-hover:opacity-100 flex gap-1">
@@ -116,14 +116,14 @@ const ServerManager = ({ open, onClose }) => {
               ))}
             </div>
             {sessions.length === 0 && (
-              <div className="p-4 text-center text-gray-500 text-xs">
+              <div className="p-4 text-center text-[var(--text-secondary)] text-xs">
                 No servers added.
               </div>
             )}
           </div>
 
-          <div className="p-2 border-t border-[#333] bg-[#2d2d2d]">
-            <Button type="text" icon={<SettingOutlined className="text-gray-400" />} block className="text-left text-gray-400 hover:text-white">
+          <div className="p-2 border-t border-[var(--border-color)] bg-[var(--bg-secondary)]">
+            <Button type="text" icon={<SettingOutlined className="text-[var(--text-secondary)]" />} block className="text-left text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
               Settings
             </Button>
           </div>

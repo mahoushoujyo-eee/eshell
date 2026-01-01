@@ -8,17 +8,17 @@ import useStore from '../store/useStore';
 const LeftPanel = () => {
   const activeTerminalId = useStore((state) => state.activeTerminalId);
   return (
-    <div className="h-full w-full bg-[#252526] flex flex-col overflow-hidden">
+    <div className="h-full w-full flex flex-col overflow-hidden">
       {/* 资源监控 */}
       <div className="flex-shrink-0 w-full">
         <ResourceMonitor terminalId={activeTerminalId} />
       </div>
 
-      <Divider className="my-0 border-[#333] w-full" />
+      <Divider className="my-0 border-[var(--border-color)] w-full" />
 
       {/* 进程列表 */}
       <div className="flex-shrink-0 overflow-hidden flex flex-col w-full" style={{ height: '240px' }}>
-        <div className="px-3 py-2 text-gray-400 text-xs font-semibold uppercase tracking-wide border-b border-[#333] bg-[#252526] w-full">
+        <div className="px-3 py-2 text-[var(--text-secondary)] text-xs font-semibold uppercase tracking-wide border-b border-[var(--border-color)] w-full" style={{ backgroundColor: 'var(--bg-secondary)' }}>
           Top Processes
         </div>
         <div className="flex-1 overflow-hidden w-full">
@@ -26,11 +26,11 @@ const LeftPanel = () => {
         </div>
       </div>
 
-      <Divider className="my-0 border-[#333] w-full" />
+      <Divider className="my-0 border-[var(--border-color)] w-full" />
 
       {/* 磁盘信息 */}
       <div className="flex-1 overflow-hidden flex flex-col w-full">
-        <div className="px-3 py-2 text-gray-400 text-xs font-semibold uppercase tracking-wide border-b border-[#333] bg-[#252526] w-full">
+        <div className="px-3 py-2 text-[var(--text-secondary)] text-xs font-semibold uppercase tracking-wide border-b border-[var(--border-color)] w-full" style={{ backgroundColor: 'var(--bg-secondary)' }}>
           Disk Usage
         </div>
         <div className="flex-1 overflow-auto px-3 py-2 w-full">

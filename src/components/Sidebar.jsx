@@ -5,7 +5,7 @@ import useStore from '../store/useStore';
 import { v4 as uuidv4 } from 'uuid';
 
 const Sidebar = () => {
-  const { sessions, addSession, addTerminal, setActiveSessionId } = useStore();
+  const { sessions, addSession, addTerminal, setActiveSessionId, theme } = useStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form] = Form.useForm();
 
@@ -28,34 +28,34 @@ const Sidebar = () => {
   };
 
   return (
-    <div className="h-full bg-[#252526] text-gray-300 flex flex-col border-r border-[#333]">
-      <div className="p-3 flex justify-between items-center border-b border-[#333] bg-[#2d2d2d]">
-        <span className="font-semibold text-sm tracking-wide uppercase text-gray-400">Servers</span>
-        <Button type="text" size="small" icon={<PlusOutlined className="text-gray-400 hover:text-white" />} onClick={() => setIsModalOpen(true)} />
+    <div className="h-full bg-[var(--bg-primary)] text-[var(--text-primary)] flex flex-col border-r border-[var(--border-color)]">
+      <div className="p-3 flex justify-between items-center border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
+        <span className="font-semibold text-sm tracking-wide uppercase text-[var(--text-secondary)]">Servers</span>
+        <Button type="text" size="small" icon={<PlusOutlined className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]" />} onClick={() => setIsModalOpen(true)} />
       </div>
       
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         <Menu
           mode="inline"
-          theme="dark"
+          theme={theme === 'dark' ? 'dark' : 'light'}
           className="bg-transparent border-none"
           selectedKeys={[]}
           items={sessions.map(s => ({
             key: s.id,
             icon: <DesktopOutlined />,
-            label: <span className="text-gray-300 hover:text-white">{s.name || s.host}</span>,
+            label: <span className="text-[var(--text-primary)] hover:text-[var(--text-primary)]">{s.name || s.host}</span>,
             onClick: () => handleConnect(s)
           }))}
         />
         {sessions.length === 0 && (
-            <div className="p-4 text-center text-gray-500 text-xs">
+            <div className="p-4 text-center text-[var(--text-secondary)] text-xs">
                 No servers added.
             </div>
         )}
       </div>
 
-      <div className="p-2 border-t border-[#333] bg-[#2d2d2d]">
-        <Button type="text" icon={<SettingOutlined className="text-gray-400" />} block className="text-left text-gray-400 hover:text-white">
+      <div className="p-2 border-t border-[var(--border-color)] bg-[var(--bg-secondary)]">
+        <Button type="text" icon={<SettingOutlined className="text-[var(--text-secondary)]" />} block className="text-left text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
           Settings
         </Button>
       </div>

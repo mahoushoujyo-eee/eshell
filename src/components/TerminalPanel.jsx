@@ -30,9 +30,9 @@ const TerminalPanel = () => {
   }));
 
   return (
-    <div className="h-full w-full bg-[#1e1e1e] flex flex-col">
+    <div className="h-full w-full flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
       {terminals.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-full text-gray-500">
+        <div className="flex flex-col items-center justify-center h-full text-[var(--text-secondary)]">
           <div>选择一个服务器连接</div>
         </div>
       ) : (

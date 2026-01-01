@@ -91,7 +91,7 @@ const ResourceMonitor = ({ terminalId }) => {
 
   if (!activeSessionId) {
     return (
-      <div className="p-4 text-gray-500 text-sm text-center">
+      <div className="p-4 text-[var(--text-secondary)] text-sm text-center">
         Connect to a server to view resources
       </div>
     );
@@ -99,7 +99,7 @@ const ResourceMonitor = ({ terminalId }) => {
 
   if (!stats) {
     return (
-      <div className="p-4 text-gray-500 text-sm text-center">
+      <div className="p-4 text-[var(--text-secondary)] text-sm text-center">
         Loading...
       </div>
     );
@@ -116,8 +116,8 @@ const ResourceMonitor = ({ terminalId }) => {
       {/* CPU */}
       <div>
         <div className="flex justify-between items-center mb-1">
-          <span className="text-gray-400 text-xs">CPU</span>
-          <span className="text-white text-xs font-semibold">{stats.cpu_usage.toFixed(1)}%</span>
+          <span className="text-[var(--text-secondary)] text-xs">CPU</span>
+          <span className="text-[var(--text-primary)] text-xs font-semibold">{stats.cpu_usage.toFixed(1)}%</span>
         </div>
         <Progress 
           percent={parseFloat(stats.cpu_usage.toFixed(1))} 
@@ -130,8 +130,8 @@ const ResourceMonitor = ({ terminalId }) => {
       {/* Memory */}
       <div>
         <div className="flex justify-between items-center mb-1">
-          <span className="text-gray-400 text-xs">MEMORY</span>
-          <span className="text-white text-xs">{memoryUsedGB} GB / {memoryTotalGB} GB</span>
+          <span className="text-[var(--text-secondary)] text-xs">MEMORY</span>
+          <span className="text-[var(--text-primary)] text-xs">{memoryUsedGB} GB / {memoryTotalGB} GB</span>
         </div>
         <Progress 
           percent={parseFloat(memoryPercent.toFixed(1))} 
@@ -144,7 +144,7 @@ const ResourceMonitor = ({ terminalId }) => {
       {/* Network */}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <span className="text-gray-400 text-xs">NETWORK</span>
+          <span className="text-[var(--text-secondary)] text-xs">NETWORK</span>
           {stats.networks && stats.networks.length > 1 && (
             <Select
               size="small"
@@ -161,11 +161,11 @@ const ResourceMonitor = ({ terminalId }) => {
         {currentNetwork && (
           <div className="space-y-0.5 text-xs">
             <div className="flex justify-between">
-              <span className="text-gray-400">RX:</span>
+              <span className="text-[var(--text-secondary)]">RX:</span>
               <span className="text-green-400">{(networkSpeed.rx / 1024).toFixed(1)} KB/s</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-400">TX:</span>
+              <span className="text-[var(--text-secondary)]">TX:</span>
               <span className="text-blue-400">{(networkSpeed.tx / 1024).toFixed(1)} KB/s</span>
             </div>
           </div>

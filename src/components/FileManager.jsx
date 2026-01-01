@@ -521,7 +521,7 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
 
   if (!activeSessionId) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-500">
+      <div className="h-full flex items-center justify-center text-[var(--text-secondary)]">
         Connect to a server to browse files
       </div>
     );
@@ -529,20 +529,20 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
 
   if (!isConnected) {
     return (
-      <div className="h-full flex items-center justify-center text-gray-500">
+      <div className="h-full flex items-center justify-center text-[var(--text-secondary)]">
         Connecting to server...
       </div>
     );
   }
 
   return (
-    <div className="h-full flex bg-[#1e1e1e] text-white">
+    <div className="h-full flex overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {/* 左侧目录树 */}
-      <div className="w-64 border-r border-[#333] bg-[#252526] flex flex-col">
-        <div className="px-3 py-2 text-gray-400 text-xs font-semibold uppercase tracking-wide border-b border-[#333]">
+      <div className="w-64 border-r border-[var(--border-color)] bg-[var(--bg-secondary)] flex flex-col overflow-hidden">
+        <div className="px-3 py-2 text-[var(--text-secondary)] text-xs font-semibold uppercase tracking-wide border-b border-[var(--border-color)]">
           Directory
         </div>
-        <div className="flex-1 overflow-auto p-2 custom-scrollbar">
+        <div className="flex-1 overflow-auto p-2 custom-scrollbar bg-[var(--bg-secondary)]">
           {treeLoading ? (
             <div className="text-center text-gray-500">
               <Spin size="small" />
@@ -559,7 +559,7 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
                   treeData={treeData}
                   onSelect={handleTreeSelect}
                   onRightClick={handleRightClick}
-                  className="bg-transparent text-gray-300"
+                  className="bg-transparent text-[var(--text-secondary)]"
                 />
               </div>
             </Dropdown>
@@ -568,9 +568,9 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
       </div>
 
       {/* 右侧文件详情 */}
-      <div className="flex-1 flex flex-col p-2">
+      <div className="flex-1 flex flex-col p-2 overflow-hidden">
         <div className="flex justify-between items-center mb-2">
-          <Breadcrumb items={breadcrumbItems} className="text-gray-300" />
+          <Breadcrumb items={breadcrumbItems} className="text-[var(--text-secondary)]" />
           <div className="flex gap-2">
             <Button icon={<ReloadOutlined />} size="small" className="w-24" onClick={() => loadFiles(currentPath)}>
               Refresh
@@ -586,15 +586,39 @@ const FileManager = ({ initialPath = '/', terminalId }) => {
             </Button>
           </div>
         </div>
-        <Table 
-          dataSource={files} 
-          columns={columns} 
-          pagination={false} 
-          size="small" 
-          loading={loading}
-          rowKey="name"
-          className="flex-1 overflow-auto custom-table"
-        />
+        
+        <div className="flex-1 overflow-auto custom-scrollbar">
+          <Table 
+            dataSource={files} 
+            columns={columns} 
+            pagination={false} 
+            size="small" 
+            loading={loading}
+            rowKey="name"
+            className="custom-table"
+          />
+        </div>
+
+      <style>{`
+        .custom-table .ant-table {
+          background: transparent !important;
+          color: var(--text-primary) !important;
+        }
+        .custom-table .ant-table-thead > tr > th {
+          background: var(--bg-secondary) !important;
+          color: var(--text-secondary) !important;
+          border-bottom: 1px solid var(--border-color) !important;
+        }
+        .custom-table .ant-table-tbody > tr > td {
+          border-bottom: 1px solid var(--border-color) !important;
+        }
+        .custom-table .ant-table-tbody > tr:hover > td {
+          background: var(--bg-tertiary) !important;
+        }
+        .custom-table .ant-table-cell {
+          color: var(--text-primary) !important;
+        }
+      `}</style>
 
       <Modal 
         title="Create New Folder" 

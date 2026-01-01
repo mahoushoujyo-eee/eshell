@@ -83,14 +83,14 @@ const ProcessList = ({ terminalId }) => {
 
   if (!activeSessionId) {
     return (
-      <div className="p-4 text-gray-500 text-sm text-center">
+      <div className="p-4 text-[var(--text-secondary)] text-sm text-center">
         Connect to a server to view processes
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-[#252526]">
+    <div className="h-full flex flex-col overflow-hidden bg-[var(--bg-primary)]">
       <style>{`
         .custom-table .ant-table-body {
           overflow-y: auto !important;
@@ -102,11 +102,11 @@ const ProcessList = ({ terminalId }) => {
           background: transparent;
         }
         .custom-table .ant-table-body::-webkit-scrollbar-thumb {
-          background: #424242;
+          background: var(--border-color);
           border-radius: 2px;
         }
         .custom-table .ant-table-body::-webkit-scrollbar-thumb:hover {
-          background: #555;
+          background: var(--text-secondary);
         }
       `}</style>
       <Table 
@@ -117,7 +117,7 @@ const ProcessList = ({ terminalId }) => {
         scroll={{ y: 'calc(100vh - 380px)' }}
         className="flex-1 custom-table text-xs"
         rowKey="pid"
-        locale={{ emptyText: <span className="text-xs text-gray-500">Loading...</span> }}
+        locale={{ emptyText: <span className="text-xs text-[var(--text-secondary)]">Loading...</span> }}
       />
     </div>
   );
