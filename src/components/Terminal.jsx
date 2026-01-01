@@ -66,14 +66,21 @@ const Terminal = ({ terminalId, sessionId }) => {
 
     // Handle resize
     const handleResize = () => {
-      fitAddon.fit();
-      if (xtermRef.current) {
+      if (fitAddonRef.current && xtermRef.current) {
+        fitAddonRef.current.fit();
         const { rows, cols } = xtermRef.current;
         invoke('resize_term', { id: sessionId, rows, cols });
       }
     };
     
-    window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+    
+    if (terminalRef.current) {
+      resizeObserver.observe(terminalRef.current);
+    }
+
     const onResizeHandler = term.onResize(size => {
         invoke('resize_term', { id: sessionId, rows: size.rows, cols: size.cols });
     });
@@ -96,7 +103,7 @@ const Terminal = ({ terminalId, sessionId }) => {
     });
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       onDataHandler.dispose();
       onResizeHandler.dispose();
       onSelectionHandler.dispose();
