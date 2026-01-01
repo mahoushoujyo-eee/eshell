@@ -120,7 +120,7 @@ pub async fn get_system_stats(
         let mut channel = sess.channel_session().map_err(|e| format!("[Session({})] Unable to create channel for network info: {}", session_id, e))?;
         channel.exec("cat /proc/net/dev").map_err(|e| format!("[Session({})] Failed to execute network command: {}", session_id, e))?;
         channel.read_to_string(&mut net_output).map_err(|e| format!("[Session({})] Failed to read network output: {}", session_id, e))?;
-        channel.wait_close().map_err(|e| format!("[Session({})] Failed to close network channel: {}", session_id, e))?;
+        channel.wait_close().map_err(|e: ssh2::Error| format!("[Session({})] Failed to close network channel: {}", session_id, e))?;
         // Explicitly drop the channel to ensure resources are released
         drop(channel);
     }

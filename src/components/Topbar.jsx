@@ -38,11 +38,7 @@ function Topbar() {
       <div className="titlebar-content" data-tauri-drag-region>
         <div className="titlebar-left" data-tauri-drag-region>
           <span className="titlebar-icon" data-tauri-drag-region>
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="1" y="2" width="14" height="12" rx="1" stroke="#3b82f6" strokeWidth="1.5"/>
-              <path d="M3 5 L6 7.5 L3 10" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              <line x1="7" y1="10" x2="10" y2="10" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
+            <img src="/Shell.png" alt="Logo" style={{ width: '16px', height: '16px' }} data-tauri-drag-region />
           </span>
           <span className="titlebar-title" data-tauri-drag-region>EShell</span>
         </div>
