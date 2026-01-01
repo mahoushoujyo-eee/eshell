@@ -45,12 +45,12 @@ impl MonitorState {
     }
 }
 
-fn parse_memory_line(line: &str) -> Option<u64> {
-    line.split_whitespace()
-        .nth(1)
-        .and_then(|s| s.parse::<u64>().ok())
-        .map(|kb| kb * 1024) // Convert KB to bytes
-}
+// fn parse_memory_line(line: &str) -> Option<u64> {
+//     line.split_whitespace()
+//         .nth(1)
+//         .and_then(|s| s.parse::<u64>().ok())
+//         .map(|kb| kb * 1024) // Convert KB to bytes
+// }
 
 fn parse_top_cpu(output: &str) -> (f32, usize) {
     // Parse CPU usage from top command
@@ -216,7 +216,7 @@ pub async fn get_top_processes(
         if parts.len() >= 11 {
             let pid = parts[1].parse().unwrap_or(0);
             let cpu_raw: f32 = parts[2].parse().unwrap_or(0.0);
-            let mem_percent: f32 = parts[3].parse().unwrap_or(0.0);
+            // let mem_percent: f32 = parts[3].parse().unwrap_or(0.0);
             // RSS in KB (column 5)
             let rss_kb: u64 = parts[5].parse().unwrap_or(0);
             let name = parts[10].to_string();
