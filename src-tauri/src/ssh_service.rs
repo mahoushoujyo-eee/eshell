@@ -127,18 +127,19 @@ pub fn sftp_list_dir(state: &AppState, input: SftpListInput) -> AppResult<SftpLi
     let config = state.storage.find_ssh_config(&session.config_id)?;
     let ssh = connect(&config)?;
     let sftp = ssh.sftp()?;
-    let raw_entries = sftp.readdir(Path::new(&input.path))?;
+    let requested_path = normalize_remote_path(&input.path);
+    let raw_entries = sftp.readdir(Path::new(&requested_path))?;
 
     let mut entries = raw_entries
         .into_iter()
         .filter_map(|(path, stat)| {
-            let name = path.file_name()?.to_string_lossy().to_string();
+            let name = extract_entry_name(&path.to_string_lossy())?;
             if name == "." || name == ".." {
                 return None;
             }
 
             let kind = stat_to_entry_type(&stat);
-            let full_path = path.to_string_lossy().to_string();
+            let full_path = join_remote_path(&requested_path, &name);
             Some(SftpEntry {
                 name,
                 path: full_path,
@@ -158,7 +159,7 @@ pub fn sftp_list_dir(state: &AppState, input: SftpListInput) -> AppResult<SftpLi
     });
 
     Ok(SftpListResponse {
-        path: input.path,
+        path: requested_path,
         entries,
     })
 }
@@ -169,12 +170,13 @@ pub fn sftp_read_file(state: &AppState, input: SftpReadInput) -> AppResult<SftpF
     let config = state.storage.find_ssh_config(&session.config_id)?;
     let ssh = connect(&config)?;
     let sftp = ssh.sftp()?;
-    let mut file = sftp.open(Path::new(&input.path))?;
+    let remote_path = normalize_remote_path(&input.path);
+    let mut file = sftp.open(Path::new(&remote_path))?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
 
     Ok(SftpFileContent {
-        path: input.path,
+        path: remote_path,
         content: String::from_utf8_lossy(&bytes).to_string(),
     })
 }
@@ -185,7 +187,8 @@ pub fn sftp_write_file(state: &AppState, input: SftpWriteInput) -> AppResult<()>
     let config = state.storage.find_ssh_config(&session.config_id)?;
     let ssh = connect(&config)?;
     let sftp = ssh.sftp()?;
-    let mut file = sftp.create(Path::new(&input.path))?;
+    let remote_path = normalize_remote_path(&input.path);
+    let mut file = sftp.create(Path::new(&remote_path))?;
     file.write_all(input.content.as_bytes())?;
     Ok(())
 }
@@ -196,7 +199,8 @@ pub fn sftp_upload_file(state: &AppState, input: SftpUploadInput) -> AppResult<(
     let config = state.storage.find_ssh_config(&session.config_id)?;
     let ssh = connect(&config)?;
     let sftp = ssh.sftp()?;
-    let mut file = sftp.create(Path::new(&input.remote_path))?;
+    let remote_path = normalize_remote_path(&input.remote_path);
+    let mut file = sftp.create(Path::new(&remote_path))?;
     let bytes = BASE64_STANDARD.decode(input.content_base64.as_bytes())?;
     file.write_all(&bytes)?;
     Ok(())
@@ -211,17 +215,19 @@ pub fn sftp_download_file(
     let config = state.storage.find_ssh_config(&session.config_id)?;
     let ssh = connect(&config)?;
     let sftp = ssh.sftp()?;
-    let mut file = sftp.open(Path::new(&input.remote_path))?;
+    let remote_path = normalize_remote_path(&input.remote_path);
+    let mut file = sftp.open(Path::new(&remote_path))?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
 
-    let file_name = Path::new(&input.remote_path)
-        .file_name()
-        .map(|item| item.to_string_lossy().to_string())
+    let file_name = remote_path
+        .rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .map(ToString::to_string)
         .unwrap_or_else(|| "download.bin".to_string());
 
     Ok(SftpDownloadPayload {
-        path: input.remote_path,
+        path: remote_path,
         file_name,
         content_base64: BASE64_STANDARD.encode(&bytes),
         size: bytes.len(),
@@ -310,8 +316,54 @@ fn sanitize_cwd(value: &str) -> String {
     if value.trim().is_empty() {
         "/".to_string()
     } else {
-        value.trim().to_string()
+        normalize_remote_path(value.trim())
     }
+}
+
+fn normalize_remote_path(value: &str) -> String {
+    let mut normalized = value.trim().replace('\\', "/");
+    if normalized.is_empty() {
+        return "/".to_string();
+    }
+
+    while normalized.contains("//") {
+        normalized = normalized.replace("//", "/");
+    }
+
+    if !normalized.starts_with('/') {
+        normalized.insert(0, '/');
+    }
+
+    if normalized.len() > 1 {
+        normalized = normalized.trim_end_matches('/').to_string();
+    }
+
+    if normalized.is_empty() {
+        "/".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn join_remote_path(base: &str, name: &str) -> String {
+    let normalized_base = normalize_remote_path(base);
+    if normalized_base == "/" {
+        format!("/{}", name)
+    } else {
+        format!(
+            "{}/{}",
+            normalized_base.trim_end_matches('/'),
+            name.trim_start_matches('/')
+        )
+    }
+}
+
+fn extract_entry_name(raw_path: &str) -> Option<String> {
+    let normalized = raw_path.replace('\\', "/");
+    normalized
+        .rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .map(ToString::to_string)
 }
 
 fn parse_cd_target(command: &str) -> Option<Option<String>> {

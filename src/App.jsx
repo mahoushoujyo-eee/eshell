@@ -1,6 +1,9 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SplitPane from "./components/SplitPane";
 import { api } from "./lib/tauri-api";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 
 const WALLPAPERS = [
   "none",
@@ -36,10 +39,59 @@ const DEFAULT_AI = {
   maxTokens: 800,
 };
 
+const MARKDOWN_COMPONENTS = {
+  h1: (props) => <h1 className="mb-2 text-base font-semibold" {...props} />,
+  h2: (props) => <h2 className="mb-2 text-sm font-semibold" {...props} />,
+  h3: (props) => <h3 className="mb-1 text-sm font-medium" {...props} />,
+  p: (props) => <p className="mb-2 leading-6 last:mb-0" {...props} />,
+  ul: (props) => <ul className="mb-2 list-disc pl-4 last:mb-0" {...props} />,
+  ol: (props) => <ol className="mb-2 list-decimal pl-4 last:mb-0" {...props} />,
+  li: (props) => <li className="mb-1" {...props} />,
+  a: (props) => (
+    <a
+      className="text-accent underline underline-offset-2 hover:opacity-80"
+      target="_blank"
+      rel="noreferrer"
+      {...props}
+    />
+  ),
+  blockquote: (props) => (
+    <blockquote className="my-2 border-l-2 border-border pl-3 text-muted" {...props} />
+  ),
+  table: (props) => (
+    <div className="my-2 overflow-auto">
+      <table className="w-full border-collapse text-left text-xs" {...props} />
+    </div>
+  ),
+  th: (props) => (
+    <th className="border border-border/70 bg-panel px-2 py-1 font-medium" {...props} />
+  ),
+  td: (props) => <td className="border border-border/70 px-2 py-1 align-top" {...props} />,
+  pre: (props) => (
+    <pre
+      className="my-2 overflow-auto rounded-md border border-border/80 bg-panel p-2 font-mono text-[11px]"
+      {...props}
+    />
+  ),
+  code: ({ inline, className, children, ...props }) =>
+    inline ? (
+      <code className="rounded bg-warm px-1 py-0.5 font-mono text-[11px]" {...props}>
+        {children}
+      </code>
+    ) : (
+      <code className={["font-mono text-[11px]", className].filter(Boolean).join(" ")} {...props}>
+        {children}
+      </code>
+    ),
+};
+
 function App() {
   const [theme, setTheme] = useState("light");
   const [wallpaper, setWallpaper] = useState(1);
   const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState(true);
+  const [showSftpPanel, setShowSftpPanel] = useState(true);
+  const [showStatusPanel, setShowStatusPanel] = useState(true);
+  const [showAiPanel, setShowAiPanel] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -76,7 +128,10 @@ function App() {
     [sessions, activeSessionId],
   );
   const currentPath = useMemo(
-    () => (activeSession ? sftpPath[activeSession.id] || activeSession.currentDir || "/" : "/"),
+    () =>
+      normalizeRemotePath(
+        activeSession ? sftpPath[activeSession.id] || activeSession.currentDir || "/" : "/",
+      ),
     [activeSession, sftpPath],
   );
   const currentStatus = activeSessionId ? statusBySession[activeSessionId] : null;
@@ -180,7 +235,10 @@ function App() {
       const session = await runBusy("建立 SSH 连接", () => api.openShellSession(configId));
       await reloadSessions();
       setActiveSessionId(session.id);
-      setSftpPath((prev) => ({ ...prev, [session.id]: session.currentDir || "/" }));
+      setSftpPath((prev) => ({
+        ...prev,
+        [session.id]: normalizeRemotePath(session.currentDir || "/"),
+      }));
       appendLog(session.id, "SYSTEM", `Connected ${session.configName} (${session.currentDir})`);
     } catch (err) {
       onError(err);
@@ -221,9 +279,15 @@ function App() {
       return;
     }
     try {
-      const result = await runBusy("读取目录", () => api.sftpListDir(activeSessionId, path));
+      const normalizedPath = normalizeRemotePath(path);
+      const result = await runBusy("读取目录", () =>
+        api.sftpListDir(activeSessionId, normalizedPath),
+      );
       setSftpEntries(result.entries);
-      setSftpPath((prev) => ({ ...prev, [activeSessionId]: result.path }));
+      setSftpPath((prev) => ({
+        ...prev,
+        [activeSessionId]: normalizeRemotePath(result.path),
+      }));
       setSelectedEntry(null);
     } catch (err) {
       onError(err);
@@ -241,7 +305,7 @@ function App() {
     }
     try {
       const file = await runBusy("读取文件", () => api.sftpReadFile(activeSessionId, entry.path));
-      setOpenFilePath(file.path);
+      setOpenFilePath(normalizeRemotePath(file.path));
       setOpenFileContent(file.content || "");
       setDirtyFile(false);
     } catch (err) {
@@ -271,7 +335,9 @@ function App() {
       return;
     }
     try {
-      const payload = await runBusy("下载文件", () => api.sftpDownloadFile(activeSessionId, selectedEntry.path));
+      const payload = await runBusy("下载文件", () =>
+        api.sftpDownloadFile(activeSessionId, normalizeRemotePath(selectedEntry.path)),
+      );
       const url = URL.createObjectURL(new Blob([base64ToBytes(payload.contentBase64)]));
       const link = document.createElement("a");
       link.href = url;
@@ -410,6 +476,296 @@ function App() {
 
   const segments = splitPath(currentPath);
   const currentLogs = activeSessionId ? logs[activeSessionId] || [] : [];
+  const sftpPanel = (
+    <div className="h-full rounded-xl border border-border/90 bg-panel p-2">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-sm font-semibold">SFTP 浏览与编辑</div>
+        <div className="flex gap-1 text-xs">
+          <button
+            type="button"
+            className="rounded border border-border px-2 py-1"
+            onClick={() => refreshSftp(currentPath)}
+            disabled={!activeSessionId}
+          >
+            刷新
+          </button>
+          <label className="cursor-pointer rounded border border-border px-2 py-1">
+            上传
+            <input
+              type="file"
+              className="hidden"
+              onChange={uploadFile}
+              disabled={!activeSessionId}
+            />
+          </label>
+          <button
+            type="button"
+            className="rounded border border-border px-2 py-1"
+            onClick={downloadFile}
+            disabled={!activeSessionId || !selectedEntry || selectedEntry.entryType === "directory"}
+          >
+            下载
+          </button>
+        </div>
+      </div>
+      <SplitPane
+        direction="horizontal"
+        initialRatio={0.33}
+        minPrimarySize={150}
+        minSecondarySize={220}
+        primary={
+          <div
+            className="h-full rounded-md border border-border/80 bg-surface p-2 text-xs"
+            onContextMenu={(event) => {
+              event.preventDefault();
+              refreshSftp(currentPath);
+            }}
+          >
+            {segments.map((seg) => (
+              <button
+                key={seg.path}
+                type="button"
+                className="block w-full truncate rounded px-2 py-1 text-left hover:bg-accent-soft"
+                onClick={() => refreshSftp(seg.path)}
+              >
+                {seg.label}
+              </button>
+            ))}
+          </div>
+        }
+        secondary={
+          <div className="h-full overflow-hidden text-xs">
+            <div className="mb-1 rounded-md border border-border/80 bg-surface px-2 py-1 text-muted">
+              路径: {currentPath}
+            </div>
+            <div className="h-[38%] overflow-auto rounded-md border border-border/80 bg-surface">
+              {sftpEntries.map((entry) => (
+                <button
+                  key={entry.path}
+                  type="button"
+                  className={[
+                    "flex w-full items-center justify-between border-b border-border/50 px-2 py-1.5 text-left hover:bg-accent-soft",
+                    selectedEntry?.path === entry.path ? "bg-accent-soft" : "",
+                  ].join(" ")}
+                  onClick={() => openEntry(entry)}
+                >
+                  <span className="truncate">
+                    {entry.entryType === "directory" ? "📁" : "📄"} {entry.name}
+                  </span>
+                  <span className="text-[10px] text-muted">
+                    {entry.entryType === "directory" ? "-" : formatBytes(entry.size)}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-1 h-[calc(62%-0.25rem)] overflow-hidden rounded-md border border-border/80 bg-surface p-1">
+              <div className="mb-1 text-[10px] text-muted">
+                {openFilePath || "未选择文件"} {dirtyFile ? "(未保存)" : ""}
+              </div>
+              <textarea
+                className="h-[calc(100%-1.2rem)] w-full resize-none rounded border border-border bg-panel px-2 py-1 font-mono text-xs"
+                value={openFileContent}
+                disabled={!openFilePath}
+                onChange={(event) => {
+                  setOpenFileContent(event.target.value);
+                  setDirtyFile(true);
+                }}
+              />
+            </div>
+          </div>
+        }
+      />
+    </div>
+  );
+
+  const statusPanel = (
+    <div className="h-full overflow-auto rounded-xl border border-border/90 bg-panel p-2 text-xs">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-sm font-semibold">服务器状态</div>
+        {currentStatus?.fetchedAt && (
+          <span className="text-muted">
+            {new Date(currentStatus.fetchedAt).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+      {currentStatus && (
+        <>
+          <div className="mb-2 rounded border border-border/80 bg-surface p-2">
+            <div className="mb-1 flex justify-between">
+              <span>CPU</span>
+              <span>{currentStatus.cpuPercent.toFixed(2)}%</span>
+            </div>
+            <div className="h-2 rounded bg-warm">
+              <div
+                className="h-full rounded bg-accent"
+                style={{ width: `${Math.min(currentStatus.cpuPercent, 100)}%` }}
+              />
+            </div>
+            <div className="mt-2 mb-1 flex justify-between">
+              <span>内存</span>
+              <span>
+                {currentStatus.memory.usedMb.toFixed(1)} / {currentStatus.memory.totalMb.toFixed(1)} MB
+              </span>
+            </div>
+            <div className="h-2 rounded bg-warm">
+              <div
+                className="h-full rounded bg-success"
+                style={{ width: `${Math.min(currentStatus.memory.usedPercent, 100)}%` }}
+              />
+            </div>
+          </div>
+          <div className="mb-2 rounded border border-border/80 bg-surface p-2">
+            <div className="mb-1 flex items-center justify-between">
+              <span>网卡</span>
+              <select
+                className="rounded border border-border bg-panel px-1 py-0.5"
+                value={currentNic || ""}
+                onChange={(event) => {
+                  const nic = event.target.value || null;
+                  if (!activeSessionId) {
+                    return;
+                  }
+                  setNicBySession((prev) => ({ ...prev, [activeSessionId]: nic }));
+                  refreshStatus(activeSessionId, nic);
+                }}
+              >
+                {(currentStatus.networkInterfaces || []).map((nic) => (
+                  <option key={nic.interface} value={nic.interface}>
+                    {nic.interface}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {currentStatus.selectedInterfaceTraffic && (
+              <div className="text-muted">
+                RX {formatBytes(currentStatus.selectedInterfaceTraffic.rxBytes)} / TX{" "}
+                {formatBytes(currentStatus.selectedInterfaceTraffic.txBytes)}
+              </div>
+            )}
+          </div>
+          <div className="mb-2 rounded border border-border/80 bg-surface p-2">
+            <div className="mb-1 font-medium">进程</div>
+            <div className="max-h-20 overflow-auto">
+              {(currentStatus.topProcesses || []).map((proc) => (
+                <div
+                  key={`${proc.pid}-${proc.command}`}
+                  className="grid grid-cols-[40px_45px_45px_1fr] gap-1 border-b border-border/50 py-0.5"
+                >
+                  <span>{proc.pid}</span>
+                  <span>{proc.cpuPercent}%</span>
+                  <span>{proc.memoryPercent}%</span>
+                  <span className="truncate">{proc.command}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded border border-border/80 bg-surface p-2">
+            <div className="mb-1 font-medium">磁盘</div>
+            <div className="max-h-18 overflow-auto">
+              {(currentStatus.disks || []).map((disk) => (
+                <div
+                  key={`${disk.filesystem}-${disk.mountPoint}`}
+                  className="grid grid-cols-[1fr_90px] gap-2 border-b border-border/50 py-0.5"
+                >
+                  <span className="truncate">{disk.mountPoint}</span>
+                  <span className="text-right">{disk.used}/{disk.total}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const aiPanel = (
+    <div className="flex h-full min-h-0 flex-col rounded-xl border border-border/90 bg-panel p-2">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-sm font-semibold">AI 助手</div>
+        {aiAnswer?.suggestedCommand && (
+          <button
+            type="button"
+            className="rounded bg-accent px-2 py-1 text-xs text-white"
+            onClick={() => setCommandInput(aiAnswer.suggestedCommand)}
+          >
+            写入终端
+          </button>
+        )}
+      </div>
+      <form className="shrink-0 space-y-2" onSubmit={askAi}>
+        <textarea
+          className="h-16 w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+          value={aiQuestion}
+          onChange={(event) => setAiQuestion(event.target.value)}
+          placeholder="输入问题"
+        />
+        <div className="flex items-center justify-between gap-2">
+          <label className="flex items-center gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={aiIncludeOutput}
+              onChange={(event) => setAiIncludeOutput(event.target.checked)}
+            />
+            读取终端结果
+          </label>
+          <button type="submit" className="rounded bg-accent px-3 py-1.5 text-xs text-white">
+            提问
+          </button>
+        </div>
+      </form>
+      <div className="mt-2 min-h-24 flex-1 overflow-auto rounded border border-border/80 bg-surface p-2 text-xs">
+        {aiAnswer?.answer ? (
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
+            {aiAnswer.answer}
+          </ReactMarkdown>
+        ) : (
+          <div className="text-muted">AI 回答会显示在这里</div>
+        )}
+      </div>
+    </div>
+  );
+
+  let rightPanelsContent = null;
+  if (showStatusPanel && showAiPanel) {
+    rightPanelsContent = (
+      <SplitPane
+        direction="vertical"
+        initialRatio={0.36}
+        minPrimarySize={160}
+        minSecondarySize={300}
+        primary={statusPanel}
+        secondary={aiPanel}
+      />
+    );
+  } else if (showStatusPanel) {
+    rightPanelsContent = statusPanel;
+  } else if (showAiPanel) {
+    rightPanelsContent = aiPanel;
+  }
+
+  let bottomPanelsContent = null;
+  if (showSftpPanel && rightPanelsContent) {
+    bottomPanelsContent = (
+      <SplitPane
+        direction="horizontal"
+        initialRatio={0.58}
+        minPrimarySize={420}
+        minSecondarySize={280}
+        primary={sftpPanel}
+        secondary={rightPanelsContent}
+      />
+    );
+  } else if (showSftpPanel) {
+    bottomPanelsContent = sftpPanel;
+  } else if (rightPanelsContent) {
+    bottomPanelsContent = rightPanelsContent;
+  } else {
+    bottomPanelsContent = (
+      <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border/80 bg-panel/70 p-3 text-xs text-muted">
+        已隐藏全部面板，请在顶部工具栏开启 SFTP / 状态 / AI 面板。
+      </div>
+    );
+  }
 
   return (
     <div className="h-full w-full p-3 text-text lg:p-4">
@@ -419,7 +775,43 @@ function App() {
             <div className="text-sm font-semibold tracking-[0.2em] text-muted uppercase">eShell</div>
             <div className="text-lg font-semibold">FinalShell 风格运维工作台</div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              className={[
+                "rounded-md border px-3 py-1.5 text-sm",
+                showSftpPanel
+                  ? "border-accent bg-accent text-white"
+                  : "border-border bg-surface text-muted",
+              ].join(" ")}
+              onClick={() => setShowSftpPanel((prev) => !prev)}
+            >
+              {showSftpPanel ? "隐藏 SFTP" : "显示 SFTP"}
+            </button>
+            <button
+              type="button"
+              className={[
+                "rounded-md border px-3 py-1.5 text-sm",
+                showStatusPanel
+                  ? "border-accent bg-accent text-white"
+                  : "border-border bg-surface text-muted",
+              ].join(" ")}
+              onClick={() => setShowStatusPanel((prev) => !prev)}
+            >
+              {showStatusPanel ? "隐藏状态" : "显示状态"}
+            </button>
+            <button
+              type="button"
+              className={[
+                "rounded-md border px-3 py-1.5 text-sm",
+                showAiPanel
+                  ? "border-accent bg-accent text-white"
+                  : "border-border bg-surface text-muted",
+              ].join(" ")}
+              onClick={() => setShowAiPanel((prev) => !prev)}
+            >
+              {showAiPanel ? "隐藏 AI" : "显示 AI"}
+            </button>
             <button
               type="button"
               className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm"
@@ -581,44 +973,7 @@ function App() {
                   </section>
                 }
                 secondary={
-                  <section className="h-full p-3 pt-0">
-                    <SplitPane
-                      direction="horizontal"
-                      initialRatio={0.58}
-                      minPrimarySize={420}
-                      minSecondarySize={280}
-                      primary={
-                        <div className="h-full rounded-xl border border-border/90 bg-panel p-2">
-                          <div className="mb-2 flex items-center justify-between">
-                            <div className="text-sm font-semibold">SFTP 浏览与编辑</div>
-                            <div className="flex gap-1 text-xs">
-                              <button type="button" className="rounded border border-border px-2 py-1" onClick={() => refreshSftp(currentPath)} disabled={!activeSessionId}>刷新</button>
-                              <label className="cursor-pointer rounded border border-border px-2 py-1">上传<input type="file" className="hidden" onChange={uploadFile} disabled={!activeSessionId} /></label>
-                              <button type="button" className="rounded border border-border px-2 py-1" onClick={downloadFile} disabled={!activeSessionId || !selectedEntry || selectedEntry.entryType === "directory"}>下载</button>
-                            </div>
-                          </div>
-                          <SplitPane
-                            direction="horizontal"
-                            initialRatio={0.33}
-                            minPrimarySize={150}
-                            minSecondarySize={220}
-                            primary={<div className="h-full rounded-md border border-border/80 bg-surface p-2 text-xs" onContextMenu={(event) => { event.preventDefault(); refreshSftp(currentPath); }}>{segments.map((seg) => <button key={seg.path} type="button" className="block w-full truncate rounded px-2 py-1 text-left hover:bg-accent-soft" onClick={() => refreshSftp(seg.path)}>{seg.label}</button>)}</div>}
-                            secondary={<div className="h-full overflow-hidden text-xs"><div className="mb-1 rounded-md border border-border/80 bg-surface px-2 py-1 text-muted">路径: {currentPath}</div><div className="h-[38%] overflow-auto rounded-md border border-border/80 bg-surface">{sftpEntries.map((entry) => <button key={entry.path} type="button" className={["flex w-full items-center justify-between border-b border-border/50 px-2 py-1.5 text-left hover:bg-accent-soft", selectedEntry?.path === entry.path ? "bg-accent-soft" : ""].join(" ")} onClick={() => openEntry(entry)}><span className="truncate">{entry.entryType === "directory" ? "📁" : "📄"} {entry.name}</span><span className="text-[10px] text-muted">{entry.entryType === "directory" ? "-" : formatBytes(entry.size)}</span></button>)}</div><div className="mt-1 h-[calc(62%-0.25rem)] overflow-hidden rounded-md border border-border/80 bg-surface p-1"><div className="mb-1 text-[10px] text-muted">{openFilePath || "未选择文件"} {dirtyFile ? "(未保存)" : ""}</div><textarea className="h-[calc(100%-1.2rem)] w-full resize-none rounded border border-border bg-panel px-2 py-1 font-mono text-xs" value={openFileContent} disabled={!openFilePath} onChange={(event) => { setOpenFileContent(event.target.value); setDirtyFile(true); }} /></div></div>}
-                          />
-                        </div>
-                      }
-                      secondary={
-                        <SplitPane
-                          direction="vertical"
-                          initialRatio={0.55}
-                          minPrimarySize={220}
-                          minSecondarySize={220}
-                          primary={<div className="h-full rounded-xl border border-border/90 bg-panel p-2 text-xs"><div className="mb-2 flex items-center justify-between"><div className="text-sm font-semibold">服务器状态</div>{currentStatus?.fetchedAt && <span className="text-muted">{new Date(currentStatus.fetchedAt).toLocaleTimeString()}</span>}</div>{currentStatus && <><div className="mb-2 rounded border border-border/80 bg-surface p-2"><div className="mb-1 flex justify-between"><span>CPU</span><span>{currentStatus.cpuPercent.toFixed(2)}%</span></div><div className="h-2 rounded bg-warm"><div className="h-full rounded bg-accent" style={{ width: `${Math.min(currentStatus.cpuPercent, 100)}%` }} /></div><div className="mt-2 mb-1 flex justify-between"><span>内存</span><span>{currentStatus.memory.usedMb.toFixed(1)} / {currentStatus.memory.totalMb.toFixed(1)} MB</span></div><div className="h-2 rounded bg-warm"><div className="h-full rounded bg-success" style={{ width: `${Math.min(currentStatus.memory.usedPercent, 100)}%` }} /></div></div><div className="mb-2 rounded border border-border/80 bg-surface p-2"><div className="mb-1 flex items-center justify-between"><span>网卡</span><select className="rounded border border-border bg-panel px-1 py-0.5" value={currentNic || ""} onChange={(event) => { const nic = event.target.value || null; if (!activeSessionId) return; setNicBySession((prev) => ({ ...prev, [activeSessionId]: nic })); refreshStatus(activeSessionId, nic); }}>{(currentStatus.networkInterfaces || []).map((nic) => <option key={nic.interface} value={nic.interface}>{nic.interface}</option>)}</select></div>{currentStatus.selectedInterfaceTraffic && <div className="text-muted">RX {formatBytes(currentStatus.selectedInterfaceTraffic.rxBytes)} / TX {formatBytes(currentStatus.selectedInterfaceTraffic.txBytes)}</div>}</div><div className="mb-2 rounded border border-border/80 bg-surface p-2"><div className="mb-1 font-medium">进程</div><div className="max-h-20 overflow-auto">{(currentStatus.topProcesses || []).map((proc) => <div key={`${proc.pid}-${proc.command}`} className="grid grid-cols-[40px_45px_45px_1fr] gap-1 border-b border-border/50 py-0.5"><span>{proc.pid}</span><span>{proc.cpuPercent}%</span><span>{proc.memoryPercent}%</span><span className="truncate">{proc.command}</span></div>)}</div></div><div className="rounded border border-border/80 bg-surface p-2"><div className="mb-1 font-medium">磁盘</div><div className="max-h-18 overflow-auto">{(currentStatus.disks || []).map((disk) => <div key={`${disk.filesystem}-${disk.mountPoint}`} className="grid grid-cols-[1fr_90px] gap-2 border-b border-border/50 py-0.5"><span className="truncate">{disk.mountPoint}</span><span className="text-right">{disk.used}/{disk.total}</span></div>)}</div></div></>}</div>}
-                          secondary={<div className="h-full rounded-xl border border-border/90 bg-panel p-2"><div className="mb-2 flex items-center justify-between"><div className="text-sm font-semibold">AI 助手</div>{aiAnswer?.suggestedCommand && <button type="button" className="rounded bg-accent px-2 py-1 text-xs text-white" onClick={() => setCommandInput(aiAnswer.suggestedCommand)}>写入终端</button>}</div><form className="space-y-2" onSubmit={askAi}><label className="flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={aiIncludeOutput} onChange={(event) => setAiIncludeOutput(event.target.checked)} />读取终端结果</label><textarea className="h-20 w-full rounded border border-border bg-surface px-2 py-1.5 text-sm" value={aiQuestion} onChange={(event) => setAiQuestion(event.target.value)} placeholder="输入问题" /><button type="submit" className="rounded bg-accent px-3 py-1.5 text-xs text-white">提问</button></form><div className="mt-2 h-[calc(100%-8rem)] overflow-auto rounded border border-border/80 bg-surface p-2 text-xs whitespace-pre-wrap">{aiAnswer?.answer || "AI 回答会显示在这里"}</div></div>}
-                        />
-                      }
-                    />
-                  </section>
+                  <section className="h-full p-3 pt-0">{bottomPanelsContent}</section>
                 }
               />
             }
@@ -635,7 +990,7 @@ function App() {
 }
 
 function splitPath(path) {
-  const normalized = path && path.trim() ? path : "/";
+  const normalized = normalizeRemotePath(path);
   const chunks = normalized.split("/").filter(Boolean);
   const rows = [{ label: "/", path: "/" }];
   let current = "";
@@ -647,10 +1002,30 @@ function splitPath(path) {
 }
 
 function joinPath(base, fileName) {
-  if (!base || base === "/") {
-    return `/${fileName}`;
+  const normalizedBase = normalizeRemotePath(base);
+  if (normalizedBase === "/") {
+    return normalizeRemotePath(`/${fileName}`);
   }
-  return `${base.replace(/\/+$/, "")}/${fileName}`;
+  return normalizeRemotePath(`${normalizedBase.replace(/\/+$/, "")}/${fileName}`);
+}
+
+function normalizeRemotePath(path) {
+  const raw = String(path || "").trim();
+  if (!raw) {
+    return "/";
+  }
+
+  let normalized = raw.replace(/\\/g, "/");
+  normalized = normalized.replace(/\/{2,}/g, "/");
+
+  if (!normalized.startsWith("/")) {
+    normalized = `/${normalized}`;
+  }
+  if (normalized.length > 1 && normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  return normalized || "/";
 }
 
 function arrayBufferToBase64(buffer) {
@@ -684,3 +1059,4 @@ function formatBytes(size) {
 }
 
 export default App;
+
