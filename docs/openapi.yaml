@@ -1,0 +1,583 @@
+openapi: 3.0.3
+info:
+  title: eShell Tauri RPC API
+  version: 0.1.0
+  description: |
+    前端通过 Tauri `invoke` 调用后端命令。为满足接口文档要求，本文档将命令映射为 RPC 风格 HTTP 路径。
+servers:
+  - url: tauri://localhost
+tags:
+  - name: ssh
+  - name: shell
+  - name: sftp
+  - name: status
+  - name: scripts
+  - name: ai
+paths:
+  /rpc/list_ssh_configs:
+    post:
+      tags: [ssh]
+      summary: 列出 SSH 配置
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SshConfig"
+  /rpc/save_ssh_config:
+    post:
+      tags: [ssh]
+      summary: 新增或更新 SSH 配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/SshConfigInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SshConfig"
+  /rpc/delete_ssh_config:
+    post:
+      tags: [ssh]
+      summary: 删除 SSH 配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: string
+      responses:
+        "200":
+          description: OK
+
+  /rpc/list_shell_sessions:
+    post:
+      tags: [shell]
+      summary: 列出当前 Shell 会话
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ShellSession"
+  /rpc/open_shell_session:
+    post:
+      tags: [shell]
+      summary: 打开新会话
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  type: object
+                  required: [configId]
+                  properties:
+                    configId:
+                      type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShellSession"
+  /rpc/close_shell_session:
+    post:
+      tags: [shell]
+      summary: 关闭会话
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  type: object
+                  required: [sessionId]
+                  properties:
+                    sessionId:
+                      type: string
+      responses:
+        "200":
+          description: OK
+  /rpc/execute_shell_command:
+    post:
+      tags: [shell]
+      summary: 执行命令
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/ExecuteCommandInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandExecutionResult"
+
+  /rpc/sftp_list_dir:
+    post:
+      tags: [sftp]
+      summary: SFTP 目录列表
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/SftpListInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SftpListResponse"
+  /rpc/sftp_read_file:
+    post:
+      tags: [sftp]
+      summary: 读取远程文件
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/SftpReadInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SftpFileContent"
+  /rpc/sftp_write_file:
+    post:
+      tags: [sftp]
+      summary: 写入远程文件
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/SftpWriteInput"
+      responses:
+        "200":
+          description: OK
+  /rpc/sftp_upload_file:
+    post:
+      tags: [sftp]
+      summary: 上传文件（base64）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/SftpUploadInput"
+      responses:
+        "200":
+          description: OK
+  /rpc/sftp_download_file:
+    post:
+      tags: [sftp]
+      summary: 下载文件（base64）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/SftpDownloadInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SftpDownloadPayload"
+
+  /rpc/fetch_server_status:
+    post:
+      tags: [status]
+      summary: 采集服务器状态
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/FetchServerStatusInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerStatus"
+  /rpc/get_cached_server_status:
+    post:
+      tags: [status]
+      summary: 获取缓存状态
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId]
+              properties:
+                sessionId:
+                  type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerStatus"
+
+  /rpc/list_scripts:
+    post:
+      tags: [scripts]
+      summary: 列出脚本
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScriptDefinition"
+  /rpc/save_script:
+    post:
+      tags: [scripts]
+      summary: 新增或更新脚本
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/ScriptInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScriptDefinition"
+  /rpc/delete_script:
+    post:
+      tags: [scripts]
+      summary: 删除脚本
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id:
+                  type: string
+      responses:
+        "200":
+          description: OK
+  /rpc/run_script:
+    post:
+      tags: [scripts]
+      summary: 在会话中执行脚本
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/RunScriptInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunScriptResult"
+
+  /rpc/get_ai_config:
+    post:
+      tags: [ai]
+      summary: 获取 AI 配置
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiConfig"
+  /rpc/save_ai_config:
+    post:
+      tags: [ai]
+      summary: 保存 AI 配置
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/AiConfigInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiConfig"
+  /rpc/ai_ask:
+    post:
+      tags: [ai]
+      summary: AI 问答
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/AiAskInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiAnswer"
+
+components:
+  schemas:
+    SshConfig:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        username: { type: string }
+        password: { type: string }
+        description: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    SshConfigInput:
+      type: object
+      properties:
+        id: { type: string, nullable: true }
+        name: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        username: { type: string }
+        password: { type: string }
+        description: { type: string }
+    ShellSession:
+      type: object
+      properties:
+        id: { type: string }
+        configId: { type: string }
+        configName: { type: string }
+        currentDir: { type: string }
+        lastOutput: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    ExecuteCommandInput:
+      type: object
+      properties:
+        sessionId: { type: string }
+        command: { type: string }
+    CommandExecutionResult:
+      type: object
+      properties:
+        sessionId: { type: string }
+        command: { type: string }
+        stdout: { type: string }
+        stderr: { type: string }
+        exitCode: { type: integer }
+        currentDir: { type: string }
+        startedAt: { type: string }
+        finishedAt: { type: string }
+        durationMs: { type: integer }
+    SftpEntry:
+      type: object
+      properties:
+        name: { type: string }
+        path: { type: string }
+        entryType: { type: string, enum: [directory, file, symlink, other] }
+        size: { type: integer }
+        modifiedAt: { type: integer, nullable: true }
+    SftpListInput:
+      type: object
+      properties:
+        sessionId: { type: string }
+        path: { type: string }
+    SftpListResponse:
+      type: object
+      properties:
+        path: { type: string }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/SftpEntry" }
+    SftpReadInput:
+      type: object
+      properties:
+        sessionId: { type: string }
+        path: { type: string }
+    SftpWriteInput:
+      type: object
+      properties:
+        sessionId: { type: string }
+        path: { type: string }
+        content: { type: string }
+    SftpUploadInput:
+      type: object
+      properties:
+        sessionId: { type: string }
+        remotePath: { type: string }
+        contentBase64: { type: string }
+    SftpDownloadInput:
+      type: object
+      properties:
+        sessionId: { type: string }
+        remotePath: { type: string }
+    SftpFileContent:
+      type: object
+      properties:
+        path: { type: string }
+        content: { type: string }
+    SftpDownloadPayload:
+      type: object
+      properties:
+        path: { type: string }
+        fileName: { type: string }
+        contentBase64: { type: string }
+        size: { type: integer }
+    FetchServerStatusInput:
+      type: object
+      properties:
+        sessionId: { type: string }
+        selectedInterface: { type: string, nullable: true }
+    ServerStatus:
+      type: object
+      properties:
+        cpuPercent: { type: number }
+        memory: { type: object }
+        networkInterfaces: { type: array, items: { type: object } }
+        selectedInterface: { type: string, nullable: true }
+        selectedInterfaceTraffic: { type: object, nullable: true }
+        topProcesses: { type: array, items: { type: object } }
+        disks: { type: array, items: { type: object } }
+        fetchedAt: { type: string }
+    ScriptDefinition:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        path: { type: string }
+        command: { type: string }
+        description: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    ScriptInput:
+      type: object
+      properties:
+        id: { type: string, nullable: true }
+        name: { type: string }
+        path: { type: string, nullable: true }
+        command: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+    RunScriptInput:
+      type: object
+      properties:
+        sessionId: { type: string }
+        scriptId: { type: string }
+    RunScriptResult:
+      type: object
+      properties:
+        scriptId: { type: string }
+        scriptName: { type: string }
+        execution: { $ref: "#/components/schemas/CommandExecutionResult" }
+    AiConfig:
+      type: object
+      properties:
+        baseUrl: { type: string }
+        apiKey: { type: string }
+        model: { type: string }
+        systemPrompt: { type: string }
+        temperature: { type: number }
+        maxTokens: { type: integer }
+        updatedAt: { type: string }
+    AiConfigInput:
+      type: object
+      properties:
+        baseUrl: { type: string }
+        apiKey: { type: string }
+        model: { type: string }
+        systemPrompt: { type: string }
+        temperature: { type: number }
+        maxTokens: { type: integer }
+    AiAskInput:
+      type: object
+      properties:
+        sessionId: { type: string, nullable: true }
+        question: { type: string }
+        includeLastOutput: { type: boolean }
+    AiAnswer:
+      type: object
+      properties:
+        answer: { type: string }
+        suggestedCommand: { type: string, nullable: true }

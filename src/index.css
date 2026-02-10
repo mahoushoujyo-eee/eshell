@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+:root {
+  --es-bg: #efece3;
+  --es-surface: #f7f4ed;
+  --es-panel: #fcfaf5;
+  --es-border: #d6d1c4;
+  --es-text: #2d2a24;
+  --es-muted: #746c5b;
+  --es-accent: #1c7a67;
+  --es-accent-soft: #d9f1ea;
+  --es-warm: #e8ddca;
+  --es-shadow: 18px 18px 40px rgba(64, 56, 38, 0.12);
+}
+
+:root[data-theme="dark"] {
+  --es-bg: #1a1f24;
+  --es-surface: #20272d;
+  --es-panel: #252d34;
+  --es-border: #35424b;
+  --es-text: #dce4df;
+  --es-muted: #93a29a;
+  --es-accent: #57b095;
+  --es-accent-soft: #23453d;
+  --es-warm: #2a343d;
+  --es-shadow: 14px 18px 42px rgba(0, 0, 0, 0.35);
+}
+
+@theme {
+  --color-bg: var(--es-bg);
+  --color-surface: var(--es-surface);
+  --color-panel: var(--es-panel);
+  --color-border: var(--es-border);
+  --color-text: var(--es-text);
+  --color-muted: var(--es-muted);
+  --color-accent: var(--es-accent);
+  --color-accent-soft: var(--es-accent-soft);
+  --color-warm: var(--es-warm);
+  --color-success: #3e8f57;
+  --color-danger: #c24832;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--es-text);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(255, 255, 255, 0.55), transparent 35%),
+    radial-gradient(circle at 85% 16%, rgba(102, 154, 141, 0.16), transparent 45%),
+    linear-gradient(135deg, var(--es-bg), #d7d2c8 100%);
+  font-family: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 14% 10%, rgba(87, 176, 149, 0.14), transparent 34%),
+    radial-gradient(circle at 82% 20%, rgba(129, 120, 91, 0.18), transparent 40%),
+    linear-gradient(145deg, #141a1f, var(--es-bg) 76%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--es-muted) 65%, transparent);
+}
+
+.panel-card {
+  border: 1px solid color-mix(in srgb, var(--es-border) 88%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--es-panel) 90%, white 10%);
+  box-shadow: var(--es-shadow);
+}
+
+.terminal-wallpaper {
+  background-image:
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--es-accent-soft) 16%, transparent),
+      transparent 45%
+    ),
+    repeating-linear-gradient(
+      to right,
+      color-mix(in srgb, var(--es-border) 35%, transparent) 0,
+      color-mix(in srgb, var(--es-border) 35%, transparent) 1px,
+      transparent 1px,
+      transparent 24px
+    );
+}

@@ -1,0 +1,13 @@
+[
+  {
+    "id": "ef59ee37-3ad3-4fad-a7ac-5f5e36795933",
+    "name": "test",
+    "host": "160.202.253.150",
+    "port": 22,
+    "username": "root",
+    "password": "Edu9527",
+    "description": "",
+    "createdAt": "2026-02-10T11:27:29.565779100+00:00",
+    "updatedAt": "2026-02-10T11:29:20.901812300+00:00"
+  }
+]
