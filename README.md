@@ -1,6 +1,6 @@
-# eShell Codex
+# eShell
 
-`eShell Codex` 是一个基于 `Tauri 2 + React + Tailwind CSS` 的桌面运维工具，整体交互参考 FinalShell，面向日常 SSH 运维、SFTP 文件操作、脚本执行和 AI 辅助分析场景。
+`eShell` 是一个基于 `Tauri 2 + React + Tailwind CSS` 的桌面运维工具，整体交互参考 FinalShell，面向日常 SSH 运维、SFTP 文件操作、脚本执行和 AI 辅助分析场景。
 
 ## 核心能力
 
