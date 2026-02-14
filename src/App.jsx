@@ -1,6 +1,7 @@
 ﻿import { useState } from "react";
 import SplitPane from "./components/SplitPane";
 import TopToolbar from "./components/layout/TopToolbar";
+import WindowTitleBar from "./components/layout/WindowTitleBar";
 import AiAssistantPanel from "./components/panels/AiAssistantPanel";
 import FileEditorModal from "./components/panels/FileEditorModal";
 import SftpPanel from "./components/panels/SftpPanel";
@@ -152,14 +153,17 @@ function App() {
     bottomPanelsContent = rightPanelsContent;
   } else {
     bottomPanelsContent = (
-      <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border/80 bg-panel/70 p-3 text-xs text-muted">
-        宸查殣钘忓叏閮ㄩ潰鏉匡紝璇峰湪宸︿晶瀵艰埅鏍忓紑鍚?SFTP / 鐘舵€?/ AI 闈㈡澘銆?      </div>
+      <div className="flex h-full items-center justify-center border border-dashed border-border/80 bg-panel/70 p-3 text-xs text-muted">
+        已隐藏全部面板，请在左侧导航栏开启 SFTP / 状态 / AI 面板。
+      </div>
     );
   }
 
   return (
-    <div className="h-full w-full p-3 text-text lg:p-4">
-      <div className="flex h-full gap-3">
+    <div className="flex h-full w-full min-h-0 flex-col overflow-hidden text-text">
+      <WindowTitleBar />
+
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-panel">
         <TopToolbar
           theme={theme}
           wallpaper={wallpaper}
@@ -178,31 +182,29 @@ function App() {
           error={error}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="panel-card min-h-0 flex-1 overflow-hidden">
-            <SplitPane
-              direction="vertical"
-              initialRatio={0.5}
-              minPrimarySize={290}
-              minSecondarySize={280}
-              primary={
-                <TerminalPanel
-                  sessions={sessions}
-                  activeSessionId={activeSessionId}
-                  onSelectSession={setActiveSessionId}
-                  onCloseSession={closeSession}
-                  activeSession={activeSession}
-                  commandInput={commandInput}
-                  setCommandInput={setCommandInput}
-                  onExecCommand={execCommand}
-                  currentLogs={currentLogs}
-                  wallpaper={wallpaper}
-                  wallpapers={WALLPAPERS}
-                />
-              }
-              secondary={<section className="h-full p-3 pt-0">{bottomPanelsContent}</section>}
-            />
-          </div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <SplitPane
+            direction="vertical"
+            initialRatio={0.5}
+            minPrimarySize={290}
+            minSecondarySize={280}
+            primary={
+              <TerminalPanel
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                onSelectSession={setActiveSessionId}
+                onCloseSession={closeSession}
+                activeSession={activeSession}
+                commandInput={commandInput}
+                setCommandInput={setCommandInput}
+                onExecCommand={execCommand}
+                currentLogs={currentLogs}
+                wallpaper={wallpaper}
+                wallpapers={WALLPAPERS}
+              />
+            }
+            secondary={<section className="h-full">{bottomPanelsContent}</section>}
+          />
         </div>
       </div>
 

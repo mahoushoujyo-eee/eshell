@@ -180,7 +180,7 @@ export default function SftpPanel({
           <div key={node.path}>
             <div
               className={[
-                "flex items-center rounded transition-colors",
+                "flex items-center transition-colors",
                 isSelected ? "bg-accent-soft/70" : "hover:bg-accent-soft/40",
               ].join(" ")}
               style={{ paddingLeft: `${Math.max(0, depth * 14)}px` }}
@@ -205,7 +205,7 @@ export default function SftpPanel({
 
               <button
                 type="button"
-                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-r px-1 py-1 text-left text-xs"
+                className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1 text-left text-xs"
                 onClick={() => void selectDirectory(node.path)}
                 title={node.path}
               >
@@ -225,8 +225,8 @@ export default function SftpPanel({
   };
 
   return (
-    <div className="h-full rounded-xl border border-border/90 bg-panel p-2">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="flex h-full min-h-0 flex-col bg-panel">
+      <div className="flex items-center justify-between border-b border-border px-2 py-2">
         <div className="inline-flex items-center gap-2 text-sm font-semibold">
           <FolderOpen className="h-4 w-4 text-accent" aria-hidden="true" />
           SFTP Browser
@@ -235,7 +235,7 @@ export default function SftpPanel({
         <div className="flex gap-1 text-xs">
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
+            className="inline-flex items-center gap-1 border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
             onClick={() => refreshSftp(currentPath)}
             disabled={!activeSessionId}
           >
@@ -243,7 +243,7 @@ export default function SftpPanel({
             Refresh
           </button>
 
-          <label className="inline-flex cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 transition-colors hover:bg-accent-soft">
+          <label className="inline-flex cursor-pointer items-center gap-1 border border-border px-2 py-1 transition-colors hover:bg-accent-soft">
             <Upload className="h-3.5 w-3.5" aria-hidden="true" />
             Upload
             <input type="file" className="hidden" onChange={uploadFile} disabled={!activeSessionId} />
@@ -251,7 +251,7 @@ export default function SftpPanel({
 
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
+            className="inline-flex items-center gap-1 border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
             onClick={downloadFile}
             disabled={!activeSessionId || !selectedEntry || selectedEntry.entryType === "directory"}
           >
@@ -261,95 +261,97 @@ export default function SftpPanel({
         </div>
       </div>
 
-      <SplitPane
-        direction="horizontal"
-        initialRatio={0.33}
-        minPrimarySize={150}
-        minSecondarySize={220}
-        primary={
-          <div
-            className="h-full overflow-auto rounded-md border border-border/80 bg-surface p-2 text-xs"
-            onContextMenu={(event) => {
-              event.preventDefault();
-              void loadTreeNode("/");
-            }}
-          >
-            {!activeSessionId ? (
-              <div className="rounded px-2 py-1 text-muted">Connect SSH first</div>
-            ) : (
-              <>
-                <div
-                  className={[
-                    "mb-1 flex items-center rounded transition-colors",
-                    selectedTreePath === "/" ? "bg-accent-soft/70" : "hover:bg-accent-soft/40",
-                  ].join(" ")}
-                >
-                  <button
-                    type="button"
-                    className="inline-flex h-7 w-7 items-center justify-center text-muted transition-colors hover:text-text"
-                    aria-label={expandedPaths["/"] ? "Collapse root" : "Expand root"}
-                    onClick={() => void toggleNode("/")}
+      <div className="min-h-0 flex-1">
+        <SplitPane
+          direction="horizontal"
+          initialRatio={0.33}
+          minPrimarySize={150}
+          minSecondarySize={220}
+          primary={
+            <div
+              className="h-full overflow-auto border-r border-border bg-surface/30 p-2 text-xs"
+              onContextMenu={(event) => {
+                event.preventDefault();
+                void loadTreeNode("/");
+              }}
+            >
+              {!activeSessionId ? (
+                <div className="px-2 py-1 text-muted">Connect SSH first</div>
+              ) : (
+                <>
+                  <div
+                    className={[
+                      "mb-1 flex items-center transition-colors",
+                      selectedTreePath === "/" ? "bg-accent-soft/70" : "hover:bg-accent-soft/40",
+                    ].join(" ")}
                   >
-                    {loadingPaths["/"] ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                    ) : expandedPaths["/"] ? (
-                      <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-                    )}
-                  </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-7 w-7 items-center justify-center text-muted transition-colors hover:text-text"
+                      aria-label={expandedPaths["/"] ? "Collapse root" : "Expand root"}
+                      onClick={() => void toggleNode("/")}
+                    >
+                      {loadingPaths["/"] ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                      ) : expandedPaths["/"] ? (
+                        <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                    </button>
 
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1 text-left text-xs"
+                      onClick={() => void selectDirectory("/")}
+                      title="/"
+                    >
+                      {expandedPaths["/"] ? (
+                        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
+                      ) : (
+                        <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
+                      )}
+                      <span className="truncate">/</span>
+                    </button>
+                  </div>
+
+                  {expandedPaths["/"] ? renderTreeRows("/", 1) : null}
+                </>
+              )}
+            </div>
+          }
+          secondary={
+            <div className="h-full overflow-hidden text-xs">
+              <div className="border-b border-border bg-surface/40 px-2 py-1 text-muted">
+                Path: {currentPath}
+              </div>
+
+              <div className="h-[calc(100%-1.75rem)] overflow-auto bg-surface/20">
+                {sftpEntries.map((entry) => (
                   <button
+                    key={entry.path}
                     type="button"
-                    className="flex min-w-0 flex-1 items-center gap-1.5 rounded-r px-1 py-1 text-left text-xs"
-                    onClick={() => void selectDirectory("/")}
-                    title="/"
+                    className={[
+                      "flex w-full items-center justify-between border-b border-border/60 px-2 py-1.5 text-left transition-colors hover:bg-accent-soft/60",
+                      selectedEntry?.path === entry.path ? "bg-accent-soft/70" : "",
+                    ].join(" ")}
+                    onClick={() => openSftpEntry(entry)}
                   >
-                    {expandedPaths["/"] ? (
-                      <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
-                    ) : (
-                      <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
-                    )}
-                    <span className="truncate">/</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      {renderEntryIcon(entry.entryType)}
+                      <span className="truncate">{entry.name}</span>
+                    </span>
+
+                    <span className="text-[10px] text-muted">
+                      {entry.entryType === "directory" ? "-" : formatBytes(entry.size)}
+                    </span>
                   </button>
-                </div>
-
-                {expandedPaths["/"] ? renderTreeRows("/", 1) : null}
-              </>
-            )}
-          </div>
-        }
-        secondary={
-          <div className="h-full overflow-hidden text-xs">
-            <div className="mb-1 rounded-md border border-border/80 bg-surface px-2 py-1 text-muted">
-              Path: {currentPath}
+                ))}
+              </div>
             </div>
-
-            <div className="h-[calc(100%-1.75rem)] overflow-auto rounded-md border border-border/80 bg-surface">
-              {sftpEntries.map((entry) => (
-                <button
-                  key={entry.path}
-                  type="button"
-                  className={[
-                    "flex w-full items-center justify-between border-b border-border/50 px-2 py-1.5 text-left transition-colors hover:bg-accent-soft",
-                    selectedEntry?.path === entry.path ? "bg-accent-soft" : "",
-                  ].join(" ")}
-                  onClick={() => openSftpEntry(entry)}
-                >
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    {renderEntryIcon(entry.entryType)}
-                    <span className="truncate">{entry.name}</span>
-                  </span>
-
-                  <span className="text-[10px] text-muted">
-                    {entry.entryType === "directory" ? "-" : formatBytes(entry.size)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        }
-      />
+          }
+        />
+      </div>
     </div>
   );
 }

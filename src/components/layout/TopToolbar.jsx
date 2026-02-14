@@ -15,6 +15,19 @@
   Sun,
 } from "lucide-react";
 
+function NavButton({ icon: Icon, label, onClick }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex w-full items-center gap-2 rounded-md border border-border/75 bg-panel px-3 py-2 text-left text-sm text-muted transition-colors hover:border-accent/40 hover:bg-accent-soft hover:text-text"
+      onClick={onClick}
+    >
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
 function ActionButton({ icon: Icon, label, onClick, active = false }) {
   return (
     <button
@@ -22,8 +35,8 @@ function ActionButton({ icon: Icon, label, onClick, active = false }) {
       className={[
         "inline-flex w-full items-center justify-between rounded-md border px-3 py-2 text-sm transition-colors",
         active
-          ? "border-accent bg-accent text-white"
-          : "border-border bg-surface text-muted hover:bg-accent-soft hover:text-text",
+          ? "border-accent bg-accent text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]"
+          : "border-border/75 bg-panel text-muted hover:border-accent/40 hover:bg-accent-soft hover:text-text",
       ].join(" ")}
       onClick={onClick}
     >
@@ -56,8 +69,8 @@ export default function TopToolbar({
   const hasError = Boolean(error && String(error).trim());
 
   return (
-    <aside className="panel-card flex h-full w-[248px] shrink-0 flex-col p-3">
-      <div className="mb-4 border-b border-border/70 pb-3">
+    <aside className="flex h-full w-[248px] shrink-0 flex-col border-r border-border bg-surface/95 px-2 py-2">
+      <div className="rounded-lg border border-border/75 bg-panel/90 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
         <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-[0.2em] text-muted uppercase">
           <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
           eShell
@@ -65,85 +78,64 @@ export default function TopToolbar({
         <div className="mt-1 text-base font-semibold">Operations Console</div>
       </div>
 
-      <div className="mb-3">
-        <div className="mb-2 text-[11px] font-semibold tracking-[0.18em] text-muted uppercase">
+      <div className="mt-2 rounded-lg border border-border/70 bg-panel/70 p-2">
+        <div className="mb-2 px-1 text-[11px] font-semibold tracking-[0.18em] text-muted uppercase">
           Config
         </div>
-        <div className="space-y-2">
-          <button
-            type="button"
-            className="inline-flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-left text-sm text-muted transition-colors hover:bg-accent-soft hover:text-text"
-            onClick={onOpenSshConfig}
-          >
-            <Server className="h-4 w-4" aria-hidden="true" />
-            SSH Profiles
-          </button>
-          <button
-            type="button"
-            className="inline-flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-left text-sm text-muted transition-colors hover:bg-accent-soft hover:text-text"
-            onClick={onOpenScriptConfig}
-          >
-            <FileText className="h-4 w-4" aria-hidden="true" />
-            Script Center
-          </button>
-          <button
-            type="button"
-            className="inline-flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-left text-sm text-muted transition-colors hover:bg-accent-soft hover:text-text"
-            onClick={onOpenAiConfig}
-          >
-            <Bot className="h-4 w-4" aria-hidden="true" />
-            AI Config
-          </button>
+        <div className="space-y-1">
+          <NavButton icon={Server} label="SSH Profiles" onClick={onOpenSshConfig} />
+          <NavButton icon={FileText} label="Script Center" onClick={onOpenScriptConfig} />
+          <NavButton icon={Bot} label="AI Config" onClick={onOpenAiConfig} />
         </div>
       </div>
 
-      <div className="mb-3">
-        <div className="mb-2 text-[11px] font-semibold tracking-[0.18em] text-muted uppercase">
+      <div className="mt-2 rounded-lg border border-border/70 bg-panel/70 p-2">
+        <div className="mb-2 px-1 text-[11px] font-semibold tracking-[0.18em] text-muted uppercase">
           Panels
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           <ActionButton icon={FolderOpen} label="SFTP" active={showSftpPanel} onClick={onToggleSftpPanel} />
           <ActionButton icon={Activity} label="Status" active={showStatusPanel} onClick={onToggleStatusPanel} />
           <ActionButton icon={Bot} label="AI Assistant" active={showAiPanel} onClick={onToggleAiPanel} />
         </div>
       </div>
 
-      <div className="mt-auto space-y-1.5 border-t border-border/70 pt-3">
-        <button
-          type="button"
-          className="inline-flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm transition-colors hover:bg-accent-soft"
-          onClick={onNextWallpaper}
-        >
-          <Image className="h-4 w-4" aria-hidden="true" />
-          Wallpaper {wallpaper + 1}
-        </button>
-        <button
-          type="button"
-          className="inline-flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm transition-colors hover:bg-accent-soft"
-          onClick={onToggleTheme}
-        >
-          {theme === "light" ? <Moon className="h-4 w-4" aria-hidden="true" /> : <Sun className="h-4 w-4" aria-hidden="true" />}
-          {theme === "light" ? "Dark Mode" : "Light Mode"}
-        </button>
-        <div className="rounded-md border border-border/80 bg-surface px-3 py-2 text-xs">
-          <div className="inline-flex w-full items-center gap-1.5 text-muted">
-            <LoaderCircle
-              className={["h-3.5 w-3.5", busy ? "animate-spin text-accent" : ""].join(" ")}
-              aria-hidden="true"
+      <div className="mt-auto pt-2">
+        <div className="rounded-lg border border-border/70 bg-panel/70 p-2">
+          <div className="space-y-1">
+            <NavButton icon={Image} label={`Wallpaper ${wallpaper + 1}`} onClick={onNextWallpaper} />
+            <NavButton
+              icon={theme === "light" ? Moon : Sun}
+              label={theme === "light" ? "Dark Mode" : "Light Mode"}
+              onClick={onToggleTheme}
             />
-            <span className="truncate">{busy ? `Running: ${busy}` : "Idle"}</span>
           </div>
-          {hasError ? (
-            <div className="mt-1 inline-flex w-full items-center gap-1.5 text-danger">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{error}</span>
+
+          <div className="mt-2 rounded-md border border-border/75 bg-surface/90 px-3 py-2 text-xs">
+            <div
+              className={[
+                "inline-flex w-full items-center gap-1.5",
+                busy ? "text-accent" : "text-muted",
+              ].join(" ")}
+            >
+              <LoaderCircle
+                className={["h-3.5 w-3.5", busy ? "animate-spin text-accent" : ""].join(" ")}
+                aria-hidden="true"
+              />
+              <span className="truncate">{busy ? `Running: ${busy}` : "Idle"}</span>
             </div>
-          ) : (
-            <div className="mt-1 inline-flex w-full items-center gap-1.5 text-success">
-              <CircleCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">No errors</span>
-            </div>
-          )}
+            {hasError ? (
+              <div className="mt-1 inline-flex w-full items-center gap-1.5 text-danger">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{error}</span>
+              </div>
+            ) : (
+              <div className="mt-1 inline-flex w-full items-center gap-1.5 text-success">
+                <CircleCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">No errors</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </aside>

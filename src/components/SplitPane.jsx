@@ -109,11 +109,11 @@ export default function SplitPane({
         type="button"
         aria-label={isHorizontal ? "Resize columns" : "Resize rows"}
         className={[
-          "relative shrink-0 border-border/90 bg-surface/70 transition-colors",
+          "relative shrink-0 bg-border/80 transition-colors",
           collapsed ? "pointer-events-none opacity-0" : "",
           isHorizontal
-            ? "w-1 cursor-col-resize border-x hover:bg-accent/60"
-            : "h-1 cursor-row-resize border-y hover:bg-accent/60",
+            ? "w-px cursor-col-resize hover:bg-accent/80"
+            : "h-px cursor-row-resize hover:bg-accent/80",
         ].join(" ")}
         onMouseDown={() => {
           if (!collapsed) {

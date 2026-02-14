@@ -57,8 +57,8 @@ export default function AiAssistantPanel({
   onAskAi,
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col rounded-xl border border-border/90 bg-panel p-2">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="flex h-full min-h-0 flex-col bg-panel">
+      <div className="flex items-center justify-between border-b border-border px-2 py-2">
         <div className="inline-flex items-center gap-2 text-sm font-semibold">
           <Bot className="h-4 w-4 text-accent" aria-hidden="true" />
           AI Assistant
@@ -66,7 +66,7 @@ export default function AiAssistantPanel({
         {aiAnswer?.suggestedCommand && (
           <button
             type="button"
-            className="inline-flex items-center gap-1.5 rounded bg-accent px-2 py-1 text-xs text-white"
+            className="inline-flex items-center gap-1.5 border border-accent bg-accent px-2 py-1 text-xs text-white"
             onClick={onWriteSuggestedCommand}
           >
             <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
@@ -75,9 +75,9 @@ export default function AiAssistantPanel({
         )}
       </div>
 
-      <form className="shrink-0 space-y-2" onSubmit={onAskAi}>
+      <form className="shrink-0 space-y-2 border-b border-border px-2 py-2" onSubmit={onAskAi}>
         <textarea
-          className="h-16 w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+          className="h-16 w-full border border-border bg-surface px-2 py-1.5 text-sm"
           value={aiQuestion}
           onChange={(event) => setAiQuestion(event.target.value)}
           placeholder="Ask about system status, logs, or commands"
@@ -91,14 +91,14 @@ export default function AiAssistantPanel({
             />
             Include terminal output
           </label>
-          <button type="submit" className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white">
+          <button type="submit" className="inline-flex items-center gap-1.5 border border-accent bg-accent px-3 py-1.5 text-xs text-white">
             <Send className="h-3.5 w-3.5" aria-hidden="true" />
             Ask
           </button>
         </div>
       </form>
 
-      <div className="mt-2 min-h-24 flex-1 overflow-auto rounded border border-border/80 bg-surface p-2 text-xs">
+      <div className="min-h-24 flex-1 overflow-auto bg-surface/20 p-2 text-xs">
         {aiAnswer?.answer ? (
           <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
             {aiAnswer.answer}
