@@ -69,25 +69,25 @@ function App() {
     runScript,
     saveAi,
     askAi,
+    requestSftpDir,
     refreshSftp,
     openEntry,
     handleDeleteSsh,
     handleDeleteScript,
     handleNicChange,
     handleOpenFileContentChange,
-      segments,
-      formatBytes,
+    formatBytes,
   } = useWorkbench();
 
   const sftpPanel = (
     <SftpPanel
       activeSessionId={activeSessionId}
       currentPath={currentPath}
+      requestSftpDir={requestSftpDir}
       refreshSftp={refreshSftp}
       uploadFile={uploadFile}
       downloadFile={downloadFile}
       selectedEntry={selectedEntry}
-      segments={segments}
       sftpEntries={sftpEntries}
       openEntry={openEntry}
       onOpenFileEditor={() => setIsFileEditorOpen(true)}

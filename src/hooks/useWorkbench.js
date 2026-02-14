@@ -3,7 +3,7 @@ import { DEFAULT_AI, EMPTY_SCRIPT, EMPTY_SSH } from "../constants/workbench";
 import { api } from "../lib/tauri-api";
 import { arrayBufferToBase64, base64ToBytes } from "../utils/encoding";
 import { formatBytes } from "../utils/format";
-import { joinPath, normalizeRemotePath, splitPath } from "../utils/path";
+import { joinPath, normalizeRemotePath } from "../utils/path";
 
 export function useWorkbench() {
   const [theme, setTheme] = useState("light");
@@ -215,25 +215,40 @@ export function useWorkbench() {
     [activeSessionId, appendLog, commandInput, onError, runBusy],
   );
 
-  const refreshSftp = useCallback(
+  const requestSftpDir = useCallback(
     async (path) => {
       if (!activeSessionId) {
-        return;
+        return null;
       }
       try {
         const normalizedPath = normalizeRemotePath(path);
-        const result = await runBusy("读取目录", () => api.sftpListDir(activeSessionId, normalizedPath));
-        setSftpEntries(result.entries);
-        setSftpPath((prev) => ({
-          ...prev,
-          [activeSessionId]: normalizeRemotePath(result.path),
-        }));
-        setSelectedEntry(null);
+        return await runBusy("读取目录", () => api.sftpListDir(activeSessionId, normalizedPath));
       } catch (err) {
         onError(err);
+        return null;
       }
     },
     [activeSessionId, onError, runBusy],
+  );
+
+  const refreshSftp = useCallback(
+    async (path) => {
+      if (!activeSessionId) {
+        return null;
+      }
+      const result = await requestSftpDir(path);
+      if (!result) {
+        return null;
+      }
+      setSftpEntries(result.entries);
+      setSftpPath((prev) => ({
+        ...prev,
+        [activeSessionId]: normalizeRemotePath(result.path),
+      }));
+      setSelectedEntry(null);
+      return result;
+    },
+    [activeSessionId, requestSftpDir],
   );
 
   const openEntry = useCallback(
@@ -447,7 +462,6 @@ export function useWorkbench() {
     };
   }, [activeSessionId, dirtyFile, onError, openFileContent, openFilePath, runBusy]);
 
-  const segments = useMemo(() => splitPath(currentPath), [currentPath]);
   const currentLogs = activeSessionId ? logs[activeSessionId] || [] : [];
 
   const handleDeleteSsh = useCallback(
@@ -541,13 +555,13 @@ export function useWorkbench() {
     runScript,
     saveAi,
     askAi,
+    requestSftpDir,
     refreshSftp,
     openEntry,
     handleDeleteSsh,
     handleDeleteScript,
     handleNicChange,
     handleOpenFileContentChange,
-    segments,
     formatBytes,
   };
 }
