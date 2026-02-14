@@ -1,21 +1,26 @@
+import { useState } from "react";
 import SplitPane from "./components/SplitPane";
 import TopToolbar from "./components/layout/TopToolbar";
 import AiAssistantPanel from "./components/panels/AiAssistantPanel";
 import SftpPanel from "./components/panels/SftpPanel";
 import StatusPanel from "./components/panels/StatusPanel";
 import TerminalPanel from "./components/panels/TerminalPanel";
-import LeftSidebar from "./components/sidebar/LeftSidebar";
+import AiConfigModal from "./components/sidebar/AiConfigModal";
+import ScriptConfigModal from "./components/sidebar/ScriptConfigModal";
+import SshConfigModal from "./components/sidebar/SshConfigModal";
 import { WALLPAPERS } from "./constants/workbench";
 import { useWorkbench } from "./hooks/useWorkbench";
 
 function App() {
+  const [isSshModalOpen, setIsSshModalOpen] = useState(false);
+  const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+
   const {
     theme,
     setTheme,
     wallpaper,
     setWallpaper,
-    isLeftDrawerOpen,
-    setIsLeftDrawerOpen,
     showSftpPanel,
     setShowSftpPanel,
     showStatusPanel,
@@ -149,102 +154,92 @@ function App() {
   } else {
     bottomPanelsContent = (
       <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border/80 bg-panel/70 p-3 text-xs text-muted">
-        已隐藏全部面板，请在顶部工具栏开启 SFTP / 状态 / AI 面板。
+        已隐藏全部面板，请在左侧导航栏开启 SFTP / 状态 / AI 面板。
       </div>
     );
   }
 
   return (
     <div className="h-full w-full p-3 text-text lg:p-4">
-      <div className="flex h-full flex-col gap-3">
+      <div className="flex h-full gap-3">
         <TopToolbar
           theme={theme}
           wallpaper={wallpaper}
-          isLeftDrawerOpen={isLeftDrawerOpen}
           showSftpPanel={showSftpPanel}
           showStatusPanel={showStatusPanel}
           showAiPanel={showAiPanel}
+          onOpenSshConfig={() => setIsSshModalOpen(true)}
+          onOpenScriptConfig={() => setIsScriptModalOpen(true)}
+          onOpenAiConfig={() => setIsAiModalOpen(true)}
           onToggleSftpPanel={() => setShowSftpPanel((prev) => !prev)}
           onToggleStatusPanel={() => setShowStatusPanel((prev) => !prev)}
           onToggleAiPanel={() => setShowAiPanel((prev) => !prev)}
-          onToggleLeftDrawer={() => setIsLeftDrawerOpen((prev) => !prev)}
           onNextWallpaper={() => setWallpaper((prev) => (prev + 1) % WALLPAPERS.length)}
           onToggleTheme={() => setTheme((prev) => (prev === "light" ? "dark" : "light"))}
         />
 
-        <div className="panel-card relative min-h-0 flex-1 overflow-hidden">
-          {!isLeftDrawerOpen && (
-            <button
-              type="button"
-              className="absolute top-1/2 left-0 z-20 -translate-y-1/2 rounded-r-md border border-border bg-surface px-1.5 py-3 text-xs text-muted shadow"
-              onClick={() => setIsLeftDrawerOpen(true)}
-              title="展开左侧抽屉"
-            >
-              {">"}
-            </button>
-          )}
-          <SplitPane
-            direction="horizontal"
-            initialRatio={0.28}
-            minPrimarySize={320}
-            minSecondarySize={640}
-            collapsed={!isLeftDrawerOpen}
-            collapsedPrimarySize={0}
-            primary={
-              <LeftSidebar
-                isOpen={isLeftDrawerOpen}
-                onCollapse={() => setIsLeftDrawerOpen(false)}
-                sshConfigs={sshConfigs}
-                sshForm={sshForm}
-                setSshForm={setSshForm}
-                onSaveSsh={saveSsh}
-                onConnectServer={connectServer}
-                onDeleteSsh={handleDeleteSsh}
-                scripts={scripts}
-                scriptForm={scriptForm}
-                setScriptForm={setScriptForm}
-                onSaveScript={saveScript}
-                onRunScript={runScript}
-                onDeleteScript={handleDeleteScript}
-                aiConfig={aiConfig}
-                setAiConfig={setAiConfig}
-                onSaveAi={saveAi}
-              />
-            }
-            secondary={
-              <SplitPane
-                direction="vertical"
-                initialRatio={0.5}
-                minPrimarySize={290}
-                minSecondarySize={280}
-                primary={
-                  <TerminalPanel
-                    sessions={sessions}
-                    activeSessionId={activeSessionId}
-                    onSelectSession={setActiveSessionId}
-                    onCloseSession={closeSession}
-                    activeSession={activeSession}
-                    commandInput={commandInput}
-                    setCommandInput={setCommandInput}
-                    onExecCommand={execCommand}
-                    currentLogs={currentLogs}
-                    wallpaper={wallpaper}
-                    wallpapers={WALLPAPERS}
-                  />
-                }
-                secondary={
-                  <section className="h-full p-3 pt-0">{bottomPanelsContent}</section>
-                }
-              />
-            }
-          />
-        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="panel-card min-h-0 flex-1 overflow-hidden">
+            <SplitPane
+              direction="vertical"
+              initialRatio={0.5}
+              minPrimarySize={290}
+              minSecondarySize={280}
+              primary={
+                <TerminalPanel
+                  sessions={sessions}
+                  activeSessionId={activeSessionId}
+                  onSelectSession={setActiveSessionId}
+                  onCloseSession={closeSession}
+                  activeSession={activeSession}
+                  commandInput={commandInput}
+                  setCommandInput={setCommandInput}
+                  onExecCommand={execCommand}
+                  currentLogs={currentLogs}
+                  wallpaper={wallpaper}
+                  wallpapers={WALLPAPERS}
+                />
+              }
+              secondary={<section className="h-full p-3 pt-0">{bottomPanelsContent}</section>}
+            />
+          </div>
 
-        <footer className="panel-card flex items-center justify-between px-4 py-2 text-xs">
-          <div className="text-muted">{busy ? `进行中: ${busy}` : "就绪"}</div>
-          <div className="max-w-[60%] truncate text-right text-danger">{error}</div>
-        </footer>
+          <footer className="panel-card flex items-center justify-between px-4 py-2 text-xs">
+            <div className="text-muted">{busy ? `进行中: ${busy}` : "就绪"}</div>
+            <div className="max-w-[60%] truncate text-right text-danger">{error}</div>
+          </footer>
+        </div>
       </div>
+
+      <SshConfigModal
+        open={isSshModalOpen}
+        onClose={() => setIsSshModalOpen(false)}
+        sshConfigs={sshConfigs}
+        sshForm={sshForm}
+        setSshForm={setSshForm}
+        onSaveSsh={saveSsh}
+        onConnectServer={connectServer}
+        onDeleteSsh={handleDeleteSsh}
+      />
+
+      <ScriptConfigModal
+        open={isScriptModalOpen}
+        onClose={() => setIsScriptModalOpen(false)}
+        scripts={scripts}
+        scriptForm={scriptForm}
+        setScriptForm={setScriptForm}
+        onSaveScript={saveScript}
+        onRunScript={runScript}
+        onDeleteScript={handleDeleteScript}
+      />
+
+      <AiConfigModal
+        open={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        aiConfig={aiConfig}
+        setAiConfig={setAiConfig}
+        onSaveAi={saveAi}
+      />
     </div>
   );
 }
