@@ -1,4 +1,5 @@
-﻿import { FolderOpen, Play, Terminal, X } from "lucide-react";
+import { FolderOpen, Play, Terminal, X } from "lucide-react";
+import XtermConsole from "./XtermConsole";
 
 export default function TerminalPanel({
   sessions,
@@ -9,7 +10,9 @@ export default function TerminalPanel({
   commandInput,
   setCommandInput,
   onExecCommand,
-  currentLogs,
+  currentPtyOutput,
+  onPtyInput,
+  onPtyResize,
   wallpaper,
   wallpapers,
 }) {
@@ -83,30 +86,14 @@ export default function TerminalPanel({
           </button>
         </form>
 
-        <div
-          className="terminal-wallpaper min-h-0 flex-1 overflow-auto bg-[#111b19] p-3 font-mono text-xs text-[#d6f6dc]"
-          style={{
-            backgroundImage:
-              wallpaper === 0
-                ? undefined
-                : `${wallpapers[wallpaper]}, linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.6))`,
-          }}
-        >
-          {currentLogs.map((row) => (
-            <div key={row.id} className="mb-2">
-              <div className="mb-1 text-[10px] text-[#8ca799]">
-                [{row.ts}] {row.tag}
-              </div>
-              <pre className="whitespace-pre-wrap break-words">{row.text}</pre>
-            </div>
-          ))}
-          {currentLogs.length === 0 && (
-            <div className="inline-flex items-center gap-2 text-[#93b9a2]">
-              <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
-              Terminal output appears here
-            </div>
-          )}
-        </div>
+        <XtermConsole
+          activeSessionId={activeSession?.id || null}
+          output={currentPtyOutput}
+          onInput={onPtyInput}
+          onResize={onPtyResize}
+          wallpaper={wallpaper}
+          wallpapers={wallpapers}
+        />
       </div>
     </section>
   );

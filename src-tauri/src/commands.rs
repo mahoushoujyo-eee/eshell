@@ -7,7 +7,7 @@ use crate::error::{to_command_error, AppError, AppResult};
 use crate::models::{
     AiAnswer, AiAskInput, AiConfig, AiConfigInput, AiProfileInput, AiProfilesState,
     CloseShellInput, CommandExecutionResult, ExecuteCommandInput, FetchServerStatusInput,
-    OpenShellInput, RunScriptInput, RunScriptResult, ScriptDefinition, ScriptInput,
+    OpenShellInput, PtyResizeInput, PtyWriteInput, RunScriptInput, RunScriptResult, ScriptDefinition, ScriptInput,
     SetActiveAiProfileInput, SftpDownloadInput, SftpDownloadPayload, SftpFileContent, SftpListInput,
     SftpListResponse, SftpReadInput, SftpUploadInput, SftpWriteInput, ShellSession, SshConfig,
     SshConfigInput,
@@ -55,10 +55,11 @@ pub fn list_shell_sessions(state: State<'_, Arc<AppState>>) -> Result<Vec<ShellS
 #[tauri::command]
 pub async fn open_shell_session(
     state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
     input: OpenShellInput,
 ) -> Result<ShellSession, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || ssh_service::open_shell_session(&app_state, &input.config_id)).await
+    run_blocking(move || ssh_service::open_shell_session(app_state, app, &input.config_id)).await
 }
 
 /// Closes one shell session and drops the corresponding status cache.
@@ -68,6 +69,24 @@ pub fn close_shell_session(
     input: CloseShellInput,
 ) -> Result<(), String> {
     ssh_service::close_shell_session(&state, &input.session_id).map_err(to_command_error)
+}
+
+/// Sends raw PTY input for interactive shell.
+#[tauri::command]
+pub fn pty_write_input(
+    state: State<'_, Arc<AppState>>,
+    input: PtyWriteInput,
+) -> Result<(), String> {
+    ssh_service::pty_write_input(&state, &input.session_id, &input.data).map_err(to_command_error)
+}
+
+/// Resizes PTY viewport to keep remote interactive applications aligned.
+#[tauri::command]
+pub fn pty_resize(
+    state: State<'_, Arc<AppState>>,
+    input: PtyResizeInput,
+) -> Result<(), String> {
+    ssh_service::pty_resize(&state, &input.session_id, input.cols, input.rows).map_err(to_command_error)
 }
 
 /// Executes a terminal command in the selected shell tab.

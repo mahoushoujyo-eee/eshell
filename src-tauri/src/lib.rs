@@ -34,6 +34,8 @@ pub fn run() {
             commands::list_shell_sessions,
             commands::open_shell_session,
             commands::close_shell_session,
+            commands::pty_write_input,
+            commands::pty_resize,
             commands::execute_shell_command,
             commands::sftp_list_dir,
             commands::sftp_read_file,

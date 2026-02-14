@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { DEFAULT_AI, EMPTY_SCRIPT, EMPTY_SSH } from "../constants/workbench";
 import { api } from "../lib/tauri-api";
 import { arrayBufferToBase64, base64ToBytes } from "../utils/encoding";
@@ -57,6 +58,17 @@ const DEFAULT_AI_PROFILE_FORM = {
   ...DEFAULT_AI,
 };
 
+const shellQuote = (value) => `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
+
+const TERMINAL_MAX_OUTPUT_CHARS = 240_000;
+
+const trimTerminalOutput = (value) => {
+  if (value.length <= TERMINAL_MAX_OUTPUT_CHARS) {
+    return value;
+  }
+  return value.slice(value.length - TERMINAL_MAX_OUTPUT_CHARS);
+};
+
 export function useWorkbench() {
   const [theme, setTheme] = useState("light");
   const [wallpaper, setWallpaper] = useState(1);
@@ -75,6 +87,7 @@ export function useWorkbench() {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [logs, setLogs] = useState({});
+  const [ptyOutputBySession, setPtyOutputBySession] = useState({});
   const [commandInput, setCommandInput] = useState("");
 
   const [sftpPath, setSftpPath] = useState({});
@@ -144,6 +157,16 @@ export function useWorkbench() {
         ],
       };
     });
+  }, []);
+
+  const appendPtyOutput = useCallback((sessionId, chunk) => {
+    if (!sessionId || !chunk) {
+      return;
+    }
+    setPtyOutputBySession((prev) => ({
+      ...prev,
+      [sessionId]: trimTerminalOutput(`${prev[sessionId] || ""}${chunk}`),
+    }));
   }, []);
 
   const applyAiProfilesState = useCallback((state, keepForm = false) => {
@@ -232,6 +255,7 @@ export function useWorkbench() {
           ...prev,
           [session.id]: normalizeRemotePath(session.currentDir || "/"),
         }));
+        setPtyOutputBySession((prev) => ({ ...prev, [session.id]: "" }));
         appendLog(session.id, "SYSTEM", `Connected ${session.configName} (${session.currentDir})`);
       } catch (err) {
         onError(err);
@@ -248,6 +272,14 @@ export function useWorkbench() {
         if (activeSessionId === sessionId) {
           setActiveSessionId(rows[0]?.id || null);
         }
+        setPtyOutputBySession((prev) => {
+          if (!(sessionId in prev)) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[sessionId];
+          return next;
+        });
       } catch (err) {
         onError(err);
       }
@@ -263,26 +295,13 @@ export function useWorkbench() {
       }
       const command = commandInput;
       setCommandInput("");
-      appendLog(activeSessionId, "CMD", command);
       try {
-        const result = await runBusy("Execute command", () =>
-          api.executeShellCommand(activeSessionId, command),
-        );
-        appendLog(
-          activeSessionId,
-          `OUT(${result.exitCode})`,
-          [result.stdout, result.stderr].filter(Boolean).join("\n") || "<empty>",
-        );
-        setSessions((prev) =>
-          prev.map((item) =>
-            item.id === activeSessionId ? { ...item, currentDir: result.currentDir } : item,
-          ),
-        );
+        await api.ptyWriteInput(activeSessionId, `${command}\n`);
       } catch (err) {
         onError(err);
       }
     },
-    [activeSessionId, appendLog, commandInput, onError, runBusy],
+    [activeSessionId, commandInput, onError],
   );
 
   const requestSftpDir = useCallback(
@@ -426,19 +445,48 @@ export function useWorkbench() {
         setError("Please connect an SSH session first");
         return;
       }
+
+      const script = scripts.find((item) => item.id === scriptId);
+      if (!script) {
+        setError("Script not found");
+        return;
+      }
+
+      const directCommand = (script.command || "").trim();
+      const scriptPath = (script.path || "").trim();
+      const resolvedCommand = directCommand || (scriptPath ? `bash ${shellQuote(scriptPath)}` : "");
+      if (!resolvedCommand) {
+        setError("Script has no runnable command or path");
+        return;
+      }
+
       try {
-        const result = await runBusy("Run script", () => api.runScript(activeSessionId, scriptId));
-        appendLog(
-          activeSessionId,
-          `SCRIPT:${result.scriptName}`,
-          [result.execution.stdout, result.execution.stderr].filter(Boolean).join("\n") || "<empty>",
-        );
+        await runBusy("Run script", () => api.ptyWriteInput(activeSessionId, `${resolvedCommand}\n`));
       } catch (err) {
         onError(err);
       }
     },
-    [activeSessionId, appendLog, onError, runBusy],
+    [activeSessionId, onError, runBusy, scripts],
   );
+
+  const sendPtyInput = useCallback(
+    (sessionId, data) => {
+      if (!sessionId || !data) {
+        return;
+      }
+      void api.ptyWriteInput(sessionId, data).catch(onError);
+    },
+    [onError],
+  );
+
+  const resizePty = useCallback((sessionId, cols, rows) => {
+    if (!sessionId || !cols || !rows) {
+      return;
+    }
+    void api.ptyResize(sessionId, cols, rows).catch(() => {
+      // Ignore transient resize failures caused by tab switching.
+    });
+  }, []);
 
   const saveAiProfile = useCallback(
     async (event) => {
@@ -529,6 +577,36 @@ export function useWorkbench() {
   }, [bootstrap]);
 
   useEffect(() => {
+    let disposed = false;
+    const unlistenPromise = listen("pty-output", (event) => {
+      const payload = event.payload;
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+      const sessionId = payload.sessionId;
+      const chunk = payload.chunk;
+      if (typeof sessionId !== "string" || typeof chunk !== "string" || !chunk) {
+        return;
+      }
+      appendPtyOutput(sessionId, chunk);
+    }).catch((error) => {
+      if (!disposed) {
+        console.warn("Failed to bind PTY output listener", error);
+      }
+      return null;
+    });
+
+    return () => {
+      disposed = true;
+      void unlistenPromise.then((unlisten) => {
+        if (typeof unlisten === "function") {
+          unlisten();
+        }
+      });
+    };
+  }, [appendPtyOutput]);
+
+  useEffect(() => {
     if (!activeSessionId) {
       setSftpEntries([]);
       setOpenFilePath("");
@@ -572,6 +650,7 @@ export function useWorkbench() {
   }, [activeSessionId, dirtyFile, onError, openFileContent, openFilePath, runBusy]);
 
   const currentLogs = activeSessionId ? logs[activeSessionId] || [] : [];
+  const currentPtyOutput = activeSessionId ? ptyOutputBySession[activeSessionId] || "" : "";
 
   const handleDeleteSsh = useCallback(
     async (sshId) => {
@@ -639,6 +718,7 @@ export function useWorkbench() {
     commandInput,
     setCommandInput,
     currentLogs,
+    currentPtyOutput,
     currentPath,
     currentStatus,
     currentNic,
@@ -661,6 +741,8 @@ export function useWorkbench() {
     connectServer,
     closeSession,
     execCommand,
+    sendPtyInput,
+    resizePty,
     uploadFile,
     downloadFile,
     saveScript,

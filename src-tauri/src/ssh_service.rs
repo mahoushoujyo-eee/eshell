@@ -1,26 +1,40 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 use std::time::Instant;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use ssh2::{ErrorCode, FileStat, Session};
+use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
     now_rfc3339, CommandExecutionResult, FetchServerStatusInput, MemoryStatus, NetworkInterfaceStatus,
-    SftpDownloadPayload, SftpDownloadInput, SftpEntry, SftpEntryType, SftpFileContent, SftpListInput,
-    SftpListResponse, SftpReadInput, SftpUploadInput, SftpWriteInput, ShellSession, SshConfig,
+    PtyOutputEvent, SftpDownloadPayload, SftpDownloadInput, SftpEntry, SftpEntryType, SftpFileContent,
+    SftpListInput, SftpListResponse, SftpReadInput, SftpUploadInput, SftpWriteInput, ShellSession,
+    SshConfig,
 };
-use crate::state::AppState;
+use crate::state::{AppState, PtyCommand};
 use crate::status_parser::{
     parse_cpu_percent, parse_disks, parse_memory, parse_network_interfaces, parse_top_processes,
 };
 
-/// Creates a shell session after validating that SSH credentials are usable.
-pub fn open_shell_session(state: &AppState, config_id: &str) -> AppResult<ShellSession> {
+const DEFAULT_PTY_COLS: u16 = 120;
+const DEFAULT_PTY_ROWS: u16 = 36;
+const MAX_SESSION_LAST_OUTPUT_CHARS: usize = 16_000;
+
+/// Creates a shell session and starts a long-lived PTY worker for interactive terminal IO.
+pub fn open_shell_session(
+    state: Arc<AppState>,
+    app: AppHandle,
+    config_id: &str,
+) -> AppResult<ShellSession> {
     let config = state.storage.find_ssh_config(config_id)?;
     let ssh = connect(&config)?;
     let (pwd_out, _, status) = run_channel_command(&ssh, "pwd")?;
@@ -33,8 +47,9 @@ pub fn open_shell_session(state: &AppState, config_id: &str) -> AppResult<ShellS
 
     let cwd = sanitize_cwd(pwd_out.trim());
     let now = now_rfc3339();
+    let session_id = Uuid::new_v4().to_string();
     let session = ShellSession {
-        id: Uuid::new_v4().to_string(),
+        id: session_id.clone(),
         config_id: config.id.clone(),
         config_name: config.name.clone(),
         current_dir: cwd,
@@ -43,12 +58,34 @@ pub fn open_shell_session(state: &AppState, config_id: &str) -> AppResult<ShellS
         updated_at: now,
     };
     state.put_session(session.clone());
+    start_pty_worker(Arc::clone(&state), app, session_id, ssh)?;
     Ok(session)
 }
 
 /// Closes and removes a shell session from runtime registry.
 pub fn close_shell_session(state: &AppState, session_id: &str) -> AppResult<()> {
     state.remove_session(session_id)
+}
+
+/// Writes raw input bytes into PTY shell channel.
+pub fn pty_write_input(state: &AppState, session_id: &str, data: &str) -> AppResult<()> {
+    if data.is_empty() {
+        return Ok(());
+    }
+    state.send_pty_command(session_id, PtyCommand::Input(data.to_string()))
+}
+
+/// Resizes PTY shell dimensions to match frontend terminal viewport.
+pub fn pty_resize(state: &AppState, session_id: &str, cols: u16, rows: u16) -> AppResult<()> {
+    let safe_cols = cols.max(20);
+    let safe_rows = rows.max(8);
+    state.send_pty_command(
+        session_id,
+        PtyCommand::Resize {
+            cols: safe_cols,
+            rows: safe_rows,
+        },
+    )
 }
 
 /// Executes user command in context of a shell session while preserving tab-specific cwd.
@@ -385,6 +422,173 @@ fn format_stdout_stderr(stdout: &str, stderr: &str) -> String {
         (true, false) => stderr.to_string(),
         (true, true) => String::new(),
     }
+}
+
+fn start_pty_worker(
+    state: Arc<AppState>,
+    app: AppHandle,
+    session_id: String,
+    ssh: Session,
+) -> AppResult<()> {
+    let mut channel = ssh.channel_session()?;
+    channel.request_pty(
+        "xterm-256color",
+        None,
+        Some((u32::from(DEFAULT_PTY_COLS), u32::from(DEFAULT_PTY_ROWS), 0, 0)),
+    )?;
+    channel.shell()?;
+    ssh.set_blocking(false);
+
+    let (tx, rx) = mpsc::channel::<PtyCommand>();
+    state.put_pty_channel(session_id.clone(), tx);
+
+    thread::spawn(move || {
+        run_pty_worker(state, app, session_id, ssh, channel, rx);
+    });
+
+    Ok(())
+}
+
+fn run_pty_worker(
+    state: Arc<AppState>,
+    app: AppHandle,
+    session_id: String,
+    _ssh: Session,
+    mut channel: ssh2::Channel,
+    rx: mpsc::Receiver<PtyCommand>,
+) {
+    let mut io_buffer = [0_u8; 16_384];
+    let mut keep_running = true;
+
+    while keep_running {
+        loop {
+            match rx.try_recv() {
+                Ok(PtyCommand::Input(data)) => {
+                    if write_channel_input(&mut channel, data.as_bytes()).is_err() {
+                        keep_running = false;
+                        break;
+                    }
+                }
+                Ok(PtyCommand::Resize { cols, rows }) => {
+                    let _ = channel.request_pty_size(u32::from(cols), u32::from(rows), None, None);
+                }
+                Ok(PtyCommand::Close) => {
+                    keep_running = false;
+                    break;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    keep_running = false;
+                    break;
+                }
+            }
+        }
+
+        let mut did_read = false;
+        match channel.read(&mut io_buffer) {
+            Ok(size) if size > 0 => {
+                did_read = true;
+                let chunk = String::from_utf8_lossy(&io_buffer[..size]).to_string();
+                append_session_output(&state, &session_id, &chunk);
+                emit_pty_output(&app, &session_id, &chunk);
+            }
+            Ok(_) => {
+                if channel.eof() {
+                    keep_running = false;
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(_) => {
+                keep_running = false;
+            }
+        }
+
+        if channel.eof() {
+            keep_running = false;
+        }
+
+        if !did_read {
+            thread::sleep(Duration::from_millis(12));
+        }
+    }
+
+    let _ = channel.close();
+    let _ = channel.wait_close();
+    let _ = state.remove_session(&session_id);
+}
+
+fn emit_pty_output(app: &AppHandle, session_id: &str, chunk: &str) {
+    let _ = app.emit(
+        "pty-output",
+        PtyOutputEvent {
+            session_id: session_id.to_string(),
+            chunk: chunk.to_string(),
+        },
+    );
+}
+
+fn append_session_output(state: &AppState, session_id: &str, chunk: &str) {
+    let _ = state.mutate_session(session_id, |session| {
+        session.last_output.push_str(chunk);
+        trim_to_last_chars(&mut session.last_output, MAX_SESSION_LAST_OUTPUT_CHARS);
+        session.updated_at = now_rfc3339();
+    });
+}
+
+fn trim_to_last_chars(value: &mut String, max_chars: usize) {
+    if max_chars == 0 {
+        value.clear();
+        return;
+    }
+
+    let total_chars = value.chars().count();
+    if total_chars <= max_chars {
+        return;
+    }
+
+    let drop_chars = total_chars - max_chars;
+    let drop_bytes = value
+        .char_indices()
+        .nth(drop_chars)
+        .map(|(index, _)| index)
+        .unwrap_or(0);
+    value.drain(..drop_bytes);
+}
+
+fn write_channel_input(channel: &mut ssh2::Channel, data: &[u8]) -> AppResult<()> {
+    let mut written = 0usize;
+
+    while written < data.len() {
+        match channel.write(&data[written..]) {
+            Ok(0) => {
+                if channel.eof() {
+                    return Err(AppError::Runtime("pty channel closed while writing".to_string()));
+                }
+                thread::sleep(Duration::from_millis(4));
+            }
+            Ok(size) => {
+                written += size;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(4));
+            }
+            Err(err) => {
+                return Err(AppError::Io(err));
+            }
+        }
+    }
+
+    loop {
+        match channel.flush() {
+            Ok(_) => break,
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(4));
+            }
+            Err(err) => return Err(AppError::Io(err)),
+        }
+    }
+
+    Ok(())
 }
 
 fn connect(config: &SshConfig) -> AppResult<Session> {

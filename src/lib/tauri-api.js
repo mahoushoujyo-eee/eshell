@@ -10,6 +10,10 @@ export const api = {
     invoke("open_shell_session", { input: { configId } }),
   closeShellSession: (sessionId) =>
     invoke("close_shell_session", { input: { sessionId } }),
+  ptyWriteInput: (sessionId, data) =>
+    invoke("pty_write_input", { input: { sessionId, data } }),
+  ptyResize: (sessionId, cols, rows) =>
+    invoke("pty_resize", { input: { sessionId, cols, rows } }),
   executeShellCommand: (sessionId, command) =>
     invoke("execute_shell_command", { input: { sessionId, command } }),
 

@@ -1,10 +1,18 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::mpsc::Sender;
 use std::sync::RwLock;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{ServerStatus, ShellSession};
 use crate::storage::Storage;
+
+#[derive(Debug, Clone)]
+pub enum PtyCommand {
+    Input(String),
+    Resize { cols: u16, rows: u16 },
+    Close,
+}
 
 /// Shared application state managed by Tauri.
 ///
@@ -16,6 +24,7 @@ pub struct AppState {
     pub storage: Storage,
     sessions: RwLock<HashMap<String, ShellSession>>,
     status_cache: RwLock<HashMap<String, ServerStatus>>,
+    pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>,
 }
 
 impl AppState {
@@ -25,6 +34,7 @@ impl AppState {
             storage: Storage::new(storage_root)?,
             sessions: RwLock::new(HashMap::new()),
             status_cache: RwLock::new(HashMap::new()),
+            pty_channels: RwLock::new(HashMap::new()),
         })
     }
 
@@ -71,6 +81,8 @@ impl AppState {
 
     /// Removes a shell session and any stale cache bound to that session.
     pub fn remove_session(&self, session_id: &str) -> AppResult<()> {
+        self.remove_pty_channel(session_id);
+
         let removed = self
             .sessions
             .write()
@@ -84,6 +96,44 @@ impl AppState {
             .expect("status cache lock poisoned")
             .remove(session_id);
         Ok(())
+    }
+
+    /// Registers or replaces PTY control channel for one shell session.
+    pub fn put_pty_channel(&self, session_id: String, sender: Sender<PtyCommand>) {
+        if let Some(previous) = self
+            .pty_channels
+            .write()
+            .expect("pty channel lock poisoned")
+            .insert(session_id, sender)
+        {
+            let _ = previous.send(PtyCommand::Close);
+        }
+    }
+
+    /// Sends PTY control message to one shell session worker.
+    pub fn send_pty_command(&self, session_id: &str, command: PtyCommand) -> AppResult<()> {
+        let sender = self
+            .pty_channels
+            .read()
+            .expect("pty channel lock poisoned")
+            .get(session_id)
+            .cloned()
+            .ok_or_else(|| AppError::NotFound(format!("pty session {session_id}")))?;
+        sender.send(command).map_err(|err| {
+            AppError::Runtime(format!("pty worker channel closed for {session_id}: {err}"))
+        })
+    }
+
+    /// Unregisters PTY channel and asks worker to stop.
+    pub fn remove_pty_channel(&self, session_id: &str) {
+        if let Some(sender) = self
+            .pty_channels
+            .write()
+            .expect("pty channel lock poisoned")
+            .remove(session_id)
+        {
+            let _ = sender.send(PtyCommand::Close);
+        }
     }
 
     /// Returns cached status for a session when available.

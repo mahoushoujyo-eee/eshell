@@ -44,7 +44,7 @@ function App() {
     activeSession,
     commandInput,
     setCommandInput,
-    currentLogs,
+    currentPtyOutput,
     currentPath,
     currentStatus,
     currentNic,
@@ -66,6 +66,8 @@ function App() {
     connectServer,
     closeSession,
     execCommand,
+    sendPtyInput,
+    resizePty,
     uploadFile,
     downloadFile,
     saveScript,
@@ -205,7 +207,9 @@ function App() {
                 commandInput={commandInput}
                 setCommandInput={setCommandInput}
                 onExecCommand={execCommand}
-                currentLogs={currentLogs}
+                currentPtyOutput={currentPtyOutput}
+                onPtyInput={sendPtyInput}
+                onPtyResize={resizePty}
                 wallpaper={wallpaper}
                 wallpapers={WALLPAPERS}
               />
