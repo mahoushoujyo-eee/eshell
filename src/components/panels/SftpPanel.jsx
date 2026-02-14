@@ -1,3 +1,14 @@
+﻿import {
+  ChevronRight,
+  Download,
+  File,
+  FileQuestion,
+  Folder,
+  FolderOpen,
+  Link2,
+  RefreshCw,
+  Upload,
+} from "lucide-react";
 import SplitPane from "../SplitPane";
 
 export default function SftpPanel({
@@ -10,39 +21,63 @@ export default function SftpPanel({
   segments,
   sftpEntries,
   openEntry,
-  openFilePath,
-  dirtyFile,
-  openFileContent,
-  onOpenFileContentChange,
+  onOpenFileEditor,
   formatBytes,
 }) {
+  const renderEntryIcon = (entryType) => {
+    switch (entryType) {
+      case "directory":
+        return <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />;
+      case "symlink":
+        return <Link2 className="h-3.5 w-3.5 shrink-0 text-sky-500" aria-hidden="true" />;
+      case "file":
+        return <File className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />;
+      default:
+        return <FileQuestion className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />;
+    }
+  };
+
+  const openSftpEntry = async (entry) => {
+    const result = await openEntry(entry);
+    if (result?.opened) {
+      onOpenFileEditor();
+    }
+  };
+
   return (
     <div className="h-full rounded-xl border border-border/90 bg-panel p-2">
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-sm font-semibold">SFTP 浏览与编辑</div>
+        <div className="inline-flex items-center gap-2 text-sm font-semibold">
+          <FolderOpen className="h-4 w-4 text-accent" aria-hidden="true" />
+          SFTP Browser
+        </div>
         <div className="flex gap-1 text-xs">
           <button
             type="button"
-            className="rounded border border-border px-2 py-1"
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
             onClick={() => refreshSftp(currentPath)}
             disabled={!activeSessionId}
           >
-            刷新
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            Refresh
           </button>
-          <label className="cursor-pointer rounded border border-border px-2 py-1">
-            上传
+          <label className="inline-flex cursor-pointer items-center gap-1 rounded border border-border px-2 py-1 transition-colors hover:bg-accent-soft">
+            <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+            Upload
             <input type="file" className="hidden" onChange={uploadFile} disabled={!activeSessionId} />
           </label>
           <button
             type="button"
-            className="rounded border border-border px-2 py-1"
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
             onClick={downloadFile}
             disabled={!activeSessionId || !selectedEntry || selectedEntry.entryType === "directory"}
           >
-            下载
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+            Download
           </button>
         </div>
       </div>
+
       <SplitPane
         direction="horizontal"
         initialRatio={0.33}
@@ -60,10 +95,11 @@ export default function SftpPanel({
               <button
                 key={segment.path}
                 type="button"
-                className="block w-full truncate rounded px-2 py-1 text-left hover:bg-accent-soft"
+                className="inline-flex w-full items-center gap-1 truncate rounded px-2 py-1 text-left transition-colors hover:bg-accent-soft"
                 onClick={() => refreshSftp(segment.path)}
               >
-                {segment.label}
+                <ChevronRight className="h-3 w-3 shrink-0 text-muted" aria-hidden="true" />
+                <span className="truncate">{segment.label}</span>
               </button>
             ))}
           </div>
@@ -71,38 +107,28 @@ export default function SftpPanel({
         secondary={
           <div className="h-full overflow-hidden text-xs">
             <div className="mb-1 rounded-md border border-border/80 bg-surface px-2 py-1 text-muted">
-              路径: {currentPath}
+              Path: {currentPath}
             </div>
-            <div className="h-[38%] overflow-auto rounded-md border border-border/80 bg-surface">
+            <div className="h-[calc(100%-1.75rem)] overflow-auto rounded-md border border-border/80 bg-surface">
               {sftpEntries.map((entry) => (
                 <button
                   key={entry.path}
                   type="button"
                   className={[
-                    "flex w-full items-center justify-between border-b border-border/50 px-2 py-1.5 text-left hover:bg-accent-soft",
+                    "flex w-full items-center justify-between border-b border-border/50 px-2 py-1.5 text-left transition-colors hover:bg-accent-soft",
                     selectedEntry?.path === entry.path ? "bg-accent-soft" : "",
                   ].join(" ")}
-                  onClick={() => openEntry(entry)}
+                  onClick={() => openSftpEntry(entry)}
                 >
-                  <span className="truncate">
-                    {entry.entryType === "directory" ? "📁" : "📄"} {entry.name}
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {renderEntryIcon(entry.entryType)}
+                    <span className="truncate">{entry.name}</span>
                   </span>
                   <span className="text-[10px] text-muted">
                     {entry.entryType === "directory" ? "-" : formatBytes(entry.size)}
                   </span>
                 </button>
               ))}
-            </div>
-            <div className="mt-1 h-[calc(62%-0.25rem)] overflow-hidden rounded-md border border-border/80 bg-surface p-1">
-              <div className="mb-1 text-[10px] text-muted">
-                {openFilePath || "未选择文件"} {dirtyFile ? "(未保存)" : ""}
-              </div>
-              <textarea
-                className="h-[calc(100%-1.2rem)] w-full resize-none rounded border border-border bg-panel px-2 py-1 font-mono text-xs"
-                value={openFileContent}
-                disabled={!openFilePath}
-                onChange={(event) => onOpenFileContentChange(event.target.value)}
-              />
             </div>
           </div>
         }

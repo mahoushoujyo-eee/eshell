@@ -1,3 +1,4 @@
+﻿import { Bot, Send, Terminal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -26,9 +27,7 @@ const MARKDOWN_COMPONENTS = {
       <table className="w-full border-collapse text-left text-xs" {...props} />
     </div>
   ),
-  th: (props) => (
-    <th className="border border-border/70 bg-panel px-2 py-1 font-medium" {...props} />
-  ),
+  th: (props) => <th className="border border-border/70 bg-panel px-2 py-1 font-medium" {...props} />,
   td: (props) => <td className="border border-border/70 px-2 py-1 align-top" {...props} />,
   pre: (props) => (
     <pre
@@ -60,23 +59,28 @@ export default function AiAssistantPanel({
   return (
     <div className="flex h-full min-h-0 flex-col rounded-xl border border-border/90 bg-panel p-2">
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-sm font-semibold">AI 助手</div>
+        <div className="inline-flex items-center gap-2 text-sm font-semibold">
+          <Bot className="h-4 w-4 text-accent" aria-hidden="true" />
+          AI Assistant
+        </div>
         {aiAnswer?.suggestedCommand && (
           <button
             type="button"
-            className="rounded bg-accent px-2 py-1 text-xs text-white"
+            className="inline-flex items-center gap-1.5 rounded bg-accent px-2 py-1 text-xs text-white"
             onClick={onWriteSuggestedCommand}
           >
-            写入终端
+            <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
+            Insert Command
           </button>
         )}
       </div>
+
       <form className="shrink-0 space-y-2" onSubmit={onAskAi}>
         <textarea
           className="h-16 w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
           value={aiQuestion}
           onChange={(event) => setAiQuestion(event.target.value)}
-          placeholder="输入问题"
+          placeholder="Ask about system status, logs, or commands"
         />
         <div className="flex items-center justify-between gap-2">
           <label className="flex items-center gap-2 text-xs text-muted">
@@ -85,20 +89,25 @@ export default function AiAssistantPanel({
               checked={aiIncludeOutput}
               onChange={(event) => setAiIncludeOutput(event.target.checked)}
             />
-            读取终端结果
+            Include terminal output
           </label>
-          <button type="submit" className="rounded bg-accent px-3 py-1.5 text-xs text-white">
-            提问
+          <button type="submit" className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white">
+            <Send className="h-3.5 w-3.5" aria-hidden="true" />
+            Ask
           </button>
         </div>
       </form>
+
       <div className="mt-2 min-h-24 flex-1 overflow-auto rounded border border-border/80 bg-surface p-2 text-xs">
         {aiAnswer?.answer ? (
           <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
             {aiAnswer.answer}
           </ReactMarkdown>
         ) : (
-          <div className="text-muted">AI 回答会显示在这里</div>
+          <div className="inline-flex items-center gap-2 text-muted">
+            <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+            AI response will appear here
+          </div>
         )}
       </div>
     </div>

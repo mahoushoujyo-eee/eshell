@@ -9,5 +9,16 @@
     "description": "",
     "createdAt": "2026-02-10T11:27:29.565779100+00:00",
     "updatedAt": "2026-02-10T11:29:20.901812300+00:00"
+  },
+  {
+    "id": "c9d4c8e9-99bc-45e1-9d75-06cea45fb8d8",
+    "name": "mfnat",
+    "host": "111.170.6.7",
+    "port": 8053,
+    "username": "root",
+    "password": "Edu9527",
+    "description": "",
+    "createdAt": "2026-02-14T02:00:28.596280900+00:00",
+    "updatedAt": "2026-02-14T02:00:28.596280900+00:00"
   }
 ]

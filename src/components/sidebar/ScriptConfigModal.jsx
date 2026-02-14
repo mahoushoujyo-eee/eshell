@@ -1,3 +1,4 @@
+﻿import { ArrowLeft, FileText, Pencil, Play, Plus, Save, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const EMPTY_SCRIPT_FORM = {
@@ -46,74 +47,76 @@ export default function ScriptConfigModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={onClose}>
       <div
         className="w-full max-w-xl rounded-2xl border border-border/80 bg-panel p-4 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <h3 className="text-base font-semibold">脚本管理</h3>
-            <p className="text-xs text-muted">集中管理脚本并在当前会话一键执行</p>
+            <h3 className="inline-flex items-center gap-2 text-base font-semibold">
+              <FileText className="h-4 w-4 text-accent" aria-hidden="true" />
+              Scripts
+            </h3>
+            <p className="text-xs text-muted">Manage scripts and execute them in the active SSH session.</p>
           </div>
           <button
             type="button"
-            className="rounded border border-border px-2 py-1 text-xs text-muted hover:bg-accent-soft"
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted hover:bg-accent-soft"
             onClick={onClose}
           >
-            关闭
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+            Close
           </button>
         </div>
 
         {mode === "list" ? (
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">已配置脚本：{scripts.length}</span>
+              <span className="text-sm text-muted">Configured: {scripts.length}</span>
               <button
                 type="button"
-                className="rounded bg-accent px-3 py-1.5 text-xs text-white"
+                className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white"
                 onClick={openCreateForm}
               >
-                新建脚本
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                New Script
               </button>
             </div>
             <div className="max-h-96 space-y-2 overflow-auto pr-1">
               {scripts.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border/80 bg-surface p-4 text-center text-sm text-muted">
-                  暂无脚本，点击“新建脚本”开始添加。
+                  No scripts yet.
                 </div>
               ) : (
                 scripts.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded-lg border border-border/70 bg-surface px-3 py-2 text-xs"
-                  >
+                  <div key={item.id} className="rounded-lg border border-border/70 bg-surface px-3 py-2 text-xs">
                     <div className="font-medium">{item.name}</div>
                     <div className="truncate text-muted">{item.command || item.path}</div>
                     <div className="mt-2 flex gap-1">
                       <button
                         type="button"
-                        className="rounded bg-accent px-2 py-1 text-white"
+                        className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-white"
                         onClick={() => onRunScript(item.id)}
                       >
-                        运行
+                        <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                        Run
                       </button>
                       <button
                         type="button"
-                        className="rounded border border-border px-2 py-1"
+                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1"
                         onClick={() => openEditForm(item)}
                       >
-                        编辑
+                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                        Edit
                       </button>
                       <button
                         type="button"
-                        className="rounded border border-danger/40 px-2 py-1 text-danger"
+                        className="inline-flex items-center gap-1 rounded border border-danger/40 px-2 py-1 text-danger"
                         onClick={() => onDeleteScript(item.id)}
                       >
-                        删除
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        Delete
                       </button>
                     </div>
                   </div>
@@ -124,39 +127,39 @@ export default function ScriptConfigModal({
         ) : (
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">{scriptForm.id ? "编辑脚本" : "新建脚本"}</span>
+              <span className="text-sm text-muted">{scriptForm.id ? "Edit script" : "New script"}</span>
               <button
                 type="button"
-                className="rounded border border-border px-2 py-1 text-xs"
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs"
                 onClick={() => setMode("list")}
               >
-                返回列表
+                <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                Back
               </button>
             </div>
             <form className="space-y-2" onSubmit={submitScript}>
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="脚本名称"
+                placeholder="Script name"
                 value={scriptForm.name}
                 onChange={(event) => setScriptForm((prev) => ({ ...prev, name: event.target.value }))}
               />
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="脚本路径"
+                placeholder="Script path"
                 value={scriptForm.path}
                 onChange={(event) => setScriptForm((prev) => ({ ...prev, path: event.target.value }))}
               />
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="执行命令"
+                placeholder="Run command"
                 value={scriptForm.command}
-                onChange={(event) =>
-                  setScriptForm((prev) => ({ ...prev, command: event.target.value }))
-                }
+                onChange={(event) => setScriptForm((prev) => ({ ...prev, command: event.target.value }))}
               />
               <div className="flex justify-end">
-                <button type="submit" className="rounded bg-accent px-3 py-1.5 text-xs text-white">
-                  {scriptForm.id ? "更新脚本" : "创建脚本"}
+                <button type="submit" className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white">
+                  <Save className="h-3.5 w-3.5" aria-hidden="true" />
+                  {scriptForm.id ? "Update Script" : "Create Script"}
                 </button>
               </div>
             </form>

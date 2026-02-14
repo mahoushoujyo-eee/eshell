@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
-use ssh2::{FileStat, Session};
+use ssh2::{ErrorCode, FileStat, Session};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
@@ -16,7 +16,7 @@ use crate::models::{
 };
 use crate::state::AppState;
 use crate::status_parser::{
-    parse_cpu_and_memory, parse_disks, parse_network_interfaces, parse_top_processes,
+    parse_cpu_percent, parse_disks, parse_memory, parse_network_interfaces, parse_top_processes,
 };
 
 /// Creates a shell session after validating that SSH credentials are usable.
@@ -240,15 +240,13 @@ pub fn fetch_server_status(state: &AppState, input: FetchServerStatusInput) -> A
     let config = state.storage.find_ssh_config(&session.config_id)?;
     let ssh = connect(&config)?;
 
-    let top_output = run_channel_command(&ssh, "LANG=C top -bn1 | head -n 5")?.0;
-    let (cpu_percent, memory) = parse_cpu_and_memory(&top_output).unwrap_or((
-        0.0,
-        MemoryStatus {
-            used_mb: 0.0,
-            total_mb: 0.0,
-            used_percent: 0.0,
-        },
-    ));
+    let top_output = run_channel_command(&ssh, "LANG=C top -bn1 | head -n 10")?.0;
+    let cpu_percent = parse_cpu_percent(&top_output).unwrap_or(0.0);
+    let memory = parse_memory(&top_output).unwrap_or(MemoryStatus {
+        used_mb: 0.0,
+        total_mb: 0.0,
+        used_percent: 0.0,
+    });
 
     let net_output = run_channel_command(&ssh, "cat /proc/net/dev")?.0;
     let network_interfaces = parse_network_interfaces(&net_output);
@@ -396,7 +394,9 @@ fn connect(config: &SshConfig) -> AppResult<Session> {
 
     let mut session = Session::new()?;
     session.set_tcp_stream(tcp);
-    session.handshake()?;
+    session
+        .handshake()
+        .map_err(|err| map_handshake_error(config, err))?;
     session.userauth_password(&config.username, &config.password)?;
 
     if !session.authenticated() {
@@ -407,6 +407,24 @@ fn connect(config: &SshConfig) -> AppResult<Session> {
     }
 
     Ok(session)
+}
+
+fn map_handshake_error(config: &SshConfig, err: ssh2::Error) -> AppError {
+    match err.code() {
+        ErrorCode::Session(-8) => {
+            let detail = err.message().trim();
+            let detail_suffix = if detail.is_empty() {
+                String::new()
+            } else {
+                format!(" (detail: {detail})")
+            };
+            AppError::Runtime(format!(
+                "SSH key exchange failed for {}@{}:{} (Session -8). Client and server could not negotiate compatible algorithms (KEX/Cipher/HostKey/MAC). Please check server-side sshd algorithm settings or use a host with modern SSH settings.{detail_suffix}",
+                config.username, config.host, config.port
+            ))
+        }
+        _ => AppError::Ssh(err),
+    }
 }
 
 fn run_channel_command(session: &Session, command: &str) -> AppResult<(String, String, i32)> {

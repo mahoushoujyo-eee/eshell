@@ -1,7 +1,8 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import SplitPane from "./components/SplitPane";
 import TopToolbar from "./components/layout/TopToolbar";
 import AiAssistantPanel from "./components/panels/AiAssistantPanel";
+import FileEditorModal from "./components/panels/FileEditorModal";
 import SftpPanel from "./components/panels/SftpPanel";
 import StatusPanel from "./components/panels/StatusPanel";
 import TerminalPanel from "./components/panels/TerminalPanel";
@@ -15,6 +16,7 @@ function App() {
   const [isSshModalOpen, setIsSshModalOpen] = useState(false);
   const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isFileEditorOpen, setIsFileEditorOpen] = useState(false);
 
   const {
     theme,
@@ -73,8 +75,8 @@ function App() {
     handleDeleteScript,
     handleNicChange,
     handleOpenFileContentChange,
-    segments,
-    formatBytes,
+      segments,
+      formatBytes,
   } = useWorkbench();
 
   const sftpPanel = (
@@ -88,10 +90,7 @@ function App() {
       segments={segments}
       sftpEntries={sftpEntries}
       openEntry={openEntry}
-      openFilePath={openFilePath}
-      dirtyFile={dirtyFile}
-      openFileContent={openFileContent}
-      onOpenFileContentChange={handleOpenFileContentChange}
+      onOpenFileEditor={() => setIsFileEditorOpen(true)}
       formatBytes={formatBytes}
     />
   );
@@ -154,8 +153,7 @@ function App() {
   } else {
     bottomPanelsContent = (
       <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border/80 bg-panel/70 p-3 text-xs text-muted">
-        已隐藏全部面板，请在左侧导航栏开启 SFTP / 状态 / AI 面板。
-      </div>
+        宸查殣钘忓叏閮ㄩ潰鏉匡紝璇峰湪宸︿晶瀵艰埅鏍忓紑鍚?SFTP / 鐘舵€?/ AI 闈㈡澘銆?      </div>
     );
   }
 
@@ -176,6 +174,8 @@ function App() {
           onToggleAiPanel={() => setShowAiPanel((prev) => !prev)}
           onNextWallpaper={() => setWallpaper((prev) => (prev + 1) % WALLPAPERS.length)}
           onToggleTheme={() => setTheme((prev) => (prev === "light" ? "dark" : "light"))}
+          busy={busy}
+          error={error}
         />
 
         <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -203,11 +203,6 @@ function App() {
               secondary={<section className="h-full p-3 pt-0">{bottomPanelsContent}</section>}
             />
           </div>
-
-          <footer className="panel-card flex items-center justify-between px-4 py-2 text-xs">
-            <div className="text-muted">{busy ? `进行中: ${busy}` : "就绪"}</div>
-            <div className="max-w-[60%] truncate text-right text-danger">{error}</div>
-          </footer>
         </div>
       </div>
 
@@ -240,8 +235,19 @@ function App() {
         setAiConfig={setAiConfig}
         onSaveAi={saveAi}
       />
+
+      <FileEditorModal
+        open={isFileEditorOpen}
+        onClose={() => setIsFileEditorOpen(false)}
+        filePath={openFilePath}
+        fileContent={openFileContent}
+        onFileContentChange={handleOpenFileContentChange}
+        dirtyFile={dirtyFile}
+        theme={theme}
+      />
     </div>
   );
 }
 
 export default App;
+

@@ -1,44 +1,62 @@
 use crate::models::{DiskStatus, MemoryStatus, NetworkInterfaceStatus, ProcessStatus};
 
 /// Parses `top -bn1` output and extracts CPU usage plus memory totals.
+#[allow(dead_code)]
 pub fn parse_cpu_and_memory(top_output: &str) -> Option<(f64, MemoryStatus)> {
-    let mut cpu_percent = None;
-    let mut total_mb = None;
-    let mut used_mb = None;
+    let cpu = parse_cpu_percent(top_output)?;
+    let memory = parse_memory(top_output)?;
+    Some((cpu, memory))
+}
 
+/// Parses CPU usage percent from `top -bn1` output.
+pub fn parse_cpu_percent(top_output: &str) -> Option<f64> {
     for line in top_output.lines() {
         let lower = line.to_ascii_lowercase();
-        if lower.contains("cpu") && lower.contains(" id") {
-            // Typical line: "%Cpu(s):  1.4 us, ... 97.9 id, ..."
-            if let Some(idle_value) = extract_metric_value(&lower, " id") {
-                cpu_percent = Some((100.0 - idle_value).max(0.0));
-            }
+        if !lower.contains("cpu") {
+            continue;
         }
 
-        if lower.contains("mem") && lower.contains("total") {
-            // Typical line: "MiB Mem : 15935.1 total, 1200.2 free, 4300.0 used, ..."
-            total_mb = extract_metric_value(&lower, " total");
-            used_mb = extract_metric_value(&lower, " used");
+        // procps top: "%Cpu(s): ... 96.0 id, ..."
+        // busybox top: "CPU: ... 96.0% idle ..."
+        let idle = extract_metric_value(&lower, " id")
+            .or_else(|| extract_metric_value(&lower, "%id"))
+            .or_else(|| extract_metric_value(&lower, " idle"))
+            .or_else(|| extract_metric_value(&lower, "%idle"))
+            .or_else(|| extract_value_before_keyword(&lower, &["idle", "%idle", "id", "%id"]));
+
+        if let Some(idle_value) = idle {
+            let cpu = (100.0 - idle_value).clamp(0.0, 100.0);
+            return Some(round2(cpu));
         }
     }
 
-    let cpu = cpu_percent?;
-    let total = total_mb?;
-    let used = used_mb?;
-    let used_percent = if total <= 0.0 {
-        0.0
-    } else {
-        (used / total * 100.0).min(100.0)
-    };
+    None
+}
 
-    Some((
-        cpu,
-        MemoryStatus {
-            used_mb: round2(used),
-            total_mb: round2(total),
-            used_percent: round2(used_percent),
-        },
-    ))
+/// Parses memory usage from `top -bn1` output and converts values to MiB.
+pub fn parse_memory(top_output: &str) -> Option<MemoryStatus> {
+    for line in top_output.lines() {
+        let lower = line.to_ascii_lowercase();
+
+        // procps top:
+        // "MiB Mem : 15935.1 total, 1200.2 free, 4300.0 used, ..."
+        if lower.contains("mem") && lower.contains("total") {
+            let total = extract_metric_value(&lower, " total")?;
+            let used = extract_metric_value(&lower, " used")?;
+            return Some(build_memory_status(used, total));
+        }
+
+        // busybox top:
+        // "Mem: 913392K used, 295116K free, ..."
+        if lower.contains("mem:") && lower.contains(" used") && lower.contains(" free") {
+            let used = extract_metric_value_mb(&lower, " used")?;
+            let free = extract_metric_value_mb(&lower, " free")?;
+            let total = used + free;
+            return Some(build_memory_status(used, total));
+        }
+    }
+
+    None
 }
 
 /// Parses `/proc/net/dev` output to per-interface RX/TX traffic.
@@ -137,6 +155,77 @@ fn extract_metric_value(line: &str, suffix: &str) -> Option<f64> {
     None
 }
 
+fn extract_metric_value_mb(line: &str, suffix: &str) -> Option<f64> {
+    for segment in line.split(',') {
+        let piece = segment.trim();
+        if !piece.ends_with(suffix) {
+            continue;
+        }
+
+        let without_suffix = piece.trim_end_matches(suffix).trim();
+        let token = without_suffix.split_whitespace().last()?;
+        if let Some(value) = parse_to_mb(token) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn extract_value_before_keyword(line: &str, keywords: &[&str]) -> Option<f64> {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    for idx in 1..tokens.len() {
+        let token = tokens[idx].trim_matches(',').trim_matches(':');
+        if !keywords.contains(&token) {
+            continue;
+        }
+
+        let prev = tokens[idx - 1].trim_matches(',').trim_matches(':');
+        if let Ok(value) = prev.trim_end_matches('%').parse::<f64>() {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn parse_to_mb(token: &str) -> Option<f64> {
+    let lower = token.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return None;
+    }
+
+    let mut split_at = lower.len();
+    for (idx, ch) in lower.char_indices() {
+        if !ch.is_ascii_digit() && ch != '.' {
+            split_at = idx;
+            break;
+        }
+    }
+
+    let number = lower[..split_at].parse::<f64>().ok()?;
+    let unit = lower[split_at..].trim();
+    let mib = match unit {
+        "" | "m" | "mb" | "mi" | "mib" => number,
+        "k" | "kb" | "ki" | "kib" => number / 1024.0,
+        "g" | "gb" | "gi" | "gib" => number * 1024.0,
+        "t" | "tb" | "ti" | "tib" => number * 1024.0 * 1024.0,
+        _ => return None,
+    };
+    Some(mib)
+}
+
+fn build_memory_status(used: f64, total: f64) -> MemoryStatus {
+    let used_percent = if total <= 0.0 {
+        0.0
+    } else {
+        (used / total * 100.0).min(100.0)
+    };
+    MemoryStatus {
+        used_mb: round2(used),
+        total_mb: round2(total),
+        used_percent: round2(used_percent),
+    }
+}
+
 fn round2(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
@@ -156,6 +245,19 @@ MiB Mem :  8000.0 total,  1200.0 free,  3500.0 used,  3300.0 buff/cache
         assert_eq!(parsed.0, 4.0);
         assert_eq!(parsed.1.total_mb, 8000.0);
         assert_eq!(parsed.1.used_percent, 43.75);
+    }
+
+    #[test]
+    fn parse_cpu_and_memory_busybox_works() {
+        let top = r#"
+Mem: 15935K used, 1000K free, 0K shrd, 0K buff, 0K cached
+CPU: 1.0% usr 2.0% sys 0.0% nic 96.0% idle 0.0% io 0.0% irq 0.0% sirq
+"#;
+        let parsed = parse_cpu_and_memory(top).expect("parse busybox");
+        assert_eq!(parsed.0, 4.0);
+        assert_eq!(parsed.1.used_mb, 15.56);
+        assert_eq!(parsed.1.total_mb, 16.54);
+        assert_eq!(parsed.1.used_percent, 94.1);
     }
 
     #[test]

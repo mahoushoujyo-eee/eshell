@@ -8,7 +8,6 @@ import { joinPath, normalizeRemotePath, splitPath } from "../utils/path";
 export function useWorkbench() {
   const [theme, setTheme] = useState("light");
   const [wallpaper, setWallpaper] = useState(1);
-  const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState(true);
   const [showSftpPanel, setShowSftpPanel] = useState(true);
   const [showStatusPanel, setShowStatusPanel] = useState(true);
   const [showAiPanel, setShowAiPanel] = useState(true);
@@ -240,20 +239,22 @@ export function useWorkbench() {
   const openEntry = useCallback(
     async (entry) => {
       if (!activeSessionId) {
-        return;
+        return { opened: false };
       }
       setSelectedEntry(entry);
       if (entry.entryType === "directory") {
         await refreshSftp(entry.path);
-        return;
+        return { opened: false };
       }
       try {
         const file = await runBusy("读取文件", () => api.sftpReadFile(activeSessionId, entry.path));
         setOpenFilePath(normalizeRemotePath(file.path));
         setOpenFileContent(file.content || "");
         setDirtyFile(false);
+        return { opened: true, path: normalizeRemotePath(file.path) };
       } catch (err) {
         onError(err);
+        return { opened: false };
       }
     },
     [activeSessionId, onError, refreshSftp, runBusy],
@@ -494,8 +495,6 @@ export function useWorkbench() {
     setTheme,
     wallpaper,
     setWallpaper,
-    isLeftDrawerOpen,
-    setIsLeftDrawerOpen,
     showSftpPanel,
     setShowSftpPanel,
     showStatusPanel,

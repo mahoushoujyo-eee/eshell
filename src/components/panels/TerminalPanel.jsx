@@ -1,3 +1,5 @@
+﻿import { FolderOpen, Play, Terminal, X } from "lucide-react";
+
 export default function TerminalPanel({
   sessions,
   activeSessionId,
@@ -20,39 +22,64 @@ export default function TerminalPanel({
               <div
                 key={session.id}
                 className={[
-                  "group flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs",
-                  activeSessionId === session.id ? "bg-accent text-white" : "bg-surface text-text",
+                  "group flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs",
+                  activeSessionId === session.id
+                    ? "border-accent bg-accent text-white"
+                    : "border-border bg-surface text-text",
                 ].join(" ")}
               >
-                <button type="button" className="truncate" onClick={() => onSelectSession(session.id)}>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 truncate"
+                  onClick={() => onSelectSession(session.id)}
+                >
+                  <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
                   {session.configName}
                 </button>
-                <button type="button" className="rounded px-1" onClick={() => onCloseSession(session.id)}>
-                  ×
+                <button
+                  type="button"
+                  className="rounded p-0.5 text-current/80 transition-colors hover:bg-black/10 hover:text-current"
+                  onClick={() => onCloseSession(session.id)}
+                  aria-label={`Close session ${session.configName}`}
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               </div>
             ))}
-            {sessions.length === 0 && <div className="px-2 py-1 text-xs text-muted">暂无活跃会话</div>}
+            {sessions.length === 0 && (
+              <div className="inline-flex items-center gap-2 px-2 py-1 text-xs text-muted">
+                <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
+                No active sessions
+              </div>
+            )}
           </div>
+
           {activeSession && (
-            <div className="rounded bg-accent-soft px-2 py-1 text-xs text-muted">{activeSession.currentDir}</div>
+            <div className="inline-flex max-w-[45%] items-center gap-1 rounded bg-accent-soft px-2 py-1 text-xs text-muted">
+              <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{activeSession.currentDir}</span>
+            </div>
           )}
         </header>
 
         <form className="mb-2 flex gap-2" onSubmit={onExecCommand}>
-          <input
-            className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm"
-            placeholder={activeSession ? "输入远程命令" : "请先建立会话"}
-            value={commandInput}
-            disabled={!activeSession}
-            onChange={(event) => setCommandInput(event.target.value)}
-          />
+          <div className="relative flex-1">
+            <Terminal className="pointer-events-none absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+            <input
+              className="w-full rounded-md border border-border bg-surface px-8 py-2 text-sm"
+              placeholder={activeSession ? "Run command" : "Connect a session first"}
+              value={commandInput}
+              disabled={!activeSession}
+              onChange={(event) => setCommandInput(event.target.value)}
+            />
+          </div>
           <button
             type="submit"
             disabled={!activeSession}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
           >
-            执行
+            <Play className="h-4 w-4" aria-hidden="true" />
+            Run
           </button>
         </form>
 
@@ -73,7 +100,12 @@ export default function TerminalPanel({
               <pre className="whitespace-pre-wrap break-words">{row.text}</pre>
             </div>
           ))}
-          {currentLogs.length === 0 && <div className="text-[#93b9a2]">终端输出显示区域</div>}
+          {currentLogs.length === 0 && (
+            <div className="inline-flex items-center gap-2 text-[#93b9a2]">
+              <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
+              Terminal output appears here
+            </div>
+          )}
         </div>
       </div>
     </section>
