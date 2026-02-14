@@ -59,6 +59,11 @@ const DEFAULT_AI_PROFILE_FORM = {
 };
 
 const shellQuote = (value) => `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
+const emptyAiStream = Object.freeze({
+  runId: null,
+  conversationId: null,
+  text: "",
+});
 
 const TERMINAL_MAX_OUTPUT_CHARS = 240_000;
 
@@ -67,6 +72,19 @@ const trimTerminalOutput = (value) => {
     return value;
   }
   return value.slice(value.length - TERMINAL_MAX_OUTPUT_CHARS);
+};
+
+const upsertPendingAction = (rows, nextAction) => {
+  if (!nextAction?.id) {
+    return rows;
+  }
+  const index = rows.findIndex((item) => item.id === nextAction.id);
+  if (index === -1) {
+    return [nextAction, ...rows];
+  }
+  const next = [...rows];
+  next[index] = nextAction;
+  return next;
 };
 
 export function useWorkbench() {
@@ -105,8 +123,12 @@ export function useWorkbench() {
   const [activeAiProfileId, setActiveAiProfileId] = useState(null);
   const [aiProfileForm, setAiProfileForm] = useState(DEFAULT_AI_PROFILE_FORM);
   const [aiQuestion, setAiQuestion] = useState("");
-  const [aiIncludeOutput, setAiIncludeOutput] = useState(true);
-  const [aiAnswer, setAiAnswer] = useState(null);
+  const [aiConversations, setAiConversations] = useState([]);
+  const [activeAiConversationId, setActiveAiConversationId] = useState(null);
+  const [activeAiConversation, setActiveAiConversation] = useState(null);
+  const [aiPendingActions, setAiPendingActions] = useState([]);
+  const [aiStream, setAiStream] = useState(emptyAiStream);
+  const [resolvingAiActionId, setResolvingAiActionId] = useState("");
 
   const saveTimerRef = useRef(null);
 
@@ -191,22 +213,62 @@ export function useWorkbench() {
     return null;
   }, []);
 
+  const reloadAiConversations = useCallback(async () => {
+    const rows = await api.opsAgentListConversations();
+    setAiConversations(rows);
+    return rows;
+  }, []);
+
+  const loadAiConversation = useCallback(
+    async (conversationId) => {
+      if (!conversationId) {
+        setActiveAiConversation(null);
+        return null;
+      }
+      const conversation = await api.opsAgentGetConversation(conversationId);
+      setActiveAiConversation(conversation);
+      return conversation;
+    },
+    [],
+  );
+
+  const reloadAiPendingActions = useCallback(
+    async (sessionId) => {
+      const rows = await api.opsAgentListPendingActions(sessionId || null, true);
+      setAiPendingActions(rows);
+      return rows;
+    },
+    [],
+  );
+
   const bootstrap = useCallback(async () => {
     try {
       setBusy("Loading project");
-      const [configs, scriptRows, aiProfilesState, opened] = await Promise.all([
+      const [configs, scriptRows, aiProfilesState, opened, conversations, pendingActions] = await Promise.all([
         api.listSshConfigs(),
         api.listScripts(),
         api.listAiProfiles(),
         api.listShellSessions(),
+        api.opsAgentListConversations(),
+        api.opsAgentListPendingActions(null, true),
       ]);
       setSshConfigs(configs);
       setScripts(scriptRows);
       applyAiProfilesState(aiProfilesState);
+      setAiConversations(conversations);
+      setAiPendingActions(pendingActions);
 
       setSessions(opened);
       if (opened[0]) {
         setActiveSessionId(opened[0].id);
+      }
+      const initialConversationId = conversations[0]?.id || null;
+      setActiveAiConversationId(initialConversationId);
+      if (initialConversationId) {
+        const conversation = await api.opsAgentGetConversation(initialConversationId);
+        setActiveAiConversation(conversation);
+      } else {
+        setActiveAiConversation(null);
       }
     } catch (err) {
       onError(err);
@@ -540,30 +602,137 @@ export function useWorkbench() {
     [applyAiProfilesState, onError, runBusy],
   );
 
-  const askAi = useCallback(
-    async (event) => {
-      event.preventDefault();
-      if (!aiQuestion.trim()) {
+  const selectAiConversation = useCallback(
+    async (conversationId) => {
+      if (!conversationId) {
         return;
       }
       try {
-        const answer = await runBusy("AI response", () =>
-          api.askAi({
-            sessionId: activeSessionId || null,
-            question: aiQuestion,
-            includeLastOutput: aiIncludeOutput,
-          }),
-        );
-        setAiAnswer(answer);
+        await api.opsAgentSetActiveConversation(conversationId);
+        setActiveAiConversationId(conversationId);
+        await Promise.all([loadAiConversation(conversationId), reloadAiConversations()]);
       } catch (err) {
         onError(err);
       }
     },
+    [loadAiConversation, onError, reloadAiConversations],
+  );
+
+  const createAiConversation = useCallback(async () => {
+    try {
+      const created = await runBusy("Create AI conversation", () =>
+        api.opsAgentCreateConversation(null, activeSessionId || null),
+      );
+      setActiveAiConversationId(created.id);
+      setActiveAiConversation(created);
+      setAiQuestion("");
+      setAiStream(emptyAiStream);
+      await Promise.all([
+        reloadAiConversations(),
+        reloadAiPendingActions(activeSessionId || null),
+      ]);
+    } catch (err) {
+      onError(err);
+    }
+  }, [activeSessionId, onError, reloadAiConversations, reloadAiPendingActions, runBusy]);
+
+  const deleteAiConversation = useCallback(
+    async (conversationId) => {
+      if (!conversationId) {
+        return;
+      }
+      try {
+        await runBusy("Delete AI conversation", () =>
+          api.opsAgentDeleteConversation(conversationId),
+        );
+        const conversations = await reloadAiConversations();
+        const nextId = conversations[0]?.id || null;
+        setActiveAiConversationId(nextId);
+        if (nextId) {
+          await loadAiConversation(nextId);
+        } else {
+          setActiveAiConversation(null);
+        }
+      } catch (err) {
+        onError(err);
+      }
+    },
+    [loadAiConversation, onError, reloadAiConversations, runBusy],
+  );
+
+  const resolveAiPendingAction = useCallback(
+    async (actionId, approve) => {
+      if (!actionId) {
+        return;
+      }
+      setResolvingAiActionId(actionId);
+      try {
+        await runBusy(approve ? "Approve command" : "Reject command", () =>
+          api.opsAgentResolveAction(actionId, approve),
+        );
+        await Promise.all([
+          reloadAiPendingActions(activeSessionId || null),
+          activeAiConversationId ? loadAiConversation(activeAiConversationId) : Promise.resolve(),
+          reloadAiConversations(),
+        ]);
+      } catch (err) {
+        onError(err);
+      } finally {
+        setResolvingAiActionId("");
+      }
+    },
     [
+      activeAiConversationId,
       activeSessionId,
-      aiIncludeOutput,
-      aiQuestion,
+      loadAiConversation,
       onError,
+      reloadAiConversations,
+      reloadAiPendingActions,
+      runBusy,
+    ],
+  );
+
+  const askAi = useCallback(
+    async (event) => {
+      event.preventDefault();
+      const question = aiQuestion.trim();
+      if (!question || aiStream.runId) {
+        return;
+      }
+      try {
+        setAiQuestion("");
+        const accepted = await runBusy("AI response", () =>
+          api.opsAgentChatStreamStart({
+            conversationId: activeAiConversationId || null,
+            sessionId: activeSessionId || null,
+            question,
+          }),
+        );
+        setAiStream({
+          runId: accepted.runId,
+          conversationId: accepted.conversationId,
+          text: "",
+        });
+        setActiveAiConversationId(accepted.conversationId);
+        await Promise.all([
+          loadAiConversation(accepted.conversationId),
+          reloadAiConversations(),
+          reloadAiPendingActions(activeSessionId || null),
+        ]);
+      } catch (err) {
+        setAiQuestion(question);
+        onError(err);
+      }
+    },
+    [
+      activeAiConversationId,
+      activeSessionId,
+      aiQuestion,
+      aiStream.runId,
+      loadAiConversation,
+      onError,
+      reloadAiConversations,
+      reloadAiPendingActions,
       runBusy,
     ],
   );
@@ -605,6 +774,123 @@ export function useWorkbench() {
       });
     };
   }, [appendPtyOutput]);
+
+  useEffect(() => {
+    let disposed = false;
+    const unlistenPromise = listen("ops-agent-stream", (event) => {
+      const payload = event.payload;
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+
+      const runId = typeof payload.runId === "string" ? payload.runId : "";
+      const conversationId =
+        typeof payload.conversationId === "string" ? payload.conversationId : "";
+      const stage = typeof payload.stage === "string" ? payload.stage : "";
+      const chunk = typeof payload.chunk === "string" ? payload.chunk : "";
+      const errorMessage = typeof payload.error === "string" ? payload.error : "";
+      const pendingAction =
+        payload.pendingAction && typeof payload.pendingAction === "object"
+          ? payload.pendingAction
+          : null;
+
+      if (!stage) {
+        return;
+      }
+
+      if (stage === "error" && (!runId || !conversationId)) {
+        setAiStream(emptyAiStream);
+        if (errorMessage) {
+          onError(errorMessage);
+        }
+        return;
+      }
+
+      if (!runId || !conversationId) {
+        return;
+      }
+
+      if (stage === "started") {
+        setAiStream({ runId, conversationId, text: "" });
+        setActiveAiConversationId(conversationId);
+        return;
+      }
+
+      if (stage === "delta") {
+        setAiStream((prev) => {
+          if (prev.runId === runId) {
+            return { ...prev, text: `${prev.text}${chunk}` };
+          }
+          return { runId, conversationId, text: chunk };
+        });
+        return;
+      }
+
+      if (stage === "tool_read") {
+        void loadAiConversation(conversationId).catch(() => {});
+        return;
+      }
+
+      if (stage === "requires_approval") {
+        if (pendingAction) {
+          setAiPendingActions((prev) => upsertPendingAction(prev, pendingAction));
+        }
+        return;
+      }
+
+      if (stage === "completed") {
+        setAiStream((prev) => (prev.runId === runId ? emptyAiStream : prev));
+        if (pendingAction) {
+          setAiPendingActions((prev) => upsertPendingAction(prev, pendingAction));
+        }
+        void Promise.all([
+          loadAiConversation(conversationId),
+          reloadAiConversations(),
+          reloadAiPendingActions(activeSessionId || null),
+        ]).catch(() => {});
+        return;
+      }
+
+      if (stage === "error") {
+        setAiStream((prev) => (prev.runId === runId ? emptyAiStream : prev));
+        if (errorMessage) {
+          onError(errorMessage);
+        }
+      }
+    }).catch((error) => {
+      if (!disposed) {
+        console.warn("Failed to bind ops-agent-stream listener", error);
+      }
+      return null;
+    });
+
+    return () => {
+      disposed = true;
+      void unlistenPromise.then((unlisten) => {
+        if (typeof unlisten === "function") {
+          unlisten();
+        }
+      });
+    };
+  }, [
+    activeSessionId,
+    loadAiConversation,
+    onError,
+    reloadAiConversations,
+    reloadAiPendingActions,
+  ]);
+
+  useEffect(() => {
+    if (!activeAiConversationId) {
+      setActiveAiConversation(null);
+      return;
+    }
+    void loadAiConversation(activeAiConversationId).catch(onError);
+  }, [activeAiConversationId, loadAiConversation, onError]);
+
+  useEffect(() => {
+    void reloadAiPendingActions(activeSessionId || null).catch(() => {});
+  }, [activeSessionId, reloadAiPendingActions]);
 
   useEffect(() => {
     if (!activeSessionId) {
@@ -649,8 +935,11 @@ export function useWorkbench() {
     };
   }, [activeSessionId, dirtyFile, onError, openFileContent, openFilePath, runBusy]);
 
-  const currentLogs = activeSessionId ? logs[activeSessionId] || [] : [];
   const currentPtyOutput = activeSessionId ? ptyOutputBySession[activeSessionId] || "" : "";
+  const aiStreamingText =
+    aiStream.conversationId === activeAiConversationId ? aiStream.text : "";
+  const isAiStreaming =
+    Boolean(aiStream.runId) && aiStream.conversationId === activeAiConversationId;
 
   const handleDeleteSsh = useCallback(
     async (sshId) => {
@@ -717,7 +1006,6 @@ export function useWorkbench() {
     activeSession,
     commandInput,
     setCommandInput,
-    currentLogs,
     currentPtyOutput,
     currentPath,
     currentStatus,
@@ -734,9 +1022,13 @@ export function useWorkbench() {
     setAiProfileForm,
     aiQuestion,
     setAiQuestion,
-    aiIncludeOutput,
-    setAiIncludeOutput,
-    aiAnswer,
+    aiConversations,
+    activeAiConversationId,
+    activeAiConversation,
+    aiPendingActions,
+    isAiStreaming,
+    aiStreamingText,
+    resolvingAiActionId,
     saveSsh,
     connectServer,
     closeSession,
@@ -750,6 +1042,10 @@ export function useWorkbench() {
     saveAiProfile,
     selectAiProfile,
     deleteAiProfile,
+    selectAiConversation,
+    createAiConversation,
+    deleteAiConversation,
+    resolveAiPendingAction,
     askAi,
     requestSftpDir,
     refreshSftp,

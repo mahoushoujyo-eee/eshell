@@ -5,6 +5,7 @@ use std::sync::RwLock;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{ServerStatus, ShellSession};
+use crate::ops_agent::store::OpsAgentStore;
 use crate::storage::Storage;
 
 #[derive(Debug, Clone)]
@@ -22,6 +23,7 @@ pub enum PtyCommand {
 /// - Keep core logic testable by not tightly coupling service code to Tauri types.
 pub struct AppState {
     pub storage: Storage,
+    pub ops_agent: OpsAgentStore,
     sessions: RwLock<HashMap<String, ShellSession>>,
     status_cache: RwLock<HashMap<String, ServerStatus>>,
     pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>,
@@ -31,7 +33,8 @@ impl AppState {
     /// Creates a fully initialized state object backed by a storage root path.
     pub fn new(storage_root: PathBuf) -> AppResult<Self> {
         Ok(Self {
-            storage: Storage::new(storage_root)?,
+            storage: Storage::new(storage_root.clone())?,
+            ops_agent: OpsAgentStore::new(storage_root)?,
             sessions: RwLock::new(HashMap::new()),
             status_cache: RwLock::new(HashMap::new()),
             pty_channels: RwLock::new(HashMap::new()),

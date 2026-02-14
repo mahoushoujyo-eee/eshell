@@ -2,6 +2,7 @@ mod ai_service;
 mod commands;
 mod error;
 mod models;
+mod ops_agent;
 mod ssh_service;
 mod state;
 mod status_parser;
@@ -54,6 +55,14 @@ pub fn run() {
             commands::delete_ai_profile,
             commands::set_active_ai_profile,
             commands::save_ai_config,
+            commands::ops_agent_list_conversations,
+            commands::ops_agent_create_conversation,
+            commands::ops_agent_get_conversation,
+            commands::ops_agent_delete_conversation,
+            commands::ops_agent_set_active_conversation,
+            commands::ops_agent_chat_stream_start,
+            commands::ops_agent_list_pending_actions,
+            commands::ops_agent_resolve_action,
             commands::ai_ask
         ])
         .run(tauri::generate_context!())

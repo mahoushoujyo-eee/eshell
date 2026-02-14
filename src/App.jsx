@@ -59,9 +59,13 @@ function App() {
     setAiProfileForm,
     aiQuestion,
     setAiQuestion,
-    aiIncludeOutput,
-    setAiIncludeOutput,
-    aiAnswer,
+    aiConversations,
+    activeAiConversationId,
+    activeAiConversation,
+    aiPendingActions,
+    isAiStreaming,
+    aiStreamingText,
+    resolvingAiActionId,
     saveSsh,
     connectServer,
     closeSession,
@@ -75,6 +79,10 @@ function App() {
     saveAiProfile,
     selectAiProfile,
     deleteAiProfile,
+    selectAiConversation,
+    createAiConversation,
+    deleteAiConversation,
+    resolveAiPendingAction,
     askAi,
     requestSftpDir,
     refreshSftp,
@@ -113,15 +121,22 @@ function App() {
 
   const aiPanel = (
     <AiAssistantPanel
-      aiAnswer={aiAnswer}
-      onWriteSuggestedCommand={() => setCommandInput(aiAnswer?.suggestedCommand || "")}
       aiProfiles={aiProfiles}
       activeAiProfileId={activeAiProfileId}
       onSelectAiProfile={selectAiProfile}
+      conversations={aiConversations}
+      activeConversationId={activeAiConversationId}
+      activeConversation={activeAiConversation}
+      onCreateConversation={createAiConversation}
+      onSelectConversation={selectAiConversation}
+      onDeleteConversation={deleteAiConversation}
+      pendingActions={aiPendingActions}
+      onResolvePendingAction={resolveAiPendingAction}
+      resolvingActionId={resolvingAiActionId}
       aiQuestion={aiQuestion}
       setAiQuestion={setAiQuestion}
-      aiIncludeOutput={aiIncludeOutput}
-      setAiIncludeOutput={setAiIncludeOutput}
+      isStreaming={isAiStreaming}
+      streamingText={aiStreamingText}
       onAskAi={askAi}
     />
   );

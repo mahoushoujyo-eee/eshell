@@ -51,4 +51,20 @@ export const api = {
   setActiveAiProfile: (id) =>
     invoke("set_active_ai_profile", { input: { id } }),
   askAi: (input) => invoke("ai_ask", { input }),
+
+  opsAgentListConversations: () => invoke("ops_agent_list_conversations"),
+  opsAgentCreateConversation: (title, sessionId = null) =>
+    invoke("ops_agent_create_conversation", { input: { title, sessionId } }),
+  opsAgentGetConversation: (conversationId) =>
+    invoke("ops_agent_get_conversation", { input: { conversationId } }),
+  opsAgentDeleteConversation: (conversationId) =>
+    invoke("ops_agent_delete_conversation", { input: { conversationId } }),
+  opsAgentSetActiveConversation: (conversationId) =>
+    invoke("ops_agent_set_active_conversation", { input: { conversationId } }),
+  opsAgentChatStreamStart: (input) =>
+    invoke("ops_agent_chat_stream_start", { input }),
+  opsAgentListPendingActions: (sessionId = null, onlyPending = true) =>
+    invoke("ops_agent_list_pending_actions", { input: { sessionId, onlyPending } }),
+  opsAgentResolveAction: (actionId, approve) =>
+    invoke("ops_agent_resolve_action", { input: { actionId, approve } }),
 };
