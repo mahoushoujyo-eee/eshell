@@ -1,5 +1,9 @@
 # eShell
 
+<p align="center">
+  <img src="docs/Shell.png" alt="eShell Logo" width="180" />
+</p>
+
 eShell 是一个基于 **Tauri 2 + React + Rust** 的桌面运维工作台，交互风格参考 FinalShell。  
 目标是把常见运维动作集中到一个界面内完成：`SSH`、`PTY 终端`、`SFTP`、`状态监控`、`脚本执行`、`AI 运维 Agent`。
 
