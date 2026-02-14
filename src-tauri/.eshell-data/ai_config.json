@@ -1,9 +1,0 @@
-{
-  "baseUrl": "https://api-inference.modelscope.cn/v1",
-  "apiKey": "ms-051829f9-88bc-48ac-9e0f-b5e0a595a3c4",
-  "model": "moonshotai/Kimi-K2.5",
-  "systemPrompt": "You are a Linux operations assistant. Return concise answers and include safe shell commands when needed.",
-  "temperature": 0.2,
-  "maxTokens": 800,
-  "updatedAt": "2026-02-10T11:31:04.498985300+00:00"
-}
