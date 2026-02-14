@@ -5,11 +5,12 @@ use tauri::State;
 use crate::ai_service;
 use crate::error::{to_command_error, AppError, AppResult};
 use crate::models::{
-    AiAnswer, AiAskInput, AiConfig, AiConfigInput, CloseShellInput, CommandExecutionResult,
-    ExecuteCommandInput, FetchServerStatusInput, OpenShellInput, RunScriptInput, RunScriptResult,
-    ScriptDefinition, ScriptInput, SftpDownloadInput, SftpDownloadPayload, SftpFileContent,
-    SftpListInput, SftpListResponse, SftpReadInput, SftpUploadInput, SftpWriteInput, ShellSession,
-    SshConfig, SshConfigInput,
+    AiAnswer, AiAskInput, AiConfig, AiConfigInput, AiProfileInput, AiProfilesState,
+    CloseShellInput, CommandExecutionResult, ExecuteCommandInput, FetchServerStatusInput,
+    OpenShellInput, RunScriptInput, RunScriptResult, ScriptDefinition, ScriptInput,
+    SetActiveAiProfileInput, SftpDownloadInput, SftpDownloadPayload, SftpFileContent, SftpListInput,
+    SftpListResponse, SftpReadInput, SftpUploadInput, SftpWriteInput, ShellSession, SshConfig,
+    SshConfigInput,
 };
 use crate::ssh_service;
 use crate::state::AppState;
@@ -208,6 +209,42 @@ pub async fn run_script(
 #[tauri::command]
 pub fn get_ai_config(state: State<'_, Arc<AppState>>) -> Result<AiConfig, String> {
     Ok(state.storage.get_ai_config())
+}
+
+/// Returns all persisted AI profiles and active profile id.
+#[tauri::command]
+pub fn list_ai_profiles(state: State<'_, Arc<AppState>>) -> Result<AiProfilesState, String> {
+    Ok(state.storage.list_ai_profiles())
+}
+
+/// Creates or updates one AI profile.
+#[tauri::command]
+pub fn save_ai_profile(
+    state: State<'_, Arc<AppState>>,
+    input: AiProfileInput,
+) -> Result<AiProfilesState, String> {
+    state.storage.save_ai_profile(input).map_err(to_command_error)
+}
+
+/// Deletes one AI profile by id.
+#[tauri::command]
+pub fn delete_ai_profile(
+    state: State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<AiProfilesState, String> {
+    state.storage.delete_ai_profile(&id).map_err(to_command_error)
+}
+
+/// Marks one AI profile as active for chat.
+#[tauri::command]
+pub fn set_active_ai_profile(
+    state: State<'_, Arc<AppState>>,
+    input: SetActiveAiProfileInput,
+) -> Result<AiProfilesState, String> {
+    state
+        .storage
+        .set_active_ai_profile(&input.id)
+        .map_err(to_command_error)
 }
 
 /// Saves AI provider configuration.

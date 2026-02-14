@@ -273,6 +273,47 @@ pub struct AiConfigInput {
     pub max_tokens: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProfile {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub system_prompt: String,
+    pub temperature: f64,
+    pub max_tokens: u32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProfileInput {
+    pub id: Option<String>,
+    pub name: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub system_prompt: String,
+    pub temperature: f64,
+    pub max_tokens: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProfilesState {
+    pub profiles: Vec<AiProfile>,
+    pub active_profile_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetActiveAiProfileInput {
+    pub id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AiRole {

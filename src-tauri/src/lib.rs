@@ -47,6 +47,10 @@ pub fn run() {
             commands::delete_script,
             commands::run_script,
             commands::get_ai_config,
+            commands::list_ai_profiles,
+            commands::save_ai_profile,
+            commands::delete_ai_profile,
+            commands::set_active_ai_profile,
             commands::save_ai_config,
             commands::ai_ask
         ])

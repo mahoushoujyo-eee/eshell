@@ -5,6 +5,58 @@ import { arrayBufferToBase64, base64ToBytes } from "../utils/encoding";
 import { formatBytes } from "../utils/format";
 import { joinPath, normalizeRemotePath } from "../utils/path";
 
+const parseNumber = (value, fallback) => {
+  const next = Number(value);
+  return Number.isFinite(next) ? next : fallback;
+};
+
+const normalizeAiConfig = (config) => ({
+  baseUrl: config?.baseUrl || DEFAULT_AI.baseUrl,
+  apiKey: config?.apiKey || "",
+  model: config?.model || DEFAULT_AI.model,
+  systemPrompt: config?.systemPrompt || DEFAULT_AI.systemPrompt,
+  temperature: parseNumber(config?.temperature, DEFAULT_AI.temperature),
+  maxTokens: Math.max(1, Math.round(parseNumber(config?.maxTokens, DEFAULT_AI.maxTokens))),
+});
+
+const normalizeAiProfile = (profile) => ({
+  id: profile?.id || "",
+  name: (profile?.name || "").trim() || "Default",
+  ...normalizeAiConfig(profile),
+});
+
+const toAiProfileInput = (profile) => ({
+  id: profile.id || null,
+  name: (profile.name || "").trim(),
+  baseUrl: profile.baseUrl,
+  apiKey: profile.apiKey,
+  model: profile.model,
+  systemPrompt: profile.systemPrompt,
+  temperature: Number(profile.temperature),
+  maxTokens: Number(profile.maxTokens),
+});
+
+const normalizeAiProfilesState = (state) => {
+  const profiles = Array.isArray(state?.profiles)
+    ? state.profiles.map(normalizeAiProfile).filter((item) => item.id)
+    : [];
+  const activeFromState = state?.activeProfileId || null;
+  const activeProfileId =
+    activeFromState && profiles.some((item) => item.id === activeFromState)
+      ? activeFromState
+      : profiles[0]?.id || null;
+  return {
+    profiles,
+    activeProfileId,
+  };
+};
+
+const DEFAULT_AI_PROFILE_FORM = {
+  id: null,
+  name: "Default",
+  ...DEFAULT_AI,
+};
+
 export function useWorkbench() {
   const [theme, setTheme] = useState("light");
   const [wallpaper, setWallpaper] = useState(1);
@@ -36,6 +88,9 @@ export function useWorkbench() {
   const [nicBySession, setNicBySession] = useState({});
 
   const [aiConfig, setAiConfig] = useState(DEFAULT_AI);
+  const [aiProfiles, setAiProfiles] = useState([]);
+  const [activeAiProfileId, setActiveAiProfileId] = useState(null);
+  const [aiProfileForm, setAiProfileForm] = useState(DEFAULT_AI_PROFILE_FORM);
   const [aiQuestion, setAiQuestion] = useState("");
   const [aiIncludeOutput, setAiIncludeOutput] = useState(true);
   const [aiAnswer, setAiAnswer] = useState(null);
@@ -55,7 +110,6 @@ export function useWorkbench() {
   );
   const currentStatus = activeSessionId ? statusBySession[activeSessionId] : null;
   const currentNic = activeSessionId ? nicBySession[activeSessionId] || null : null;
-
   const runBusy = useCallback(async (text, action) => {
     setBusy(text);
     setError("");
@@ -92,25 +146,41 @@ export function useWorkbench() {
     });
   }, []);
 
+  const applyAiProfilesState = useCallback((state, keepForm = false) => {
+    const normalized = normalizeAiProfilesState(state);
+    setAiProfiles(normalized.profiles);
+    setActiveAiProfileId(normalized.activeProfileId);
+
+    const activeProfile =
+      normalized.profiles.find((item) => item.id === normalized.activeProfileId) || null;
+    if (activeProfile) {
+      setAiConfig(normalizeAiConfig(activeProfile));
+      if (!keepForm) {
+        setAiProfileForm(activeProfile);
+      }
+      return activeProfile;
+    }
+
+    setAiConfig(DEFAULT_AI);
+    if (!keepForm) {
+      setAiProfileForm(DEFAULT_AI_PROFILE_FORM);
+    }
+    return null;
+  }, []);
+
   const bootstrap = useCallback(async () => {
     try {
-      setBusy("加载项目");
-      const [configs, scriptRows, ai, opened] = await Promise.all([
+      setBusy("Loading project");
+      const [configs, scriptRows, aiProfilesState, opened] = await Promise.all([
         api.listSshConfigs(),
         api.listScripts(),
-        api.getAiConfig(),
+        api.listAiProfiles(),
         api.listShellSessions(),
       ]);
       setSshConfigs(configs);
       setScripts(scriptRows);
-      setAiConfig({
-        baseUrl: ai.baseUrl || DEFAULT_AI.baseUrl,
-        apiKey: ai.apiKey || "",
-        model: ai.model || DEFAULT_AI.model,
-        systemPrompt: ai.systemPrompt || DEFAULT_AI.systemPrompt,
-        temperature: ai.temperature ?? DEFAULT_AI.temperature,
-        maxTokens: ai.maxTokens ?? DEFAULT_AI.maxTokens,
-      });
+      applyAiProfilesState(aiProfilesState);
+
       setSessions(opened);
       if (opened[0]) {
         setActiveSessionId(opened[0].id);
@@ -120,7 +190,7 @@ export function useWorkbench() {
     } finally {
       setBusy("");
     }
-  }, [onError]);
+  }, [applyAiProfilesState, onError]);
 
   const reloadSessions = useCallback(async () => {
     const rows = await api.listShellSessions();
@@ -132,7 +202,7 @@ export function useWorkbench() {
     async (event) => {
       event.preventDefault();
       try {
-        await runBusy("保存 SSH 配置", () =>
+        await runBusy("Save SSH config", () =>
           api.saveSshConfig({
             id: sshForm.id || null,
             name: sshForm.name,
@@ -155,7 +225,7 @@ export function useWorkbench() {
   const connectServer = useCallback(
     async (configId) => {
       try {
-        const session = await runBusy("建立 SSH 连接", () => api.openShellSession(configId));
+        const session = await runBusy("Open SSH session", () => api.openShellSession(configId));
         await reloadSessions();
         setActiveSessionId(session.id);
         setSftpPath((prev) => ({
@@ -173,7 +243,7 @@ export function useWorkbench() {
   const closeSession = useCallback(
     async (sessionId) => {
       try {
-        await runBusy("关闭会话", () => api.closeShellSession(sessionId));
+        await runBusy("Close session", () => api.closeShellSession(sessionId));
         const rows = await reloadSessions();
         if (activeSessionId === sessionId) {
           setActiveSessionId(rows[0]?.id || null);
@@ -195,7 +265,7 @@ export function useWorkbench() {
       setCommandInput("");
       appendLog(activeSessionId, "CMD", command);
       try {
-        const result = await runBusy("执行命令", () =>
+        const result = await runBusy("Execute command", () =>
           api.executeShellCommand(activeSessionId, command),
         );
         appendLog(
@@ -222,7 +292,7 @@ export function useWorkbench() {
       }
       try {
         const normalizedPath = normalizeRemotePath(path);
-        return await runBusy("读取目录", () => api.sftpListDir(activeSessionId, normalizedPath));
+        return await runBusy("Read directory", () => api.sftpListDir(activeSessionId, normalizedPath));
       } catch (err) {
         onError(err);
         return null;
@@ -262,7 +332,7 @@ export function useWorkbench() {
         return { opened: false };
       }
       try {
-        const file = await runBusy("读取文件", () => api.sftpReadFile(activeSessionId, entry.path));
+        const file = await runBusy("Read file", () => api.sftpReadFile(activeSessionId, entry.path));
         setOpenFilePath(normalizeRemotePath(file.path));
         setOpenFileContent(file.content || "");
         setDirtyFile(false);
@@ -284,7 +354,7 @@ export function useWorkbench() {
       try {
         const contentBase64 = arrayBufferToBase64(await file.arrayBuffer());
         const remotePath = joinPath(currentPath, file.name);
-        await runBusy("上传文件", () => api.sftpUploadFile(activeSessionId, remotePath, contentBase64));
+        await runBusy("Upload file", () => api.sftpUploadFile(activeSessionId, remotePath, contentBase64));
         await refreshSftp(currentPath);
       } catch (err) {
         onError(err);
@@ -300,7 +370,7 @@ export function useWorkbench() {
       return;
     }
     try {
-      const payload = await runBusy("下载文件", () =>
+      const payload = await runBusy("Download file", () =>
         api.sftpDownloadFile(activeSessionId, normalizeRemotePath(selectedEntry.path)),
       );
       const url = URL.createObjectURL(new Blob([base64ToBytes(payload.contentBase64)]));
@@ -340,7 +410,7 @@ export function useWorkbench() {
     async (event) => {
       event.preventDefault();
       try {
-        await runBusy("保存脚本", () => api.saveScript(scriptForm));
+        await runBusy("Save script", () => api.saveScript(scriptForm));
         setScriptForm(EMPTY_SCRIPT);
         setScripts(await api.listScripts());
       } catch (err) {
@@ -353,11 +423,11 @@ export function useWorkbench() {
   const runScript = useCallback(
     async (scriptId) => {
       if (!activeSessionId) {
-        setError("请先建立 SSH 会话");
+        setError("Please connect an SSH session first");
         return;
       }
       try {
-        const result = await runBusy("执行脚本", () => api.runScript(activeSessionId, scriptId));
+        const result = await runBusy("Run script", () => api.runScript(activeSessionId, scriptId));
         appendLog(
           activeSessionId,
           `SCRIPT:${result.scriptName}`,
@@ -370,23 +440,56 @@ export function useWorkbench() {
     [activeSessionId, appendLog, onError, runBusy],
   );
 
-  const saveAi = useCallback(
+  const saveAiProfile = useCallback(
     async (event) => {
       event.preventDefault();
       try {
-        const next = await runBusy("保存 AI 配置", () =>
-          api.saveAiConfig({
-            ...aiConfig,
-            temperature: Number(aiConfig.temperature),
-            maxTokens: Number(aiConfig.maxTokens),
-          }),
+        const state = await runBusy("Save AI config", () =>
+          api.saveAiProfile(toAiProfileInput(aiProfileForm)),
         );
-        setAiConfig(next);
+        const activeProfile = applyAiProfilesState(state);
+        if (activeProfile) {
+          setAiProfileForm(activeProfile);
+        }
       } catch (err) {
         onError(err);
       }
     },
-    [aiConfig, onError, runBusy],
+    [aiProfileForm, applyAiProfilesState, onError, runBusy],
+  );
+
+  const selectAiProfile = useCallback(
+    async (profileId) => {
+      if (!profileId) {
+        return;
+      }
+      try {
+        const state = await runBusy("Switch AI profile", () =>
+          api.setActiveAiProfile(profileId),
+        );
+        applyAiProfilesState(state);
+      } catch (err) {
+        onError(err);
+      }
+    },
+    [applyAiProfilesState, onError, runBusy],
+  );
+
+  const deleteAiProfile = useCallback(
+    async (profileId) => {
+      if (!profileId) {
+        return;
+      }
+      try {
+        const state = await runBusy("Delete AI config", () =>
+          api.deleteAiProfile(profileId),
+        );
+        applyAiProfilesState(state);
+      } catch (err) {
+        onError(err);
+      }
+    },
+    [applyAiProfilesState, onError, runBusy],
   );
 
   const askAi = useCallback(
@@ -396,7 +499,7 @@ export function useWorkbench() {
         return;
       }
       try {
-        const answer = await runBusy("AI 回答中", () =>
+        const answer = await runBusy("AI response", () =>
           api.askAi({
             sessionId: activeSessionId || null,
             question: aiQuestion,
@@ -408,7 +511,13 @@ export function useWorkbench() {
         onError(err);
       }
     },
-    [activeSessionId, aiIncludeOutput, aiQuestion, onError, runBusy],
+    [
+      activeSessionId,
+      aiIncludeOutput,
+      aiQuestion,
+      onError,
+      runBusy,
+    ],
   );
 
   useEffect(() => {
@@ -446,7 +555,7 @@ export function useWorkbench() {
     }
     saveTimerRef.current = setTimeout(async () => {
       try {
-        await runBusy("正在回传文件", () =>
+        await runBusy("Save edited file", () =>
           api.sftpWriteFile(activeSessionId, openFilePath, openFileContent),
         );
         setDirtyFile(false);
@@ -467,7 +576,7 @@ export function useWorkbench() {
   const handleDeleteSsh = useCallback(
     async (sshId) => {
       try {
-        await runBusy("删除 SSH", () => api.deleteSshConfig(sshId));
+        await runBusy("Delete SSH config", () => api.deleteSshConfig(sshId));
         setSshConfigs(await api.listSshConfigs());
       } catch (err) {
         onError(err);
@@ -479,7 +588,7 @@ export function useWorkbench() {
   const handleDeleteScript = useCallback(
     async (scriptId) => {
       try {
-        await runBusy("删除脚本", () => api.deleteScript(scriptId));
+        await runBusy("Delete script", () => api.deleteScript(scriptId));
         setScripts(await api.listScripts());
       } catch (err) {
         onError(err);
@@ -539,7 +648,10 @@ export function useWorkbench() {
     dirtyFile,
     openFileContent,
     aiConfig,
-    setAiConfig,
+    aiProfiles,
+    activeAiProfileId,
+    aiProfileForm,
+    setAiProfileForm,
     aiQuestion,
     setAiQuestion,
     aiIncludeOutput,
@@ -553,7 +665,9 @@ export function useWorkbench() {
     downloadFile,
     saveScript,
     runScript,
-    saveAi,
+    saveAiProfile,
+    selectAiProfile,
+    deleteAiProfile,
     askAi,
     requestSftpDir,
     refreshSftp,

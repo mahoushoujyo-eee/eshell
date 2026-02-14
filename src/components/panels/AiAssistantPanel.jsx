@@ -50,6 +50,9 @@ const MARKDOWN_COMPONENTS = {
 export default function AiAssistantPanel({
   aiAnswer,
   onWriteSuggestedCommand,
+  aiProfiles,
+  activeAiProfileId,
+  onSelectAiProfile,
   aiQuestion,
   setAiQuestion,
   aiIncludeOutput,
@@ -76,6 +79,21 @@ export default function AiAssistantPanel({
       </div>
 
       <form className="shrink-0 space-y-2 border-b border-border px-2 py-2" onSubmit={onAskAi}>
+        <div className="flex items-center gap-2">
+          <span className="shrink-0 text-xs text-muted">Model</span>
+          <select
+            className="min-w-0 flex-1 border border-border bg-surface px-2 py-1 text-xs"
+            value={activeAiProfileId || ""}
+            onChange={(event) => onSelectAiProfile(event.target.value)}
+          >
+            {aiProfiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name} · {profile.model}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <textarea
           className="h-16 w-full border border-border bg-surface px-2 py-1.5 text-sm"
           value={aiQuestion}

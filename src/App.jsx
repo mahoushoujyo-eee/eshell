@@ -53,8 +53,10 @@ function App() {
     openFilePath,
     dirtyFile,
     openFileContent,
-    aiConfig,
-    setAiConfig,
+    aiProfiles,
+    activeAiProfileId,
+    aiProfileForm,
+    setAiProfileForm,
     aiQuestion,
     setAiQuestion,
     aiIncludeOutput,
@@ -68,7 +70,9 @@ function App() {
     downloadFile,
     saveScript,
     runScript,
-    saveAi,
+    saveAiProfile,
+    selectAiProfile,
+    deleteAiProfile,
     askAi,
     requestSftpDir,
     refreshSftp,
@@ -109,6 +113,9 @@ function App() {
     <AiAssistantPanel
       aiAnswer={aiAnswer}
       onWriteSuggestedCommand={() => setCommandInput(aiAnswer?.suggestedCommand || "")}
+      aiProfiles={aiProfiles}
+      activeAiProfileId={activeAiProfileId}
+      onSelectAiProfile={selectAiProfile}
       aiQuestion={aiQuestion}
       setAiQuestion={setAiQuestion}
       aiIncludeOutput={aiIncludeOutput}
@@ -233,9 +240,13 @@ function App() {
       <AiConfigModal
         open={isAiModalOpen}
         onClose={() => setIsAiModalOpen(false)}
-        aiConfig={aiConfig}
-        setAiConfig={setAiConfig}
-        onSaveAi={saveAi}
+        aiProfiles={aiProfiles}
+        activeAiProfileId={activeAiProfileId}
+        aiProfileForm={aiProfileForm}
+        setAiProfileForm={setAiProfileForm}
+        onSaveAiProfile={saveAiProfile}
+        onDeleteAiProfile={deleteAiProfile}
+        onSelectAiProfile={selectAiProfile}
       />
 
       <FileEditorModal

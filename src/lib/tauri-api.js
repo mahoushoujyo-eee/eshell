@@ -41,5 +41,10 @@ export const api = {
 
   getAiConfig: () => invoke("get_ai_config"),
   saveAiConfig: (input) => invoke("save_ai_config", { input }),
+  listAiProfiles: () => invoke("list_ai_profiles"),
+  saveAiProfile: (input) => invoke("save_ai_profile", { input }),
+  deleteAiProfile: (id) => invoke("delete_ai_profile", { id }),
+  setActiveAiProfile: (id) =>
+    invoke("set_active_ai_profile", { input: { id } }),
   askAi: (input) => invoke("ai_ask", { input }),
 };
