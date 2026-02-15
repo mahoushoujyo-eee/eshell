@@ -25,7 +25,7 @@ export default function TerminalPanel({
               <div
                 key={session.id}
                 className={[
-                  "group flex shrink-0 items-center gap-1 border border-border/70 px-2 py-1 text-xs",
+                  "group flex shrink-0 items-center gap-1 rounded-md border border-border/70 px-2 py-1 text-xs",
                   activeSessionId === session.id
                     ? "border-accent bg-accent text-white"
                     : "border-border bg-surface text-text",
@@ -79,7 +79,7 @@ export default function TerminalPanel({
           <button
             type="submit"
             disabled={!activeSession}
-            className="inline-flex items-center gap-1.5 border border-accent bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
           >
             <Play className="h-4 w-4" aria-hidden="true" />
             Run

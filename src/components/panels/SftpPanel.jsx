@@ -235,7 +235,7 @@ export default function SftpPanel({
         <div className="flex gap-1 text-xs">
           <button
             type="button"
-            className="inline-flex items-center gap-1 border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
             onClick={() => refreshSftp(currentPath)}
             disabled={!activeSessionId}
           >
@@ -243,7 +243,7 @@ export default function SftpPanel({
             Refresh
           </button>
 
-          <label className="inline-flex cursor-pointer items-center gap-1 border border-border px-2 py-1 transition-colors hover:bg-accent-soft">
+          <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft">
             <Upload className="h-3.5 w-3.5" aria-hidden="true" />
             Upload
             <input type="file" className="hidden" onChange={uploadFile} disabled={!activeSessionId} />
@@ -251,7 +251,7 @@ export default function SftpPanel({
 
           <button
             type="button"
-            className="inline-flex items-center gap-1 border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
             onClick={downloadFile}
             disabled={!activeSessionId || !selectedEntry || selectedEntry.entryType === "directory"}
           >
