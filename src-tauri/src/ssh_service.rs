@@ -64,7 +64,11 @@ pub fn open_shell_session(
 
 /// Closes and removes a shell session from runtime registry.
 pub fn close_shell_session(state: &AppState, session_id: &str) -> AppResult<()> {
-    state.remove_session(session_id)
+    match state.remove_session(session_id) {
+        Ok(()) => Ok(()),
+        Err(AppError::NotFound(_)) => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 /// Writes raw input bytes into PTY shell channel.

@@ -112,6 +112,7 @@ function App() {
 
   const statusPanel = (
     <StatusPanel
+      activeSessionId={activeSessionId}
       currentStatus={currentStatus}
       currentNic={currentNic}
       onNicChange={handleNicChange}

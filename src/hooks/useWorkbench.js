@@ -11,6 +11,19 @@ const parseNumber = (value, fallback) => {
   return Number.isFinite(next) ? next : fallback;
 };
 
+const toErrorMessage = (err) =>
+  typeof err === "string" ? err : err?.message || JSON.stringify(err);
+
+const isSessionLostError = (err) => {
+  const message = toErrorMessage(err).toLowerCase();
+  return (
+    message.includes("record not found: shell session") ||
+    message.includes("record not found: pty session") ||
+    message.includes("pty worker channel closed") ||
+    message.includes("pty channel closed while writing")
+  );
+};
+
 const normalizeAiConfig = (config) => ({
   baseUrl: config?.baseUrl || DEFAULT_AI.baseUrl,
   apiKey: config?.apiKey || "",
@@ -131,6 +144,9 @@ export function useWorkbench() {
   const [resolvingAiActionId, setResolvingAiActionId] = useState("");
 
   const saveTimerRef = useRef(null);
+  const reconnectingSessionsRef = useRef(new Map());
+  const sessionAliasRef = useRef(new Map());
+  const statusRequestTokenRef = useRef(new Map());
 
   const activeSession = useMemo(
     () => sessions.find((item) => item.id === activeSessionId) || null,
@@ -156,7 +172,7 @@ export function useWorkbench() {
   }, []);
 
   const onError = useCallback((err) => {
-    const message = typeof err === "string" ? err : err?.message || JSON.stringify(err);
+    const message = toErrorMessage(err);
     setError(message);
   }, []);
 
@@ -190,6 +206,184 @@ export function useWorkbench() {
       [sessionId]: trimTerminalOutput(`${prev[sessionId] || ""}${chunk}`),
     }));
   }, []);
+
+  const resolveSessionAlias = useCallback((sessionId) => {
+    if (!sessionId) {
+      return null;
+    }
+    return sessionAliasRef.current.get(sessionId) || sessionId;
+  }, []);
+
+  const clearSessionArtifacts = useCallback((sessionId) => {
+    if (!sessionId) {
+      return;
+    }
+
+    const aliasKeys = [];
+    sessionAliasRef.current.forEach((value, key) => {
+      if (key === sessionId || value === sessionId) {
+        aliasKeys.push(key);
+      }
+    });
+    aliasKeys.forEach((key) => {
+      sessionAliasRef.current.delete(key);
+    });
+
+    reconnectingSessionsRef.current.delete(sessionId);
+    statusRequestTokenRef.current.delete(sessionId);
+
+    setPtyOutputBySession((prev) => {
+      if (!(sessionId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    setSftpPath((prev) => {
+      if (!(sessionId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    setStatusBySession((prev) => {
+      if (!(sessionId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    setNicBySession((prev) => {
+      if (!(sessionId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+    setLogs((prev) => {
+      if (!(sessionId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
+
+  const reconnectSession = useCallback(
+    async (sessionId) => {
+      const originSessionId = resolveSessionAlias(sessionId);
+      if (!originSessionId) {
+        throw new Error("No shell session selected");
+      }
+
+      const existing = reconnectingSessionsRef.current.get(originSessionId);
+      if (existing) {
+        return existing;
+      }
+
+      const task = (async () => {
+        const staleSession = sessions.find((item) => item.id === originSessionId);
+        if (!staleSession?.configId) {
+          throw new Error(`Shell session lost and cannot auto-reconnect: ${originSessionId}`);
+        }
+
+        const reopened = await api.openShellSession(staleSession.configId);
+        sessionAliasRef.current.set(originSessionId, reopened.id);
+
+        const restoreDir = normalizeRemotePath(staleSession.currentDir || reopened.currentDir || "/");
+        if (restoreDir && restoreDir !== "/") {
+          try {
+            await api.ptyWriteInput(reopened.id, `cd ${shellQuote(restoreDir)}\n`);
+          } catch (_err) {
+            // Ignore restore-dir failures and keep the recovered session usable.
+          }
+        }
+
+        setSessions((prev) => {
+          const next = prev.filter((item) => item.id !== originSessionId && item.id !== reopened.id);
+          return [...next, reopened];
+        });
+        setActiveSessionId((prev) => (prev === originSessionId ? reopened.id : prev));
+
+        setSftpPath((prev) => {
+          const rememberedPath =
+            prev[originSessionId] || staleSession.currentDir || reopened.currentDir || "/";
+          const next = {
+            ...prev,
+            [reopened.id]: normalizeRemotePath(rememberedPath),
+          };
+          delete next[originSessionId];
+          return next;
+        });
+        setPtyOutputBySession((prev) => {
+          const rememberedOutput = prev[originSessionId] || "";
+          const next = { ...prev, [reopened.id]: rememberedOutput };
+          delete next[originSessionId];
+          return next;
+        });
+        setStatusBySession((prev) => {
+          if (!(originSessionId in prev)) {
+            return prev;
+          }
+          const next = { ...prev, [reopened.id]: prev[originSessionId] };
+          delete next[originSessionId];
+          return next;
+        });
+        setNicBySession((prev) => {
+          if (!(originSessionId in prev)) {
+            return prev;
+          }
+          const next = { ...prev, [reopened.id]: prev[originSessionId] };
+          delete next[originSessionId];
+          return next;
+        });
+        setLogs((prev) => {
+          if (!(originSessionId in prev)) {
+            return prev;
+          }
+          const next = { ...prev, [reopened.id]: prev[originSessionId] };
+          delete next[originSessionId];
+          return next;
+        });
+
+        appendLog(reopened.id, "SYSTEM", "Session disconnected. Auto-reconnected.");
+        return reopened;
+      })();
+
+      reconnectingSessionsRef.current.set(originSessionId, task);
+      try {
+        return await task;
+      } finally {
+        reconnectingSessionsRef.current.delete(originSessionId);
+      }
+    },
+    [appendLog, resolveSessionAlias, sessions],
+  );
+
+  const runWithSessionReconnect = useCallback(
+    async (sessionId, action) => {
+      const resolvedSessionId = resolveSessionAlias(sessionId);
+      if (!resolvedSessionId) {
+        throw new Error("No shell session selected");
+      }
+
+      try {
+        return await action(resolvedSessionId);
+      } catch (err) {
+        if (!isSessionLostError(err)) {
+          throw err;
+        }
+        const reopened = await reconnectSession(resolvedSessionId);
+        return action(reopened.id);
+      }
+    },
+    [reconnectSession, resolveSessionAlias],
+  );
 
   const applyAiProfilesState = useCallback((state, keepForm = false) => {
     const normalized = normalizeAiProfilesState(state);
@@ -328,25 +522,41 @@ export function useWorkbench() {
 
   const closeSession = useCallback(
     async (sessionId) => {
+      if (!sessionId) {
+        return;
+      }
+      const resolvedSessionId = resolveSessionAlias(sessionId);
+      let rows = null;
       try {
-        await runBusy("Close session", () => api.closeShellSession(sessionId));
-        const rows = await reloadSessions();
-        if (activeSessionId === sessionId) {
+        await runBusy("Close session", () => api.closeShellSession(resolvedSessionId));
+        rows = await reloadSessions();
+      } catch (err) {
+        if (!isSessionLostError(err)) {
+          onError(err);
+          return;
+        }
+        rows = await reloadSessions().catch(() => null);
+      }
+
+      clearSessionArtifacts(resolvedSessionId);
+      if (resolvedSessionId !== sessionId) {
+        clearSessionArtifacts(sessionId);
+      }
+
+      if (rows) {
+        if (activeSessionId === sessionId || activeSessionId === resolvedSessionId) {
           setActiveSessionId(rows[0]?.id || null);
         }
-        setPtyOutputBySession((prev) => {
-          if (!(sessionId in prev)) {
-            return prev;
-          }
-          const next = { ...prev };
-          delete next[sessionId];
-          return next;
-        });
-      } catch (err) {
-        onError(err);
+      } else {
+        setSessions((prev) =>
+          prev.filter((item) => item.id !== sessionId && item.id !== resolvedSessionId),
+        );
+        if (activeSessionId === sessionId || activeSessionId === resolvedSessionId) {
+          setActiveSessionId(null);
+        }
       }
     },
-    [activeSessionId, onError, reloadSessions, runBusy],
+    [activeSessionId, clearSessionArtifacts, onError, reloadSessions, resolveSessionAlias, runBusy],
   );
 
   const execCommand = useCallback(
@@ -358,12 +568,14 @@ export function useWorkbench() {
       const command = commandInput;
       setCommandInput("");
       try {
-        await api.ptyWriteInput(activeSessionId, `${command}\n`);
+        await runWithSessionReconnect(activeSessionId, (sessionId) =>
+          api.ptyWriteInput(sessionId, `${command}\n`),
+        );
       } catch (err) {
         onError(err);
       }
     },
-    [activeSessionId, commandInput, onError],
+    [activeSessionId, commandInput, onError, runWithSessionReconnect],
   );
 
   const requestSftpDir = useCallback(
@@ -373,13 +585,17 @@ export function useWorkbench() {
       }
       try {
         const normalizedPath = normalizeRemotePath(path);
-        return await runBusy("Read directory", () => api.sftpListDir(activeSessionId, normalizedPath));
+        return await runBusy("Read directory", () =>
+          runWithSessionReconnect(activeSessionId, (sessionId) =>
+            api.sftpListDir(sessionId, normalizedPath),
+          ),
+        );
       } catch (err) {
         onError(err);
         return null;
       }
     },
-    [activeSessionId, onError, runBusy],
+    [activeSessionId, onError, runBusy, runWithSessionReconnect],
   );
 
   const refreshSftp = useCallback(
@@ -387,19 +603,21 @@ export function useWorkbench() {
       if (!activeSessionId) {
         return null;
       }
+      const requestedSessionId = activeSessionId;
       const result = await requestSftpDir(path);
       if (!result) {
         return null;
       }
+      const targetSessionId = resolveSessionAlias(requestedSessionId) || requestedSessionId;
       setSftpEntries(result.entries);
       setSftpPath((prev) => ({
         ...prev,
-        [activeSessionId]: normalizeRemotePath(result.path),
+        [targetSessionId]: normalizeRemotePath(result.path),
       }));
       setSelectedEntry(null);
       return result;
     },
-    [activeSessionId, requestSftpDir],
+    [activeSessionId, requestSftpDir, resolveSessionAlias],
   );
 
   const openEntry = useCallback(
@@ -413,7 +631,11 @@ export function useWorkbench() {
         return { opened: false };
       }
       try {
-        const file = await runBusy("Read file", () => api.sftpReadFile(activeSessionId, entry.path));
+        const file = await runBusy("Read file", () =>
+          runWithSessionReconnect(activeSessionId, (sessionId) =>
+            api.sftpReadFile(sessionId, entry.path),
+          ),
+        );
         setOpenFilePath(normalizeRemotePath(file.path));
         setOpenFileContent(file.content || "");
         setDirtyFile(false);
@@ -423,7 +645,7 @@ export function useWorkbench() {
         return { opened: false };
       }
     },
-    [activeSessionId, onError, refreshSftp, runBusy],
+    [activeSessionId, onError, refreshSftp, runBusy, runWithSessionReconnect],
   );
 
   const uploadFile = useCallback(
@@ -435,7 +657,11 @@ export function useWorkbench() {
       try {
         const contentBase64 = arrayBufferToBase64(await file.arrayBuffer());
         const remotePath = joinPath(currentPath, file.name);
-        await runBusy("Upload file", () => api.sftpUploadFile(activeSessionId, remotePath, contentBase64));
+        await runBusy("Upload file", () =>
+          runWithSessionReconnect(activeSessionId, (sessionId) =>
+            api.sftpUploadFile(sessionId, remotePath, contentBase64),
+          ),
+        );
         await refreshSftp(currentPath);
       } catch (err) {
         onError(err);
@@ -443,7 +669,7 @@ export function useWorkbench() {
         event.target.value = "";
       }
     },
-    [activeSessionId, currentPath, onError, refreshSftp, runBusy],
+    [activeSessionId, currentPath, onError, refreshSftp, runBusy, runWithSessionReconnect],
   );
 
   const downloadFile = useCallback(async () => {
@@ -452,7 +678,9 @@ export function useWorkbench() {
     }
     try {
       const payload = await runBusy("Download file", () =>
-        api.sftpDownloadFile(activeSessionId, normalizeRemotePath(selectedEntry.path)),
+        runWithSessionReconnect(activeSessionId, (sessionId) =>
+          api.sftpDownloadFile(sessionId, normalizeRemotePath(selectedEntry.path)),
+        ),
       );
       const url = URL.createObjectURL(new Blob([base64ToBytes(payload.contentBase64)]));
       const link = document.createElement("a");
@@ -463,28 +691,57 @@ export function useWorkbench() {
     } catch (err) {
       onError(err);
     }
-  }, [activeSessionId, onError, runBusy, selectedEntry]);
+  }, [activeSessionId, onError, runBusy, runWithSessionReconnect, selectedEntry]);
 
   const refreshStatus = useCallback(
     async (sessionId, nic) => {
       if (!sessionId) {
         return;
       }
+      const resolvedSessionId = resolveSessionAlias(sessionId) || sessionId;
+      const requestedNic = typeof nic === "string" && nic.trim() ? nic : null;
+      const requestToken = Symbol(resolvedSessionId);
+      statusRequestTokenRef.current.set(resolvedSessionId, requestToken);
+
       try {
-        const cached = await api.getCachedServerStatus(sessionId);
-        if (cached) {
-          setStatusBySession((prev) => ({ ...prev, [sessionId]: cached }));
+        const statusResult = await runWithSessionReconnect(resolvedSessionId, async (activeId) => {
+          const cached = await api.getCachedServerStatus(activeId);
+          const live = await api.fetchServerStatus(activeId, requestedNic);
+          return {
+            activeId,
+            cached,
+            live,
+          };
+        });
+
+        const tokenKey = statusResult.activeId || resolvedSessionId;
+        const latestToken =
+          statusRequestTokenRef.current.get(tokenKey) ??
+          statusRequestTokenRef.current.get(resolvedSessionId);
+        if (latestToken !== requestToken) {
+          return;
         }
-        const live = await api.fetchServerStatus(sessionId, nic);
-        setStatusBySession((prev) => ({ ...prev, [sessionId]: live }));
-        if (live.selectedInterface) {
-          setNicBySession((prev) => ({ ...prev, [sessionId]: live.selectedInterface }));
+        if (statusResult.activeId !== resolvedSessionId) {
+          statusRequestTokenRef.current.set(statusResult.activeId, requestToken);
+        }
+
+        if (statusResult.cached) {
+          setStatusBySession((prev) => ({ ...prev, [statusResult.activeId]: statusResult.cached }));
+        }
+        setStatusBySession((prev) => ({ ...prev, [statusResult.activeId]: statusResult.live }));
+
+        // Respect explicit user selection and only auto-pick NIC when no preference is provided.
+        if (!requestedNic && statusResult.live.selectedInterface) {
+          setNicBySession((prev) => ({
+            ...prev,
+            [statusResult.activeId]: statusResult.live.selectedInterface,
+          }));
         }
       } catch (err) {
         onError(err);
       }
     },
-    [onError],
+    [onError, resolveSessionAlias, runWithSessionReconnect],
   );
 
   const saveScript = useCallback(
@@ -523,12 +780,16 @@ export function useWorkbench() {
       }
 
       try {
-        await runBusy("Run script", () => api.ptyWriteInput(activeSessionId, `${resolvedCommand}\n`));
+        await runBusy("Run script", () =>
+          runWithSessionReconnect(activeSessionId, (sessionId) =>
+            api.ptyWriteInput(sessionId, `${resolvedCommand}\n`),
+          ),
+        );
       } catch (err) {
         onError(err);
       }
     },
-    [activeSessionId, onError, runBusy, scripts],
+    [activeSessionId, onError, runBusy, runWithSessionReconnect, scripts],
   );
 
   const sendPtyInput = useCallback(
@@ -536,19 +797,21 @@ export function useWorkbench() {
       if (!sessionId || !data) {
         return;
       }
-      void api.ptyWriteInput(sessionId, data).catch(onError);
+      void runWithSessionReconnect(sessionId, (activeId) => api.ptyWriteInput(activeId, data)).catch(
+        onError,
+      );
     },
-    [onError],
+    [onError, runWithSessionReconnect],
   );
 
   const resizePty = useCallback((sessionId, cols, rows) => {
     if (!sessionId || !cols || !rows) {
       return;
     }
-    void api.ptyResize(sessionId, cols, rows).catch(() => {
+    void runWithSessionReconnect(sessionId, (activeId) => api.ptyResize(activeId, cols, rows)).catch(() => {
       // Ignore transient resize failures caused by tab switching.
     });
-  }, []);
+  }, [runWithSessionReconnect]);
 
   const saveAiProfile = useCallback(
     async (event) => {
@@ -920,7 +1183,9 @@ export function useWorkbench() {
     saveTimerRef.current = setTimeout(async () => {
       try {
         await runBusy("Save edited file", () =>
-          api.sftpWriteFile(activeSessionId, openFilePath, openFileContent),
+          runWithSessionReconnect(activeSessionId, (sessionId) =>
+            api.sftpWriteFile(sessionId, openFilePath, openFileContent),
+          ),
         );
         setDirtyFile(false);
       } catch (err) {
@@ -933,7 +1198,15 @@ export function useWorkbench() {
         clearTimeout(saveTimerRef.current);
       }
     };
-  }, [activeSessionId, dirtyFile, onError, openFileContent, openFilePath, runBusy]);
+  }, [
+    activeSessionId,
+    dirtyFile,
+    onError,
+    openFileContent,
+    openFilePath,
+    runBusy,
+    runWithSessionReconnect,
+  ]);
 
   const currentPtyOutput = activeSessionId ? ptyOutputBySession[activeSessionId] || "" : "";
   const aiStreamingText =
@@ -970,10 +1243,11 @@ export function useWorkbench() {
       if (!activeSessionId) {
         return;
       }
-      setNicBySession((prev) => ({ ...prev, [activeSessionId]: nic }));
-      refreshStatus(activeSessionId, nic);
+      const targetSessionId = resolveSessionAlias(activeSessionId) || activeSessionId;
+      setNicBySession((prev) => ({ ...prev, [targetSessionId]: nic }));
+      refreshStatus(targetSessionId, nic);
     },
-    [activeSessionId, refreshStatus],
+    [activeSessionId, refreshStatus, resolveSessionAlias],
   );
 
   const handleOpenFileContentChange = useCallback((value) => {
