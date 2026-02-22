@@ -14,6 +14,12 @@ const parseNumber = (value, fallback) => {
 const toErrorMessage = (err) =>
   typeof err === "string" ? err : err?.message || JSON.stringify(err);
 
+const STATUS_FETCH_WARNING_PREFIX =
+  "Warning: Server status polling failed for this cycle due to a transient network fluctuation. The app will retry automatically.";
+
+const isStatusFetchWarning = (message) =>
+  typeof message === "string" && message.startsWith(STATUS_FETCH_WARNING_PREFIX);
+
 const isSessionLostError = (err) => {
   const message = toErrorMessage(err).toLowerCase();
   return (
@@ -737,11 +743,22 @@ export function useWorkbench() {
             [statusResult.activeId]: statusResult.live.selectedInterface,
           }));
         }
+
+        setError((prev) => {
+          const current = typeof prev === "string" ? prev.trim() : "";
+          return isStatusFetchWarning(current) ? "" : prev;
+        });
       } catch (err) {
-        onError(err);
+        setError((prev) => {
+          const current = typeof prev === "string" ? prev.trim() : "";
+          if (current && !isStatusFetchWarning(current)) {
+            return prev;
+          }
+          return STATUS_FETCH_WARNING_PREFIX;
+        });
       }
     },
-    [onError, resolveSessionAlias, runWithSessionReconnect],
+    [resolveSessionAlias, runWithSessionReconnect],
   );
 
   const saveScript = useCallback(

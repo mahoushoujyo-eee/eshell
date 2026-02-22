@@ -67,6 +67,9 @@ export default function TopToolbar({
   error,
 }) {
   const hasError = Boolean(error && String(error).trim());
+  const isWarning = hasError && /^warning[:：]/i.test(String(error).trim());
+  const busyText = busy ? `Running: ${busy}` : "Idle";
+  const errorText = hasError ? String(error).trim() : "No errors";
 
   return (
     <aside className="flex h-full w-[248px] shrink-0 flex-col border-r border-border bg-surface/95 px-2 py-2">
@@ -117,22 +120,29 @@ export default function TopToolbar({
                 "inline-flex w-full items-center gap-1.5",
                 busy ? "text-accent" : "text-muted",
               ].join(" ")}
+              title={busyText}
             >
               <LoaderCircle
                 className={["h-3.5 w-3.5", busy ? "animate-spin text-accent" : ""].join(" ")}
                 aria-hidden="true"
               />
-              <span className="truncate">{busy ? `Running: ${busy}` : "Idle"}</span>
+              <span className="truncate">{busyText}</span>
             </div>
             {hasError ? (
-              <div className="mt-1 inline-flex w-full items-center gap-1.5 text-danger">
+              <div
+                className={[
+                  "mt-1 inline-flex w-full items-center gap-1.5",
+                  isWarning ? "text-warning" : "text-danger",
+                ].join(" ")}
+                title={errorText}
+              >
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                <span className="truncate">{error}</span>
+                <span className="truncate">{errorText}</span>
               </div>
             ) : (
-              <div className="mt-1 inline-flex w-full items-center gap-1.5 text-success">
+              <div className="mt-1 inline-flex w-full items-center gap-1.5 text-success" title={errorText}>
                 <CircleCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                <span className="truncate">No errors</span>
+                <span className="truncate">{errorText}</span>
               </div>
             )}
           </div>
