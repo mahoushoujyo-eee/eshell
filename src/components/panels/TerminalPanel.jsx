@@ -14,7 +14,6 @@ export default function TerminalPanel({
   onPtyInput,
   onPtyResize,
   wallpaper,
-  wallpapers,
 }) {
   return (
     <section className="h-full border-b border-border bg-panel">
@@ -92,7 +91,6 @@ export default function TerminalPanel({
           onInput={onPtyInput}
           onResize={onPtyResize}
           wallpaper={wallpaper}
-          wallpapers={wallpapers}
         />
       </div>
     </section>

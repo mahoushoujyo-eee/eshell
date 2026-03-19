@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { getTerminalWallpaperStyle } from "../../constants/workbench";
 
 const inputFlushDelayMs = 18;
 
@@ -11,7 +12,6 @@ export default function XtermConsole({
   onInput,
   onResize,
   wallpaper,
-  wallpapers,
 }) {
   const hostRef = useRef(null);
   const termRef = useRef(null);
@@ -24,6 +24,7 @@ export default function XtermConsole({
   const onResizeRef = useRef(onResize);
   const pendingInputRef = useRef("");
   const flushTimerRef = useRef(null);
+  const wallpaperStyle = useMemo(() => getTerminalWallpaperStyle(wallpaper), [wallpaper]);
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
@@ -52,7 +53,7 @@ export default function XtermConsole({
       allowTransparency: true,
       theme: {
         foreground: "#d6f6dc",
-        background: "rgba(17, 27, 25, 0.78)",
+        background: "rgba(6, 12, 12, 0.38)",
         cursor: "#d6f6dc",
         selectionBackground: "rgba(90, 166, 134, 0.34)",
       },
@@ -176,15 +177,14 @@ export default function XtermConsole({
 
   return (
     <div
-      className="terminal-wallpaper min-h-0 flex-1 overflow-hidden bg-[#111b19] p-2 pb-3"
-      style={{
-        backgroundImage:
-          wallpaper === 0
-            ? undefined
-            : `${wallpapers[wallpaper]}, linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.6))`,
-      }}
+      className="terminal-wallpaper min-h-0 flex-1 overflow-hidden p-2 pb-3"
+      style={wallpaperStyle}
     >
-      <div ref={hostRef} className="h-full w-full" />
+      <div
+        className="h-full w-full border border-black/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+      >
+        <div ref={hostRef} className="h-full w-full" />
+      </div>
     </div>
   );
 }

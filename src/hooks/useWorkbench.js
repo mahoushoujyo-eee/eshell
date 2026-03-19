@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { DEFAULT_AI, EMPTY_SCRIPT, EMPTY_SSH } from "../constants/workbench";
+import {
+  DEFAULT_AI,
+  DEFAULT_WALLPAPER,
+  EMPTY_SCRIPT,
+  EMPTY_SSH,
+  normalizeWallpaperSelection,
+} from "../constants/workbench";
 import { api } from "../lib/tauri-api";
 import { arrayBufferToBase64, base64ToBytes } from "../utils/encoding";
 import { formatBytes } from "../utils/format";
@@ -108,10 +114,21 @@ const upsertPendingAction = (rows, nextAction) => {
 
 export function useWorkbench() {
   const [theme, setTheme] = useState("light");
-  const [wallpaper, setWallpaper] = useState(1);
+  const [wallpaper, setWallpaper] = useState(() => {
+    if (typeof window === "undefined") {
+      return DEFAULT_WALLPAPER;
+    }
+
+    try {
+      const raw = window.localStorage.getItem("eshell:terminal-wallpaper");
+      return raw ? normalizeWallpaperSelection(JSON.parse(raw)) : DEFAULT_WALLPAPER;
+    } catch {
+      return DEFAULT_WALLPAPER;
+    }
+  });
   const [showSftpPanel, setShowSftpPanel] = useState(true);
   const [showStatusPanel, setShowStatusPanel] = useState(true);
-  const [showAiPanel, setShowAiPanel] = useState(true);
+  const [showAiPanel, setShowAiPanel] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -1020,6 +1037,17 @@ export function useWorkbench() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      "eshell:terminal-wallpaper",
+      JSON.stringify(normalizeWallpaperSelection(wallpaper)),
+    );
+  }, [wallpaper]);
 
   useEffect(() => {
     bootstrap();

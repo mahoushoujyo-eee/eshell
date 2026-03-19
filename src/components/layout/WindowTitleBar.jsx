@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, Minus, Square, X } from "lucide-react";
+import { Bot, Copy, Minus, Square, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 function WindowControlButton({ title, onClick, tone = "normal", children }) {
@@ -20,7 +20,36 @@ function WindowControlButton({ title, onClick, tone = "normal", children }) {
   );
 }
 
-export default function WindowTitleBar() {
+function AiEntryButton({ active, busy, onClick }) {
+  return (
+    <button
+      type="button"
+      title={active ? "Hide AI chat" : "Show AI chat"}
+      className={[
+        "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-all",
+        active
+          ? "border-accent/60 bg-accent-soft text-text shadow-[0_12px_30px_rgba(16,24,32,0.2)]"
+          : "border-border/90 bg-panel/85 text-muted hover:border-accent/40 hover:bg-accent-soft hover:text-text",
+      ].join(" ")}
+      onClick={onClick}
+    >
+      <span
+        className={[
+          "relative inline-flex h-5 w-5 items-center justify-center rounded-full border",
+          active ? "border-accent/55 bg-accent text-white" : "border-border bg-surface text-accent",
+        ].join(" ")}
+      >
+        <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+        {busy ? (
+          <span className="absolute -right-0.5 -bottom-0.5 h-2 w-2 rounded-full border border-panel bg-success" />
+        ) : null}
+      </span>
+      <span className="leading-none">eShell AI</span>
+    </button>
+  );
+}
+
+export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStreaming = false }) {
   const appWindow = getCurrentWindow();
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -87,7 +116,11 @@ export default function WindowTitleBar() {
         <span className="truncate text-xs opacity-85">Operations Console</span>
       </div>
 
-      <div className="flex items-center gap-px">
+      <div className="ml-3 flex items-center gap-2">
+        <AiEntryButton active={showAiPanel} busy={isAiStreaming} onClick={onToggleAiPanel} />
+      </div>
+
+      <div className="ml-2 flex items-center gap-px">
         <WindowControlButton
           title="Minimize"
           onClick={() => safeWindowAction(() => appWindow.minimize(), "minimize")}

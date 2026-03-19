@@ -854,7 +854,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "eshell-codex"
+name = "eshell"
 version = "0.1.0"
 dependencies = [
  "anyhow",

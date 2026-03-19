@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SplitPane from "./components/SplitPane";
 import TopToolbar from "./components/layout/TopToolbar";
 import WindowTitleBar from "./components/layout/WindowTitleBar";
@@ -10,14 +10,50 @@ import TerminalPanel from "./components/panels/TerminalPanel";
 import AiConfigModal from "./components/sidebar/AiConfigModal";
 import ScriptConfigModal from "./components/sidebar/ScriptConfigModal";
 import SshConfigModal from "./components/sidebar/SshConfigModal";
-import { WALLPAPERS } from "./constants/workbench";
+import WallpaperModal from "./components/sidebar/WallpaperModal";
+import { getWallpaperLabel } from "./constants/workbench";
 import { useWorkbench } from "./hooks/useWorkbench";
+
+const DEFAULT_AI_PANEL_WIDTH = 460;
+const MIN_AI_PANEL_WIDTH = 360;
+const MAX_AI_PANEL_WIDTH = 760;
+const MIN_MAIN_WORKSPACE_WIDTH = 420;
+
+const clampAiPanelWidth = (width, containerWidth = 0) => {
+  const numericWidth = Number(width);
+  const safeWidth = Number.isFinite(numericWidth) ? numericWidth : DEFAULT_AI_PANEL_WIDTH;
+  if (!containerWidth || containerWidth <= 0) {
+    return Math.min(MAX_AI_PANEL_WIDTH, Math.max(MIN_AI_PANEL_WIDTH, safeWidth));
+  }
+
+  const maxByContainer = Math.max(320, containerWidth - MIN_MAIN_WORKSPACE_WIDTH);
+  const maxWidth = Math.min(MAX_AI_PANEL_WIDTH, maxByContainer);
+  const minWidth = Math.min(MIN_AI_PANEL_WIDTH, maxWidth);
+  return Math.min(maxWidth, Math.max(minWidth, safeWidth));
+};
 
 function App() {
   const [isSshModalOpen, setIsSshModalOpen] = useState(false);
   const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isFileEditorOpen, setIsFileEditorOpen] = useState(false);
+  const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem("eshell:sidebar-collapsed") === "1";
+  });
+  const [aiPanelWidth, setAiPanelWidth] = useState(() => {
+    if (typeof window === "undefined") {
+      return DEFAULT_AI_PANEL_WIDTH;
+    }
+
+    const stored = Number(window.localStorage.getItem("eshell:ai-panel-width"));
+    return clampAiPanelWidth(stored);
+  });
+  const [isAiPanelResizing, setIsAiPanelResizing] = useState(false);
+  const workspaceRef = useRef(null);
 
   const {
     theme,
@@ -94,6 +130,77 @@ function App() {
     formatBytes,
   } = useWorkbench();
 
+  useEffect(() => {
+    if (!showAiPanel) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setShowAiPanel(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showAiPanel, setShowAiPanel]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("eshell:sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("eshell:ai-panel-width", String(Math.round(aiPanelWidth)));
+  }, [aiPanelWidth]);
+
+  useEffect(() => {
+    const syncWidth = () => {
+      const containerWidth = workspaceRef.current?.clientWidth || 0;
+      setAiPanelWidth((current) => clampAiPanelWidth(current, containerWidth));
+    };
+
+    syncWidth();
+    window.addEventListener("resize", syncWidth);
+    return () => window.removeEventListener("resize", syncWidth);
+  }, []);
+
+  useEffect(() => {
+    if (!isAiPanelResizing) {
+      return undefined;
+    }
+
+    const onMouseMove = (event) => {
+      const rect = workspaceRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+      const nextWidth = rect.right - event.clientX;
+      setAiPanelWidth(clampAiPanelWidth(nextWidth, rect.width));
+    };
+
+    const onMouseUp = () => {
+      setIsAiPanelResizing(false);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isAiPanelResizing]);
+
   const sftpPanel = (
     <SftpPanel
       activeSessionId={activeSessionId}
@@ -139,26 +246,13 @@ function App() {
       isStreaming={isAiStreaming}
       streamingText={aiStreamingText}
       onAskAi={askAi}
+      onOpenAiConfig={() => setIsAiModalOpen(true)}
+      onClose={() => setShowAiPanel(false)}
+      variant="dock"
     />
   );
 
-  let rightPanelsContent = null;
-  if (showStatusPanel && showAiPanel) {
-    rightPanelsContent = (
-      <SplitPane
-        direction="vertical"
-        initialRatio={0.36}
-        minPrimarySize={160}
-        minSecondarySize={300}
-        primary={statusPanel}
-        secondary={aiPanel}
-      />
-    );
-  } else if (showStatusPanel) {
-    rightPanelsContent = statusPanel;
-  } else if (showAiPanel) {
-    rightPanelsContent = aiPanel;
-  }
+  const rightPanelsContent = showStatusPanel ? statusPanel : null;
 
   let bottomPanelsContent = null;
   if (showSftpPanel && rightPanelsContent) {
@@ -179,59 +273,90 @@ function App() {
   } else {
     bottomPanelsContent = (
       <div className="flex h-full items-center justify-center border border-dashed border-border/80 bg-panel/70 p-3 text-xs text-muted">
-        已隐藏全部面板，请在左侧导航栏开启 SFTP / 状态 / AI 面板。
+        No work panels are visible. Re-open SFTP or Status from the left rail, or launch AI Chat from the top-right.
       </div>
     );
   }
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col overflow-hidden text-text">
-      <WindowTitleBar />
+      <WindowTitleBar
+        showAiPanel={showAiPanel}
+        onToggleAiPanel={() => setShowAiPanel((prev) => !prev)}
+        isAiStreaming={isAiStreaming}
+      />
 
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-panel">
         <TopToolbar
           theme={theme}
-          wallpaper={wallpaper}
+          wallpaperLabel={getWallpaperLabel(wallpaper)}
           showSftpPanel={showSftpPanel}
           showStatusPanel={showStatusPanel}
-          showAiPanel={showAiPanel}
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
           onOpenSshConfig={() => setIsSshModalOpen(true)}
           onOpenScriptConfig={() => setIsScriptModalOpen(true)}
           onOpenAiConfig={() => setIsAiModalOpen(true)}
+          onOpenWallpaperPicker={() => setIsWallpaperModalOpen(true)}
           onToggleSftpPanel={() => setShowSftpPanel((prev) => !prev)}
           onToggleStatusPanel={() => setShowStatusPanel((prev) => !prev)}
-          onToggleAiPanel={() => setShowAiPanel((prev) => !prev)}
-          onNextWallpaper={() => setWallpaper((prev) => (prev + 1) % WALLPAPERS.length)}
           onToggleTheme={() => setTheme((prev) => (prev === "light" ? "dark" : "light"))}
           busy={busy}
           error={error}
         />
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <SplitPane
-            direction="vertical"
-            initialRatio={0.5}
-            minPrimarySize={290}
-            minSecondarySize={280}
-            primary={
-              <TerminalPanel
-                sessions={sessions}
-                activeSessionId={activeSessionId}
-                onSelectSession={setActiveSessionId}
-                onCloseSession={closeSession}
-                activeSession={activeSession}
-                commandInput={commandInput}
-                setCommandInput={setCommandInput}
-                onExecCommand={execCommand}
-                currentPtyOutput={currentPtyOutput}
-                onPtyInput={sendPtyInput}
-                onPtyResize={resizePty}
-                wallpaper={wallpaper}
-                wallpapers={WALLPAPERS}
-              />
-            }
-            secondary={<section className="h-full">{bottomPanelsContent}</section>}
+        <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+            <SplitPane
+              direction="vertical"
+              initialRatio={0.5}
+              minPrimarySize={290}
+              minSecondarySize={280}
+              primary={
+                <TerminalPanel
+                  sessions={sessions}
+                  activeSessionId={activeSessionId}
+                  onSelectSession={setActiveSessionId}
+                  onCloseSession={closeSession}
+                  activeSession={activeSession}
+                  commandInput={commandInput}
+                  setCommandInput={setCommandInput}
+                  onExecCommand={execCommand}
+                  currentPtyOutput={currentPtyOutput}
+                  onPtyInput={sendPtyInput}
+                  onPtyResize={resizePty}
+                  wallpaper={wallpaper}
+                />
+              }
+              secondary={<section className="h-full">{bottomPanelsContent}</section>}
+            />
+          </div>
+
+          <button
+            type="button"
+            aria-label="Resize AI panel"
+            className={[
+              "relative shrink-0 bg-border/80 transition-colors",
+              showAiPanel
+                ? "w-1.5 cursor-col-resize hover:bg-accent/80"
+                : "pointer-events-none w-0 opacity-0",
+            ].join(" ")}
+            onMouseDown={() => setIsAiPanelResizing(true)}
           />
+
+          <div
+            className={[
+              "min-h-0 shrink-0 overflow-hidden border-l border-border/80 bg-panel transition-[width,opacity] ease-out",
+              isAiPanelResizing ? "duration-0" : "duration-300",
+              showAiPanel ? "opacity-100" : "w-0 opacity-0",
+            ].join(" ")}
+            style={{ width: showAiPanel ? `${aiPanelWidth}px` : "0px" }}
+            aria-hidden={!showAiPanel}
+          >
+            <div className="h-full" style={{ width: `${aiPanelWidth}px` }}>
+              {aiPanel}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -269,6 +394,13 @@ function App() {
         onSelectAiProfile={selectAiProfile}
       />
 
+      <WallpaperModal
+        open={isWallpaperModalOpen}
+        onClose={() => setIsWallpaperModalOpen(false)}
+        wallpaper={wallpaper}
+        onChangeWallpaper={setWallpaper}
+      />
+
       <FileEditorModal
         open={isFileEditorOpen}
         onClose={() => setIsFileEditorOpen(false)}
@@ -283,4 +415,3 @@ function App() {
 }
 
 export default App;
-
