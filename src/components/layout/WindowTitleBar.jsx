@@ -8,7 +8,7 @@ function WindowControlButton({ title, onClick, tone = "normal", children }) {
       type="button"
       title={title}
       className={[
-        "inline-flex h-7 w-9 items-center justify-center border border-border text-muted transition-colors",
+        "inline-flex h-7 w-9 items-center justify-center rounded-lg border border-border bg-panel/80 text-muted transition-colors",
         tone === "danger"
           ? "hover:border-danger/70 hover:bg-danger/10 hover:text-danger"
           : "hover:border-accent/40 hover:bg-accent-soft hover:text-text",
@@ -120,7 +120,7 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
         <AiEntryButton active={showAiPanel} busy={isAiStreaming} onClick={onToggleAiPanel} />
       </div>
 
-      <div className="ml-2 flex items-center gap-px">
+      <div className="ml-2 flex items-center gap-1">
         <WindowControlButton
           title="Minimize"
           onClick={() => safeWindowAction(() => appWindow.minimize(), "minimize")}

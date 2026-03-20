@@ -252,6 +252,23 @@ function App() {
     />
   );
 
+  const terminalPanel = (
+    <TerminalPanel
+      sessions={sessions}
+      activeSessionId={activeSessionId}
+      onSelectSession={setActiveSessionId}
+      onCloseSession={closeSession}
+      activeSession={activeSession}
+      commandInput={commandInput}
+      setCommandInput={setCommandInput}
+      onExecCommand={execCommand}
+      currentPtyOutput={currentPtyOutput}
+      onPtyInput={sendPtyInput}
+      onPtyResize={resizePty}
+      wallpaper={wallpaper}
+    />
+  );
+
   const rightPanelsContent = showStatusPanel ? statusPanel : null;
 
   let bottomPanelsContent = null;
@@ -270,13 +287,20 @@ function App() {
     bottomPanelsContent = sftpPanel;
   } else if (rightPanelsContent) {
     bottomPanelsContent = rightPanelsContent;
-  } else {
-    bottomPanelsContent = (
-      <div className="flex h-full items-center justify-center border border-dashed border-border/80 bg-panel/70 p-3 text-xs text-muted">
-        No work panels are visible. Re-open SFTP or Status from the left rail, or launch AI Chat from the top-right.
-      </div>
-    );
   }
+
+  const mainWorkspaceContent = bottomPanelsContent ? (
+    <SplitPane
+      direction="vertical"
+      initialRatio={0.5}
+      minPrimarySize={290}
+      minSecondarySize={280}
+      primary={terminalPanel}
+      secondary={<section className="h-full">{bottomPanelsContent}</section>}
+    />
+  ) : (
+    <section className="h-full">{terminalPanel}</section>
+  );
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col overflow-hidden text-text">
@@ -307,29 +331,7 @@ function App() {
 
         <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <SplitPane
-              direction="vertical"
-              initialRatio={0.5}
-              minPrimarySize={290}
-              minSecondarySize={280}
-              primary={
-                <TerminalPanel
-                  sessions={sessions}
-                  activeSessionId={activeSessionId}
-                  onSelectSession={setActiveSessionId}
-                  onCloseSession={closeSession}
-                  activeSession={activeSession}
-                  commandInput={commandInput}
-                  setCommandInput={setCommandInput}
-                  onExecCommand={execCommand}
-                  currentPtyOutput={currentPtyOutput}
-                  onPtyInput={sendPtyInput}
-                  onPtyResize={resizePty}
-                  wallpaper={wallpaper}
-                />
-              }
-              secondary={<section className="h-full">{bottomPanelsContent}</section>}
-            />
+            {mainWorkspaceContent}
           </div>
 
           <button

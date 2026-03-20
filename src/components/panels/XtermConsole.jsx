@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { getTerminalWallpaperStyle } from "../../constants/workbench";
+import { getTerminalWallpaperStyle, normalizeWallpaperSelection } from "../../constants/workbench";
 
 const inputFlushDelayMs = 18;
+const transparentTerminalBackground = "rgba(0, 0, 0, 0)";
 
 export default function XtermConsole({
   activeSessionId,
@@ -24,7 +25,8 @@ export default function XtermConsole({
   const onResizeRef = useRef(onResize);
   const pendingInputRef = useRef("");
   const flushTimerRef = useRef(null);
-  const wallpaperStyle = useMemo(() => getTerminalWallpaperStyle(wallpaper), [wallpaper]);
+  const normalizedWallpaper = useMemo(() => normalizeWallpaperSelection(wallpaper), [wallpaper]);
+  const wallpaperStyle = useMemo(() => getTerminalWallpaperStyle(normalizedWallpaper), [normalizedWallpaper]);
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
@@ -53,7 +55,7 @@ export default function XtermConsole({
       allowTransparency: true,
       theme: {
         foreground: "#d6f6dc",
-        background: "rgba(6, 12, 12, 0.38)",
+        background: transparentTerminalBackground,
         cursor: "#d6f6dc",
         selectionBackground: "rgba(90, 166, 134, 0.34)",
       },
@@ -176,14 +178,16 @@ export default function XtermConsole({
   }, [activeSessionId, output]);
 
   return (
-    <div
-      className="terminal-wallpaper min-h-0 flex-1 overflow-hidden p-2 pb-3"
-      style={wallpaperStyle}
-    >
-      <div
-        className="h-full w-full border border-black/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
-      >
-        <div ref={hostRef} className="h-full w-full" />
+    <div className="min-h-0 flex-1 overflow-hidden p-2 pb-3">
+      <div className="terminal-frame relative h-full w-full overflow-hidden border border-black/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+        <div
+          ref={hostRef}
+          className={[
+            "terminal-host relative h-full w-full",
+            normalizedWallpaper.glass ? "terminal-host--glass" : "",
+          ].join(" ")}
+          style={wallpaperStyle}
+        />
       </div>
     </div>
   );

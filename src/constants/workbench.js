@@ -17,8 +17,8 @@ export const WALLPAPER_PRESETS = [
     terminalStyle: {
       backgroundColor: "#091517",
       backgroundImage:
-        "radial-gradient(circle at 18% 20%, rgba(108, 255, 212, 0.26), transparent 20%), radial-gradient(circle at 84% 18%, rgba(255, 184, 114, 0.24), transparent 28%), repeating-linear-gradient(to right, rgba(125, 181, 180, 0.14) 0, rgba(125, 181, 180, 0.14) 1px, transparent 1px, transparent 28px), linear-gradient(150deg, rgba(9, 28, 31, 0.9), rgba(8, 19, 23, 0.68))",
-      backgroundBlendMode: "screen, screen, normal, normal",
+        "radial-gradient(circle at 18% 20%, rgba(108, 255, 212, 0.26), transparent 20%), radial-gradient(circle at 84% 18%, rgba(255, 184, 114, 0.24), transparent 28%), linear-gradient(150deg, rgba(9, 28, 31, 0.9), rgba(8, 19, 23, 0.68))",
+      backgroundBlendMode: "screen, screen, normal",
     },
   },
   {
@@ -64,6 +64,7 @@ const WALLPAPER_PRESET_MAP = new Map(WALLPAPER_PRESETS.map((preset) => [preset.i
 export const DEFAULT_WALLPAPER = Object.freeze({
   type: "preset",
   id: "aurora-grid",
+  glass: true,
 });
 
 export const EMPTY_SSH = {
@@ -97,11 +98,14 @@ export const DEFAULT_AI = {
 export const getWallpaperPreset = (id) => WALLPAPER_PRESET_MAP.get(id) || WALLPAPER_PRESET_MAP.get(DEFAULT_WALLPAPER.id);
 
 export const normalizeWallpaperSelection = (value) => {
+  const glass = value?.glass !== false;
+
   if (value?.type === "custom" && typeof value.dataUrl === "string" && value.dataUrl.startsWith("data:image/")) {
     return {
       type: "custom",
       name: (value.name || "Custom Wallpaper").trim() || "Custom Wallpaper",
       dataUrl: value.dataUrl,
+      glass,
     };
   }
 
@@ -109,6 +113,7 @@ export const normalizeWallpaperSelection = (value) => {
     return {
       type: "preset",
       id: value.id,
+      glass,
     };
   }
 
