@@ -1,7 +1,6 @@
 import {
   Activity,
   AlertTriangle,
-  Bot,
   ChevronLeft,
   ChevronRight,
   CircleCheck,
@@ -149,7 +148,6 @@ export default function TopToolbar({
   onToggleCollapsed,
   onOpenSshConfig,
   onOpenScriptConfig,
-  onOpenAiConfig,
   onToggleSftpPanel,
   onToggleStatusPanel,
   onOpenWallpaperPicker,
@@ -197,7 +195,6 @@ export default function TopToolbar({
         <ToolbarSection title="Config" collapsed={collapsed}>
           <RailButton icon={Server} label="SSH Profiles" onClick={onOpenSshConfig} collapsed={collapsed} />
           <RailButton icon={FileText} label="Script Center" onClick={onOpenScriptConfig} collapsed={collapsed} />
-          <RailButton icon={Bot} label="AI Config" onClick={onOpenAiConfig} collapsed={collapsed} />
         </ToolbarSection>
 
         <ToolbarSection title="Panels" collapsed={collapsed}>

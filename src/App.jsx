@@ -320,7 +320,6 @@ function App() {
           onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
           onOpenSshConfig={() => setIsSshModalOpen(true)}
           onOpenScriptConfig={() => setIsScriptModalOpen(true)}
-          onOpenAiConfig={() => setIsAiModalOpen(true)}
           onOpenWallpaperPicker={() => setIsWallpaperModalOpen(true)}
           onToggleSftpPanel={() => setShowSftpPanel((prev) => !prev)}
           onToggleStatusPanel={() => setShowStatusPanel((prev) => !prev)}
