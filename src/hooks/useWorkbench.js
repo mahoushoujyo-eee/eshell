@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   DEFAULT_AI,
@@ -7,6 +7,12 @@ import {
   EMPTY_SSH,
   normalizeWallpaperSelection,
 } from "../constants/workbench";
+import {
+  EMPTY_OPS_AGENT_STREAM,
+  normalizeOpsAgentStreamEvent,
+  reduceOpsAgentStreamEvent,
+  upsertOpsAgentPendingAction,
+} from "../lib/ops-agent-stream";
 import { api } from "../lib/tauri-api";
 import { arrayBufferToBase64, base64ToBytes } from "../utils/encoding";
 import { formatBytes } from "../utils/format";
@@ -84,11 +90,6 @@ const DEFAULT_AI_PROFILE_FORM = {
 };
 
 const shellQuote = (value) => `'${String(value).replace(/'/g, `'\"'\"'`)}'`;
-const emptyAiStream = Object.freeze({
-  runId: null,
-  conversationId: null,
-  text: "",
-});
 
 const TERMINAL_MAX_OUTPUT_CHARS = 240_000;
 
@@ -97,19 +98,6 @@ const trimTerminalOutput = (value) => {
     return value;
   }
   return value.slice(value.length - TERMINAL_MAX_OUTPUT_CHARS);
-};
-
-const upsertPendingAction = (rows, nextAction) => {
-  if (!nextAction?.id) {
-    return rows;
-  }
-  const index = rows.findIndex((item) => item.id === nextAction.id);
-  if (index === -1) {
-    return [nextAction, ...rows];
-  }
-  const next = [...rows];
-  next[index] = nextAction;
-  return next;
 };
 
 export function useWorkbench() {
@@ -163,13 +151,14 @@ export function useWorkbench() {
   const [activeAiConversationId, setActiveAiConversationId] = useState(null);
   const [activeAiConversation, setActiveAiConversation] = useState(null);
   const [aiPendingActions, setAiPendingActions] = useState([]);
-  const [aiStream, setAiStream] = useState(emptyAiStream);
+  const [aiStream, setAiStream] = useState(EMPTY_OPS_AGENT_STREAM);
   const [resolvingAiActionId, setResolvingAiActionId] = useState("");
 
   const saveTimerRef = useRef(null);
   const reconnectingSessionsRef = useRef(new Map());
   const sessionAliasRef = useRef(new Map());
   const statusRequestTokenRef = useRef(new Map());
+  const aiStreamRef = useRef(EMPTY_OPS_AGENT_STREAM);
 
   const activeSession = useMemo(
     () => sessions.find((item) => item.id === activeSessionId) || null,
@@ -923,7 +912,8 @@ export function useWorkbench() {
       setActiveAiConversationId(created.id);
       setActiveAiConversation(created);
       setAiQuestion("");
-      setAiStream(emptyAiStream);
+      setAiStream(EMPTY_OPS_AGENT_STREAM);
+      aiStreamRef.current = EMPTY_OPS_AGENT_STREAM;
       await Promise.all([
         reloadAiConversations(),
         reloadAiPendingActions(activeSessionId || null),
@@ -1005,11 +995,13 @@ export function useWorkbench() {
             question,
           }),
         );
-        setAiStream({
+        const nextStream = {
           runId: accepted.runId,
           conversationId: accepted.conversationId,
           text: "",
-        });
+        };
+        aiStreamRef.current = nextStream;
+        setAiStream(nextStream);
         setActiveAiConversationId(accepted.conversationId);
         await Promise.all([
           loadAiConversation(accepted.conversationId),
@@ -1054,6 +1046,10 @@ export function useWorkbench() {
   }, [bootstrap]);
 
   useEffect(() => {
+    aiStreamRef.current = aiStream;
+  }, [aiStream]);
+
+  useEffect(() => {
     let disposed = false;
     const unlistenPromise = listen("pty-output", (event) => {
       const payload = event.payload;
@@ -1086,84 +1082,43 @@ export function useWorkbench() {
   useEffect(() => {
     let disposed = false;
     const unlistenPromise = listen("ops-agent-stream", (event) => {
-      const payload = event.payload;
-      if (!payload || typeof payload !== "object") {
+      const normalizedEvent = normalizeOpsAgentStreamEvent(event.payload);
+      if (!normalizedEvent) {
         return;
       }
 
-      const runId = typeof payload.runId === "string" ? payload.runId : "";
-      const conversationId =
-        typeof payload.conversationId === "string" ? payload.conversationId : "";
-      const stage = typeof payload.stage === "string" ? payload.stage : "";
-      const chunk = typeof payload.chunk === "string" ? payload.chunk : "";
-      const errorMessage = typeof payload.error === "string" ? payload.error : "";
-      const pendingAction =
-        payload.pendingAction && typeof payload.pendingAction === "object"
-          ? payload.pendingAction
-          : null;
+      const transition = reduceOpsAgentStreamEvent(aiStreamRef.current, normalizedEvent);
+      aiStreamRef.current = transition.nextStream;
 
-      if (!stage) {
-        return;
-      }
-
-      if (stage === "error" && (!runId || !conversationId)) {
-        setAiStream(emptyAiStream);
-        if (errorMessage) {
-          onError(errorMessage);
+      startTransition(() => {
+        setAiStream(transition.nextStream);
+        if (transition.activateConversationId) {
+          setActiveAiConversationId(transition.activateConversationId);
         }
-        return;
-      }
-
-      if (!runId || !conversationId) {
-        return;
-      }
-
-      if (stage === "started") {
-        setAiStream({ runId, conversationId, text: "" });
-        setActiveAiConversationId(conversationId);
-        return;
-      }
-
-      if (stage === "delta") {
-        setAiStream((prev) => {
-          if (prev.runId === runId) {
-            return { ...prev, text: `${prev.text}${chunk}` };
-          }
-          return { runId, conversationId, text: chunk };
-        });
-        return;
-      }
-
-      if (stage === "tool_read") {
-        void loadAiConversation(conversationId).catch(() => {});
-        return;
-      }
-
-      if (stage === "requires_approval") {
-        if (pendingAction) {
-          setAiPendingActions((prev) => upsertPendingAction(prev, pendingAction));
+        if (transition.pendingAction) {
+          setAiPendingActions((prev) =>
+            upsertOpsAgentPendingAction(prev, transition.pendingAction),
+          );
         }
-        return;
+      });
+
+      if (transition.reloadConversationId) {
+        void loadAiConversation(transition.reloadConversationId).catch(() => {});
       }
 
-      if (stage === "completed") {
-        setAiStream((prev) => (prev.runId === runId ? emptyAiStream : prev));
-        if (pendingAction) {
-          setAiPendingActions((prev) => upsertPendingAction(prev, pendingAction));
+      if (transition.reloadConversations || transition.reloadPendingActions) {
+        const tasks = [];
+        if (transition.reloadConversations) {
+          tasks.push(reloadAiConversations());
         }
-        void Promise.all([
-          loadAiConversation(conversationId),
-          reloadAiConversations(),
-          reloadAiPendingActions(activeSessionId || null),
-        ]).catch(() => {});
-        return;
+        if (transition.reloadPendingActions) {
+          tasks.push(reloadAiPendingActions(activeSessionId || null));
+        }
+        void Promise.all(tasks).catch(() => {});
       }
 
-      if (stage === "error") {
-        setAiStream((prev) => (prev.runId === runId ? emptyAiStream : prev));
-        if (errorMessage) {
-          onError(errorMessage);
-        }
+      if (transition.errorMessage) {
+        onError(transition.errorMessage);
       }
     }).catch((error) => {
       if (!disposed) {

@@ -11,12 +11,44 @@ pub enum OpsAgentRole {
     Tool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum OpsAgentToolKind {
-    None,
-    ReadShell,
-    WriteShell,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+#[serde(transparent)]
+pub struct OpsAgentToolKind(String);
+
+impl OpsAgentToolKind {
+    pub fn new(value: impl Into<String>) -> Self {
+        let normalized = value.into().trim().to_ascii_lowercase();
+        if normalized.is_empty() {
+            return Self::none();
+        }
+        Self(normalized)
+    }
+
+    pub fn none() -> Self {
+        Self("none".to_string())
+    }
+
+    pub fn read_shell() -> Self {
+        Self("read_shell".to_string())
+    }
+
+    pub fn write_shell() -> Self {
+        Self("write_shell".to_string())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn is_none(&self) -> bool {
+        self.0.is_empty() || self.0 == "none"
+    }
+}
+
+impl std::fmt::Display for OpsAgentToolKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -65,6 +97,8 @@ pub struct OpsAgentConversationSummary {
 #[serde(rename_all = "camelCase")]
 pub struct OpsAgentPendingAction {
     pub id: String,
+    #[serde(default = "default_pending_action_tool_kind")]
+    pub tool_kind: OpsAgentToolKind,
     pub conversation_id: String,
     pub session_id: Option<String>,
     pub command: String,
@@ -224,4 +258,8 @@ impl OpsAgentStreamEvent {
             created_at: now_rfc3339(),
         }
     }
+}
+
+fn default_pending_action_tool_kind() -> OpsAgentToolKind {
+    OpsAgentToolKind::write_shell()
 }

@@ -1,89 +1,166 @@
-# eShell 项目描述（基于当前实现与需求约束）
+# eShell 项目说明
 
 ## 1. 项目定位
 
-eShell 是一个面向日常运维场景的桌面化工作台，目标是用一个统一界面完成 SSH 连接管理、终端操作、SFTP 文件管理、状态监控、脚本执行和 AI 运维协同。  
-项目整体交互风格参考 FinalShell，技术架构采用 Tauri 2 + React + Rust，强调本地可部署、低资源占用和可扩展的模块化设计。
+eShell 是一个面向日常运维场景的桌面工作台，目标是在一个应用内完成：
 
-## 2. 核心目标
+- SSH 连接管理
+- PTY 终端交互
+- SFTP 文件管理
+- 服务状态监控
+- 脚本执行
+- Ops Agent 辅助诊断与命令规划
 
-1. 提供接近真实 Shell 的交互体验（PTY + xterm.js）。
-2. 支持多会话并行，避免不同服务器/标签之间状态串扰。
-3. 提供可视化 SFTP 浏览与文件操作能力，覆盖常见运维文件流转。
-4. 引入 Ops Agent，实现多轮对话、工具调用与风险操作审批闭环。
-5. 保证配置与会话数据本地持久化，便于恢复和后续审计。
+整体架构采用 `Tauri 2 + React + Rust`，强调本地部署、低资源占用和模块化扩展。
 
-## 3. 已实现能力（当前版本）
+## 2. 当前目标
+
+1. 提供接近原生 Shell 的交互体验。
+2. 支持多会话并行，避免不同会话间状态串扰。
+3. 覆盖常见运维文件流转与状态排查需求。
+4. 通过 Ops Agent 提供对话式诊断、工具调用和审批闭环。
+5. 保证配置与会话数据可持久化、可恢复、可追踪。
+
+## 3. 已实现能力
 
 ### 3.1 SSH 与终端
-- SSH 配置的增删改查与本地持久化
-- 会话列表管理（多标签页）
-- PTY 输入/输出与窗口 resize 同步
-- 基于 xterm.js 的终端渲染与交互
+
+- SSH 配置增删改查
+- 多 Shell 会话管理
+- PTY 输入、输出和窗口缩放同步
+- 基于 `xterm.js` 的终端渲染
 
 ### 3.2 SFTP 与文件
-- 目录列表获取与文件上传/下载
-- 目录树与文件区分区展示
-- 文件内容读取与编辑弹窗
 
-### 3.3 服务器状态
-- CPU、内存、网卡流量、Top 进程、磁盘占用采集
-- 缓存 + 周期刷新机制（会话切换时优先显示缓存）
+- 目录浏览
+- 文件上传、下载
+- 远程文件读取与保存
+- 编辑器弹窗
 
-### 3.4 脚本管理
-- 脚本定义（名称/路径/命令）管理
-- 绑定当前会话执行脚本命令
+### 3.3 服务状态
 
-### 3.5 Ops Agent（AI）
-- OpenAI-compatible 接口接入（baseUrl / apiKey / model）
-- 多轮会话、会话切换、流式输出
-- 工具调用分级：
-  - `read_shell`：只读诊断类命令自动执行
+- CPU、内存、网卡、磁盘、进程采集
+- 缓存与轮询刷新
+
+### 3.4 脚本中心
+
+- 脚本定义存储
+- 在当前会话执行脚本命令
+
+### 3.5 Ops Agent
+
+- OpenAI-compatible 模型接入
+- 多轮会话和会话切换
+- 工具调用分层：
+  - `read_shell`：自动执行只读诊断命令
   - `write_shell`：进入待审批队列，用户确认后执行
-- 工具结果回写对话上下文，形成完整链路
+- 工具结果回写对话上下文
+- 真实 SSE 上游流式回答
 
-## 4. 技术架构
+## 4. Ops Agent 架构
 
-### 4.1 前端
-- React + Vite + Tailwind CSS
-- 状态编排集中在 `useWorkbench`，面板组件按职责拆分
-- 通过 Tauri `invoke` + 事件监听对接后端命令与流式事件
+本次整理后的模块边界如下：
 
-### 4.2 后端
-- Tauri Command 作为 RPC 边界
-- Rust 服务模块拆分：`ssh_service`、`storage`、`ops_agent`
-- IO/耗时操作通过异步或阻塞线程池执行，降低 UI 阻塞风险
+- `store.rs`
+  - 会话与 pending action 持久化
+  - 兼容旧版单文件迁移
+- `context.rs`
+  - 统一管理提示词拼装
+  - 统一管理会话上下文提取
+- `tools/`
+  - 工具定义
+  - 工具注册
+  - 工具执行与审批回调
+- `stream.rs`
+  - OpenAI-compatible SSE 帧解码
+- `events.rs`
+  - Tauri 前端流式事件发射
+- `openai.rs`
+  - Planner 请求
+  - 最终答案流式请求
+  - 工具结果总结流式请求
+- `service.rs`
+  - 编排整轮对话执行流程
 
-## 5. 数据持久化策略
+## 5. 工具注册设计
 
-运行目录下统一使用 `.eshell-data` 本地存储。
+Ops Agent 不再把工具说明硬编码在提示词里，而是通过运行时注册表提供：
 
-- `ssh_configs.json`：SSH 配置
-- `scripts.json`：脚本定义
-- `ai_profiles.json`：AI Profile
-- `ops_agent_conversation_list.json`：会话摘要 + active 会话 + pending actions
-- `ops_agent_conversations/<conversationId>.json`：单会话消息明细
+- `OpsAgentToolRegistry`
+- `OpsAgentToolDefinition`
+- `OpsAgentTool`
+
+当前默认注册：
+
+- `ReadShellTool`
+- `WriteShellTool`
+
+如果后续增加工具，只需要：
+
+1. 实现 `OpsAgentTool`。
+2. 在注册表中注册。
+3. 提供对应的 planner 描述和执行逻辑。
+
+不需要再去手改 service 里的大段 `match` 提示词常量。
+
+## 6. 流式设计
+
+### 6.1 后端
+
+- 对 OpenAI-compatible `chat/completions` 请求开启 `stream: true`
+- 使用 `stream.rs` 解析 SSE `data:` 帧
+- 增量发射以下前端事件：
+  - `started`
+  - `delta`
+  - `tool_read`
+  - `requires_approval`
+  - `completed`
+  - `error`
+
+### 6.2 前端
+
+- 在 `src/lib/ops-agent-stream.js` 中对流式事件做归一化和 reducer 化
+- `useWorkbench` 只负责订阅、触发状态更新和后续刷新
+- 使用 `startTransition` 降低流式文本更新对主交互的影响
+
+## 7. 数据持久化
+
+运行目录统一使用 `.eshell-data/`：
+
+- `ssh_configs.json`
+- `scripts.json`
+- `ai_profiles.json`
+- `ops_agent_conversation_list.json`
+- `ops_agent_conversations/<conversationId>.json`
 
 补充规则：
-- 新会话标题默认 `New Conversation`
-- 首条用户消息自动生成标题（前 10 字，超出追加 `...`）
-- 兼容旧格式迁移并清理历史文件（如 `ops_agent.json`、`ai_config.json`）
 
-## 6. 接口与交互约束
+- 新会话默认标题：`New Conversation`
+- 首条用户消息可自动生成标题
+- pending action 增加 `toolKind`，用于审批时回路由到具体工具
+- 兼容旧版 `ops_agent.json` / `ai_config.json` 迁移
 
-- 后端能力通过 Tauri commands 暴露，接口文档以 `docs/openapi.yaml` 为基础
-- AI 工具执行遵循“可读自动、可写审批”原则
-- 流式错误事件必须回传真实 `runId/conversationId`，避免前端状态锁死
+## 8. 测试策略
 
-## 7. 非功能要求与注意事项
+### 8.1 Rust
 
-1. 当前本地配置文件默认未加密（包括 SSH 密码、AI Key），仅建议在受控环境使用。
-2. 面向生产场景应补充密钥加密存储、审计日志与最小权限控制。
-3. 上游模型可能触发配额限制（如 429），需支持快速切换模型/Key。
+已覆盖：
 
-## 8. 项目价值总结
+- 工具注册
+- SSE 流解析
+- 提示词上下文拼装
+- Ops Agent 存储与迁移
 
-eShell 将传统“终端 + 文件 + 监控 + 脚本 + AI”分散链路整合为单工作台，核心价值在于：
-- 提高运维操作连续性
-- 降低多工具切换成本
-- 通过 Agent + 审批机制提升执行效率与安全性
+### 8.2 Frontend
+
+已覆盖：
+
+- 流式事件归一化
+- `started / delta / completed / error / requires_approval` 状态推进
+- pending action upsert
+
+## 9. 当前限制
+
+- 当前审批后的 `write_shell` 结果会写回对话，但不会自动再触发一轮新的模型总结。
+- 本地配置默认未加密，仍需在生产环境补充密钥管理和审计能力。
+- 前端生产构建仍存在大 bundle 提示，后续可以继续做拆包优化。

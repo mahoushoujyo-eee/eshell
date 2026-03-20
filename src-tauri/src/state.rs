@@ -6,6 +6,7 @@ use std::sync::RwLock;
 use crate::error::{AppError, AppResult};
 use crate::models::{ServerStatus, ShellSession};
 use crate::ops_agent::store::OpsAgentStore;
+use crate::ops_agent::tools::{default_ops_agent_tool_registry, OpsAgentToolRegistry};
 use crate::storage::Storage;
 
 #[derive(Debug, Clone)]
@@ -24,6 +25,7 @@ pub enum PtyCommand {
 pub struct AppState {
     pub storage: Storage,
     pub ops_agent: OpsAgentStore,
+    pub ops_agent_tools: OpsAgentToolRegistry,
     sessions: RwLock<HashMap<String, ShellSession>>,
     status_cache: RwLock<HashMap<String, ServerStatus>>,
     pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>,
@@ -32,9 +34,18 @@ pub struct AppState {
 impl AppState {
     /// Creates a fully initialized state object backed by a storage root path.
     pub fn new(storage_root: PathBuf) -> AppResult<Self> {
+        Self::new_with_ops_agent_tools(storage_root, default_ops_agent_tool_registry())
+    }
+
+    /// Creates a fully initialized state object with a caller-provided Ops Agent tool registry.
+    pub fn new_with_ops_agent_tools(
+        storage_root: PathBuf,
+        ops_agent_tools: OpsAgentToolRegistry,
+    ) -> AppResult<Self> {
         Ok(Self {
             storage: Storage::new(storage_root.clone())?,
             ops_agent: OpsAgentStore::new(storage_root)?,
+            ops_agent_tools,
             sessions: RwLock::new(HashMap::new()),
             status_cache: RwLock::new(HashMap::new()),
             pty_channels: RwLock::new(HashMap::new()),

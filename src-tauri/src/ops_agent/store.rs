@@ -265,6 +265,7 @@ impl OpsAgentStore {
         &self,
         conversation_id: &str,
         session_id: Option<&str>,
+        tool_kind: OpsAgentToolKind,
         command: &str,
         reason: &str,
     ) -> AppResult<OpsAgentPendingAction> {
@@ -282,6 +283,7 @@ impl OpsAgentStore {
         let now = now_rfc3339();
         let action = OpsAgentPendingAction {
             id: Uuid::new_v4().to_string(),
+            tool_kind,
             conversation_id: conversation_id.to_string(),
             session_id: session_id.map(|item| item.to_string()),
             command: command.trim().to_string(),
@@ -643,14 +645,21 @@ mod tests {
                 &conversation.id,
                 OpsAgentRole::Assistant,
                 "running read_shell",
-                Some(OpsAgentToolKind::ReadShell),
+                Some(OpsAgentToolKind::read_shell()),
             )
             .expect("append assistant");
 
         let action = store
-            .create_pending_action(&conversation.id, Some("session-1"), "reboot", "danger")
+            .create_pending_action(
+                &conversation.id,
+                Some("session-1"),
+                OpsAgentToolKind::write_shell(),
+                "reboot",
+                "danger",
+            )
             .expect("create action");
         assert_eq!(action.status, OpsAgentActionStatus::Pending);
+        assert_eq!(action.tool_kind, OpsAgentToolKind::write_shell());
         assert_eq!(store.list_pending_actions(Some("session-1"), true).len(), 1);
 
         let rejected = store.mark_action_rejected(&action.id).expect("reject");

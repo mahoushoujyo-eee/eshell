@@ -1,18 +1,20 @@
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::now_rfc3339;
-use crate::ssh_service;
 use crate::state::AppState;
 
+use super::context::load_session_context;
+use super::events::OpsAgentEventEmitter;
 use super::openai;
+use super::tools::{OpsAgentToolExecution, OpsAgentToolOutcome, OpsAgentToolResolveRequest};
 use super::types::{
     OpsAgentActionStatus, OpsAgentChatAccepted, OpsAgentChatInput, OpsAgentConversation,
     OpsAgentConversationSummary, OpsAgentResolveActionInput, OpsAgentResolveActionResult,
-    OpsAgentRole, OpsAgentStreamEvent, OpsAgentStreamStage, OpsAgentToolKind,
+    OpsAgentRole,
 };
 
 pub fn list_conversations(state: &AppState) -> Vec<OpsAgentConversationSummary> {
@@ -62,6 +64,7 @@ pub fn start_chat_stream(
         &question,
         input.session_id.as_deref(),
     )?;
+    let session_id = conversation.session_id.clone();
     state
         .ops_agent
         .append_message(&conversation.id, OpsAgentRole::User, &question, None)?;
@@ -78,23 +81,18 @@ pub fn start_chat_stream(
     let run_id_for_task = run_id.clone();
     let conversation_id_for_task = conversation.id.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(err) = process_chat_stream(
+        if let Err(error) = process_chat_stream(
             state_for_task,
             app_for_task.clone(),
             run_id_for_task.clone(),
             conversation_id_for_task.clone(),
             question,
-            input.session_id,
+            session_id,
         )
         .await
         {
-            let mut event = OpsAgentStreamEvent::new(
-                run_id_for_task,
-                conversation_id_for_task,
-                OpsAgentStreamStage::Error,
-            );
-            event.error = Some(err.to_string());
-            let _ = app_for_task.emit("ops-agent-stream", event);
+            OpsAgentEventEmitter::new(app_for_task, run_id_for_task, conversation_id_for_task)
+                .error(error.to_string());
         }
     });
 
@@ -115,14 +113,16 @@ pub async fn resolve_pending_action(
     if !input.approve {
         let updated = state.ops_agent.mark_action_rejected(&input.action_id)?;
         let notice = format!(
-            "Write-shell action rejected.\nCommand: {}\nReason: {}",
-            updated.command, updated.reason
+            "{} rejected.\nCommand: {}\nReason: {}",
+            updated.tool_kind,
+            updated.command,
+            updated.reason
         );
         let _ = state.ops_agent.append_message(
             &updated.conversation_id,
             OpsAgentRole::Assistant,
             &notice,
-            Some(OpsAgentToolKind::WriteShell),
+            Some(updated.tool_kind.clone()),
         );
         return Ok(OpsAgentResolveActionResult {
             action: updated,
@@ -130,56 +130,35 @@ pub async fn resolve_pending_action(
         });
     }
 
-    let Some(session_id) = action.session_id.clone() else {
-        let updated = state
-            .ops_agent
-            .mark_action_failed(&input.action_id, "missing session id for write_shell".to_string())?;
-        return Ok(OpsAgentResolveActionResult {
-            action: updated,
-            note: "Action failed: missing session id".to_string(),
-        });
+    let tool = state
+        .ops_agent_tools
+        .get(&action.tool_kind)
+        .ok_or_else(|| AppError::Validation(format!("tool {} is not registered", action.tool_kind)))?;
+    let resolution = tool
+        .resolve_action(OpsAgentToolResolveRequest {
+            state: Arc::clone(&state),
+            action,
+        })
+        .await?;
+
+    let _ = state.ops_agent.append_message(
+        &resolution.action.conversation_id,
+        OpsAgentRole::Tool,
+        &resolution.message,
+        Some(resolution.action.tool_kind.clone()),
+    );
+
+    let note = match resolution.action.status {
+        OpsAgentActionStatus::Executed => "Action approved and executed",
+        OpsAgentActionStatus::Failed => "Action approved but execution failed",
+        OpsAgentActionStatus::Rejected => "Action rejected",
+        OpsAgentActionStatus::Pending => "Action remains pending",
     };
 
-    let command = action.command.clone();
-    let state_for_exec = Arc::clone(&state);
-    let exec_result = tauri::async_runtime::spawn_blocking(move || {
-        ssh_service::execute_command(&state_for_exec, &session_id, &command)
+    Ok(OpsAgentResolveActionResult {
+        action: resolution.action,
+        note: note.to_string(),
     })
-    .await
-    .map_err(|err| AppError::Runtime(err.to_string()))?;
-
-    match exec_result {
-        Ok(execution) => {
-            let output = format_execution_output(&execution.stdout, &execution.stderr, execution.exit_code);
-            let updated = state
-                .ops_agent
-                .mark_action_executed(&input.action_id, output.clone(), execution.exit_code)?;
-            let tool_message = format!(
-                "write_shell executed.\nCommand: {}\nExit: {}\n{}",
-                updated.command, execution.exit_code, output
-            );
-            let _ = state.ops_agent.append_message(
-                &updated.conversation_id,
-                OpsAgentRole::Tool,
-                &tool_message,
-                Some(OpsAgentToolKind::WriteShell),
-            );
-
-            Ok(OpsAgentResolveActionResult {
-                action: updated,
-                note: "Action approved and executed".to_string(),
-            })
-        }
-        Err(err) => {
-            let updated = state
-                .ops_agent
-                .mark_action_failed(&input.action_id, err.to_string())?;
-            Ok(OpsAgentResolveActionResult {
-                action: updated,
-                note: "Action approved but execution failed".to_string(),
-            })
-        }
-    }
 }
 
 async fn process_chat_stream(
@@ -190,103 +169,84 @@ async fn process_chat_stream(
     question: String,
     session_id: Option<String>,
 ) -> AppResult<()> {
-    emit_event(
-        &app,
-        OpsAgentStreamEvent::new(run_id.clone(), conversation_id.clone(), OpsAgentStreamStage::Started),
-    );
+    let emitter = OpsAgentEventEmitter::new(app, run_id, conversation_id.clone());
+    emitter.started();
 
     let config = state.storage.get_ai_config();
     let history = state.ops_agent.get_conversation(&conversation_id)?.messages;
-    let plan = openai::plan_reply(&config, &history, &question, session_id.as_deref()).await?;
-    let planner_reply = plan.reply.clone();
+    let session_context = load_session_context(&state, session_id.as_deref());
+    let tool_hints = state.ops_agent_tools.prompt_hints();
+    let plan = openai::plan_reply(&config, &history, &question, &session_context, &tool_hints).await?;
 
     let mut pending_action = None;
-    let assistant_answer = match plan.tool.kind {
-        OpsAgentToolKind::None => normalized_reply(plan.reply, "收到，我来帮你处理这个运维问题。"),
-        OpsAgentToolKind::ReadShell => {
-            match (plan.tool.command.clone(), session_id.clone()) {
-                (None, _) => normalized_reply(
-                    planner_reply.clone(),
-                    "我没有拿到可执行的 read_shell 命令，请补充需求后重试。",
-                ),
-                (_, None) => normalized_reply(
-                    planner_reply.clone(),
-                    "当前没有可用 SSH 会话，无法执行 read_shell 工具。",
-                ),
-                (Some(command), Some(session_id)) => {
-                    let read_result =
-                        execute_shell_command(Arc::clone(&state), session_id, command.clone()).await;
-                    match read_result {
-                        Ok(execution) => {
-                            let output =
-                                format_execution_output(&execution.stdout, &execution.stderr, execution.exit_code);
-                            let tool_note = format!(
-                                "read_shell executed.\nCommand: {}\nExit: {}\n{}",
-                                command, execution.exit_code, output
-                            );
-                            let _ = state.ops_agent.append_message(
-                                &conversation_id,
-                                OpsAgentRole::Tool,
-                                &tool_note,
-                                Some(OpsAgentToolKind::ReadShell),
-                            );
+    let assistant_answer = if plan.tool.kind.is_none() {
+        stream_answer_with_fallback(
+            &config,
+            &history,
+            &question,
+            &session_context,
+            Some(plan.reply.as_str()),
+            &emitter,
+        )
+        .await?
+    } else {
+        let tool = state.ops_agent_tools.get(&plan.tool.kind).ok_or_else(|| {
+            AppError::Validation(format!("tool {} is not registered", plan.tool.kind))
+        })?;
 
-                            let mut tool_event = OpsAgentStreamEvent::new(
-                                run_id.clone(),
-                                conversation_id.clone(),
-                                OpsAgentStreamStage::ToolRead,
-                            );
-                            tool_event.chunk = Some(format!("read_shell: {}", command));
-                            emit_event(&app, tool_event);
-
-                            let after_history = state.ops_agent.get_conversation(&conversation_id)?.messages;
-                            openai::summarize_tool_result(
-                                &config,
-                                &after_history,
-                                OpsAgentToolKind::ReadShell,
-                                &command,
-                                &output,
-                                Some(execution.exit_code),
-                            )
-                            .await
-                            .unwrap_or_else(|_| normalized_reply(planner_reply.clone(), "命令已执行，结果已返回。"))
-                        }
-                        Err(err) => {
-                            normalized_reply(planner_reply.clone(), &format!("read_shell 执行失败：{}", err))
-                        }
-                    }
-                }
-            }
-        }
-        OpsAgentToolKind::WriteShell => {
-            match plan.tool.command.clone() {
-                None => normalized_reply(
-                    planner_reply.clone(),
-                    "我没有拿到可执行的 write_shell 命令，请补充需求后重试。",
-                ),
-                Some(command) => {
-                    let action = state.ops_agent.create_pending_action(
+        if let Some(command) = plan.tool.command.clone() {
+            match tool
+                .execute(super::tools::OpsAgentToolRequest {
+                    state: Arc::clone(&state),
+                    conversation_id: conversation_id.clone(),
+                    session_id: session_id.clone(),
+                    command,
+                    reason: plan.tool.reason.clone(),
+                })
+                .await?
+            {
+                OpsAgentToolOutcome::Executed(execution) => {
+                    let _ = state.ops_agent.append_message(
                         &conversation_id,
-                        session_id.as_deref(),
-                        &command,
-                        plan.tool.reason.as_deref().unwrap_or("requested by agent"),
-                    )?;
-                    pending_action = Some(action.clone());
-
-                    let mut approve_event = OpsAgentStreamEvent::new(
-                        run_id.clone(),
-                        conversation_id.clone(),
-                        OpsAgentStreamStage::RequiresApproval,
+                        OpsAgentRole::Tool,
+                        &execution.message,
+                        Some(execution.tool_kind.clone()),
                     );
-                    approve_event.pending_action = Some(action);
-                    emit_event(&app, approve_event);
+                    if let Some(label) = execution.stream_label.clone() {
+                        emitter.tool_read(label);
+                    }
 
-                    normalized_reply(
-                        planner_reply,
-                        "我生成了一个 write_shell 操作，已进入待确认队列。请在前端确认或拒绝后执行。",
+                    let after_history = state.ops_agent.get_conversation(&conversation_id)?.messages;
+                    stream_tool_summary_with_fallback(
+                        &config,
+                        &after_history,
+                        &session_context,
+                        &execution,
+                        Some(plan.reply.as_str()),
+                        &emitter,
+                    )
+                    .await?
+                }
+                OpsAgentToolOutcome::AwaitingApproval(action) => {
+                    pending_action = Some(action.clone());
+                    emitter.requires_approval(action);
+                    emit_static_reply(
+                        normalized_reply(
+                            plan.reply,
+                            "A write_shell action was queued for approval. Approve or reject it in the UI.",
+                        ),
+                        &emitter,
                     )
                 }
             }
+        } else {
+            emit_static_reply(
+                normalized_reply(
+                    plan.reply,
+                    &format!("No executable command was returned for tool {}.", plan.tool.kind),
+                ),
+                &emitter,
+            )
         }
     };
 
@@ -296,60 +256,85 @@ async fn process_chat_stream(
         &assistant_answer,
         None,
     )?;
-    stream_text_response(&app, &run_id, &conversation_id, &assistant_answer);
-
-    let mut completed = OpsAgentStreamEvent::new(run_id, conversation_id, OpsAgentStreamStage::Completed);
-    completed.full_answer = Some(assistant_answer);
-    completed.pending_action = pending_action;
-    emit_event(&app, completed);
-
+    emitter.completed(assistant_answer, pending_action);
     Ok(())
 }
 
-async fn execute_shell_command(
-    state: Arc<AppState>,
-    session_id: String,
-    command: String,
-) -> AppResult<crate::models::CommandExecutionResult> {
-    tauri::async_runtime::spawn_blocking(move || ssh_service::execute_command(&state, &session_id, &command))
-        .await
-        .map_err(|err| AppError::Runtime(err.to_string()))?
-}
-
-fn stream_text_response(app: &AppHandle, run_id: &str, conversation_id: &str, text: &str) {
-    let chunks = split_stream_chunks(text, 36);
-    for chunk in chunks {
-        let mut delta = OpsAgentStreamEvent::new(
-            run_id.to_string(),
-            conversation_id.to_string(),
-            OpsAgentStreamStage::Delta,
-        );
-        delta.chunk = Some(chunk);
-        emit_event(app, delta);
-    }
-}
-
-fn split_stream_chunks(text: &str, chunk_size: usize) -> Vec<String> {
-    if text.is_empty() || chunk_size == 0 {
-        return Vec::new();
-    }
-
-    let mut out = Vec::new();
-    let mut current = String::new();
-    let mut count = 0usize;
-    for ch in text.chars() {
-        current.push(ch);
-        count += 1;
-        if count >= chunk_size {
-            out.push(current);
-            current = String::new();
-            count = 0;
+async fn stream_answer_with_fallback(
+    config: &crate::models::AiConfig,
+    history: &[super::types::OpsAgentMessage],
+    question: &str,
+    session_context: &super::context::OpsAgentSessionContext,
+    planner_reply: Option<&str>,
+    emitter: &OpsAgentEventEmitter,
+) -> AppResult<String> {
+    match openai::stream_final_answer(
+        config,
+        history,
+        question,
+        session_context,
+        planner_reply,
+        |delta| {
+            emitter.delta(delta.to_string());
+            Ok(())
+        },
+    )
+    .await
+    {
+        Ok(answer) => Ok(answer),
+        Err(error) => {
+            let fallback = normalized_reply(
+                planner_reply.unwrap_or_default().to_string(),
+                "Received. I will help with this operations task.",
+            );
+            if fallback.trim().is_empty() {
+                return Err(error);
+            }
+            Ok(emit_static_reply(fallback, emitter))
         }
     }
-    if !current.is_empty() {
-        out.push(current);
+}
+
+async fn stream_tool_summary_with_fallback(
+    config: &crate::models::AiConfig,
+    history: &[super::types::OpsAgentMessage],
+    session_context: &super::context::OpsAgentSessionContext,
+    execution: &OpsAgentToolExecution,
+    planner_reply: Option<&str>,
+    emitter: &OpsAgentEventEmitter,
+) -> AppResult<String> {
+    match openai::stream_tool_summary(
+        config,
+        history,
+        session_context,
+        &execution.tool_kind,
+        &execution.command,
+        &execution.output,
+        execution.exit_code,
+        |delta| {
+            emitter.delta(delta.to_string());
+            Ok(())
+        },
+    )
+    .await
+    {
+        Ok(answer) => Ok(answer),
+        Err(error) => {
+            let fallback = normalized_reply(
+                planner_reply.unwrap_or_default().to_string(),
+                "The command completed. Review the tool result above for details.",
+            );
+            if fallback.trim().is_empty() {
+                return Err(error);
+            }
+            Ok(emit_static_reply(fallback, emitter))
+        }
     }
-    out
+}
+
+fn emit_static_reply(text: String, emitter: &OpsAgentEventEmitter) -> String {
+    emitter.delta(text.clone());
+    text
 }
 
 fn normalized_reply(reply: String, fallback: &str) -> String {
@@ -358,23 +343,4 @@ fn normalized_reply(reply: String, fallback: &str) -> String {
     } else {
         reply
     }
-}
-
-fn format_execution_output(stdout: &str, stderr: &str, exit_code: i32) -> String {
-    let mut sections = Vec::new();
-    if !stdout.trim().is_empty() {
-        sections.push(format!("stdout:\n{}", stdout.trim_end()));
-    }
-    if !stderr.trim().is_empty() {
-        sections.push(format!("stderr:\n{}", stderr.trim_end()));
-    }
-    if sections.is_empty() {
-        sections.push("<empty output>".to_string());
-    }
-    sections.push(format!("exitCode: {exit_code}"));
-    sections.join("\n\n")
-}
-
-fn emit_event(app: &AppHandle, event: OpsAgentStreamEvent) {
-    let _ = app.emit("ops-agent-stream", event);
 }

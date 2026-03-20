@@ -1,8 +1,15 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
 use crate::models::AiConfig;
 
+use super::context::{
+    build_answer_system_prompt, build_planner_system_prompt, build_tool_summary_prompt,
+    format_tool_result_user_message, OpsAgentSessionContext, OpsAgentToolPromptHint,
+};
+use super::stream::SseEventDecoder;
 use super::types::{OpsAgentMessage, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply, PlannedToolAction};
 
 #[derive(Debug, Serialize)]
@@ -12,9 +19,11 @@ struct ChatCompletionsRequest {
     messages: Vec<WireChatMessage>,
     temperature: f64,
     max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct WireChatMessage {
     role: String,
     content: String,
@@ -36,6 +45,21 @@ struct ChoiceMessage {
 }
 
 #[derive(Debug, Deserialize)]
+struct ChatCompletionsStreamResponse {
+    choices: Vec<StreamChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StreamChoice {
+    delta: StreamDelta,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct StreamDelta {
+    content: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct PlanPayload {
     reply: Option<String>,
     tool: Option<PlanToolPayload>,
@@ -52,13 +76,15 @@ pub async fn plan_reply(
     config: &AiConfig,
     history: &[OpsAgentMessage],
     user_question: &str,
-    session_id: Option<&str>,
+    session_context: &OpsAgentSessionContext,
+    tool_hints: &[OpsAgentToolPromptHint],
 ) -> AppResult<PlannedAgentReply> {
     validate_ai_config(config)?;
+
     let mut messages = Vec::new();
     messages.push(WireChatMessage {
         role: "system".to_string(),
-        content: build_planner_system_prompt(config, session_id),
+        content: build_planner_system_prompt(&config.system_prompt, session_context, tool_hints),
     });
     messages.extend(history.iter().map(convert_history_message));
     messages.push(WireChatMessage {
@@ -67,38 +93,63 @@ pub async fn plan_reply(
     });
 
     let content = request_chat_completion(config, messages).await?;
-    parse_plan_payload(&content)
+    parse_plan_payload(&content, tool_hints)
 }
 
-pub async fn summarize_tool_result(
+pub async fn stream_final_answer<F>(
     config: &AiConfig,
     history: &[OpsAgentMessage],
-    tool_kind: OpsAgentToolKind,
-    command: &str,
-    output: &str,
-    exit_code: Option<i32>,
-) -> AppResult<String> {
+    user_question: &str,
+    session_context: &OpsAgentSessionContext,
+    planner_reply: Option<&str>,
+    on_delta: F,
+) -> AppResult<String>
+where
+    F: FnMut(&str) -> AppResult<()>,
+{
     validate_ai_config(config)?;
+
     let mut messages = Vec::new();
     messages.push(WireChatMessage {
         role: "system".to_string(),
-        content: build_tool_summary_prompt(config),
+        content: build_answer_system_prompt(&config.system_prompt, session_context, planner_reply),
     });
     messages.extend(history.iter().map(convert_history_message));
     messages.push(WireChatMessage {
         role: "user".to_string(),
-        content: format!(
-            "Tool execution result\nkind: {:?}\ncommand: {}\nexitCode: {}\noutput:\n{}",
-            tool_kind,
-            command,
-            exit_code
-                .map(|item| item.to_string())
-                .unwrap_or_else(|| "n/a".to_string()),
-            output
-        ),
+        content: user_question.trim().to_string(),
     });
 
-    request_chat_completion(config, messages).await
+    stream_chat_completion(config, messages, on_delta).await
+}
+
+pub async fn stream_tool_summary<F>(
+    config: &AiConfig,
+    history: &[OpsAgentMessage],
+    session_context: &OpsAgentSessionContext,
+    tool_kind: &OpsAgentToolKind,
+    command: &str,
+    output: &str,
+    exit_code: Option<i32>,
+    on_delta: F,
+) -> AppResult<String>
+where
+    F: FnMut(&str) -> AppResult<()>,
+{
+    validate_ai_config(config)?;
+
+    let mut messages = Vec::new();
+    messages.push(WireChatMessage {
+        role: "system".to_string(),
+        content: build_tool_summary_prompt(&config.system_prompt, session_context),
+    });
+    messages.extend(history.iter().map(convert_history_message));
+    messages.push(WireChatMessage {
+        role: "user".to_string(),
+        content: format_tool_result_user_message(tool_kind, command, output, exit_code),
+    });
+
+    stream_chat_completion(config, messages, on_delta).await
 }
 
 fn validate_ai_config(config: &AiConfig) -> AppResult<()> {
@@ -112,32 +163,6 @@ fn validate_ai_config(config: &AiConfig) -> AppResult<()> {
         return Err(AppError::Validation("model cannot be empty".to_string()));
     }
     Ok(())
-}
-
-fn build_planner_system_prompt(config: &AiConfig, session_id: Option<&str>) -> String {
-    let session_hint = session_id
-        .map(|item| format!("Current SSH session id: {item}"))
-        .unwrap_or_else(|| "Current SSH session id: unavailable".to_string());
-    format!(
-        "{base}\n\nYou are an operations agent planner. Decide whether a tool call is needed.\n\
-Return STRICT JSON only without markdown:\n\
-{{\"reply\":\"...\",\"tool\":{{\"kind\":\"none|read_shell|write_shell\",\"command\":\"...\",\"reason\":\"...\"}}}}\n\
-Rules:\n\
-1) read_shell: use only for safe read-only diagnostics like ls/cat/grep/df/free/ps/top/uptime.\n\
-2) write_shell: use for any command that mutates system state.\n\
-3) If no command needed, set kind to \"none\" and command empty.\n\
-4) reply must be concise and user-facing.\n\
-{session_hint}",
-        base = config.system_prompt.trim()
-    )
-}
-
-fn build_tool_summary_prompt(config: &AiConfig) -> String {
-    format!(
-        "{base}\n\nGiven shell tool execution result, provide a concise operations answer in markdown.\n\
-Include: what happened, key evidence, and safe next step command when useful.",
-        base = config.system_prompt.trim()
-    )
 }
 
 fn convert_history_message(item: &OpsAgentMessage) -> WireChatMessage {
@@ -162,22 +187,7 @@ async fn request_chat_completion(
     config: &AiConfig,
     messages: Vec<WireChatMessage>,
 ) -> AppResult<String> {
-    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
-    let payload = ChatCompletionsRequest {
-        model: config.model.clone(),
-        messages,
-        temperature: config.temperature,
-        max_tokens: config.max_tokens,
-    };
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(endpoint)
-        .bearer_auth(&config.api_key)
-        .json(&payload)
-        .send()
-        .await?;
-
+    let response = build_client_request(config, messages, None).send().await?;
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -201,39 +211,124 @@ async fn request_chat_completion(
     Ok(content)
 }
 
-fn parse_plan_payload(raw: &str) -> AppResult<PlannedAgentReply> {
+async fn stream_chat_completion<F>(
+    config: &AiConfig,
+    messages: Vec<WireChatMessage>,
+    mut on_delta: F,
+) -> AppResult<String>
+where
+    F: FnMut(&str) -> AppResult<()>,
+{
+    let response = build_client_request(config, messages, Some(true)).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::Runtime(format!(
+            "ops agent AI stream request failed: status={status}, body={body}"
+        )));
+    }
+
+    let mut full_answer = String::new();
+    let mut decoder = SseEventDecoder::default();
+    let mut response = response;
+
+    while let Some(chunk) = response.chunk().await? {
+        for event in decoder.push(chunk.as_ref()) {
+            if event.data == "[DONE]" {
+                continue;
+            }
+
+            if let Some(delta) = parse_stream_delta(&event.data)? {
+                if delta.is_empty() {
+                    continue;
+                }
+                on_delta(&delta)?;
+                full_answer.push_str(&delta);
+            }
+        }
+    }
+
+    for event in decoder.finish() {
+        if event.data == "[DONE]" {
+            continue;
+        }
+
+        if let Some(delta) = parse_stream_delta(&event.data)? {
+            if delta.is_empty() {
+                continue;
+            }
+            on_delta(&delta)?;
+            full_answer.push_str(&delta);
+        }
+    }
+
+    if full_answer.trim().is_empty() {
+        return Err(AppError::Runtime(
+            "ops agent AI stream did not produce usable content".to_string(),
+        ));
+    }
+
+    Ok(full_answer)
+}
+
+fn build_client_request(
+    config: &AiConfig,
+    messages: Vec<WireChatMessage>,
+    stream: Option<bool>,
+) -> reqwest::RequestBuilder {
+    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+    let payload = ChatCompletionsRequest {
+        model: config.model.clone(),
+        messages,
+        temperature: config.temperature,
+        max_tokens: config.max_tokens,
+        stream,
+    };
+
+    reqwest::Client::new()
+        .post(endpoint)
+        .bearer_auth(&config.api_key)
+        .json(&payload)
+}
+
+fn parse_plan_payload(raw: &str, tool_hints: &[OpsAgentToolPromptHint]) -> AppResult<PlannedAgentReply> {
     let json_text = extract_json_payload(raw).unwrap_or_else(|| raw.trim().to_string());
     if let Ok(payload) = serde_json::from_str::<PlanPayload>(&json_text) {
-        return Ok(normalize_planned_reply(payload));
+        let registered = tool_hints
+            .iter()
+            .map(|item| item.kind.to_string())
+            .collect::<HashSet<_>>();
+        return Ok(normalize_planned_reply(payload, &registered));
     }
 
     Ok(PlannedAgentReply {
         reply: raw.trim().to_string(),
         tool: PlannedToolAction {
-            kind: OpsAgentToolKind::None,
+            kind: OpsAgentToolKind::none(),
             command: None,
             reason: None,
         },
     })
 }
 
-fn normalize_planned_reply(payload: PlanPayload) -> PlannedAgentReply {
-    let reply = payload
-        .reply
-        .unwrap_or_default()
-        .trim()
-        .to_string();
+fn normalize_planned_reply(
+    payload: PlanPayload,
+    registered_tools: &HashSet<String>,
+) -> PlannedAgentReply {
+    let reply = payload.reply.unwrap_or_default().trim().to_string();
     let tool = payload.tool.unwrap_or(PlanToolPayload {
         kind: Some("none".to_string()),
         command: None,
         reason: None,
     });
 
-    let kind = match tool.kind.unwrap_or_default().trim().to_ascii_lowercase().as_str() {
-        "read_shell" => OpsAgentToolKind::ReadShell,
-        "write_shell" => OpsAgentToolKind::WriteShell,
-        _ => OpsAgentToolKind::None,
+    let requested_kind = OpsAgentToolKind::new(tool.kind.unwrap_or_default());
+    let kind = if requested_kind.is_none() || registered_tools.contains(requested_kind.as_str()) {
+        requested_kind
+    } else {
+        OpsAgentToolKind::none()
     };
+
     let command = tool.command.and_then(|item| {
         let trimmed = item.trim().to_string();
         if trimmed.is_empty() {
@@ -244,19 +339,29 @@ fn normalize_planned_reply(payload: PlanPayload) -> PlannedAgentReply {
     });
 
     let normalized_kind = if command.is_none() {
-        OpsAgentToolKind::None
+        OpsAgentToolKind::none()
     } else {
         kind
     };
+    let normalized_command = if normalized_kind.is_none() { None } else { command };
 
     PlannedAgentReply {
         reply,
         tool: PlannedToolAction {
             kind: normalized_kind,
-            command,
+            command: normalized_command,
             reason: tool.reason.map(|item| item.trim().to_string()),
         },
     }
+}
+
+fn parse_stream_delta(raw: &str) -> AppResult<Option<String>> {
+    let payload: ChatCompletionsStreamResponse = serde_json::from_str(raw)?;
+    Ok(payload
+        .choices
+        .into_iter()
+        .find_map(|item| item.delta.content)
+        .map(|item| item.trim_end_matches('\0').to_string()))
 }
 
 fn extract_json_payload(raw: &str) -> Option<String> {
@@ -274,4 +379,53 @@ fn extract_json_payload(raw: &str) -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_plan_payload_ignores_unregistered_tool() {
+        let payload = parse_plan_payload(
+            r#"{"reply":"check","tool":{"kind":"reboot_server","command":"reboot","reason":"danger"}}"#,
+            &[OpsAgentToolPromptHint {
+                kind: OpsAgentToolKind::read_shell(),
+                description: "read".to_string(),
+                usage_notes: Vec::new(),
+                requires_approval: false,
+            }],
+        )
+        .expect("parse plan");
+
+        assert!(payload.tool.kind.is_none());
+        assert!(payload.tool.command.is_none());
+    }
+
+    #[test]
+    fn parse_plan_payload_keeps_registered_tool() {
+        let payload = parse_plan_payload(
+            r#"{"reply":"check","tool":{"kind":"read_shell","command":"df -h","reason":"inspect"}}"#,
+            &[OpsAgentToolPromptHint {
+                kind: OpsAgentToolKind::read_shell(),
+                description: "read".to_string(),
+                usage_notes: Vec::new(),
+                requires_approval: false,
+            }],
+        )
+        .expect("parse plan");
+
+        assert_eq!(payload.tool.kind, OpsAgentToolKind::read_shell());
+        assert_eq!(payload.tool.command.as_deref(), Some("df -h"));
+    }
+
+    #[test]
+    fn parse_stream_delta_reads_content_chunks() {
+        let delta = parse_stream_delta(
+            r#"{"choices":[{"delta":{"content":"hello "}},{"delta":{"content":"ignored"}}]}"#,
+        )
+        .expect("parse delta");
+
+        assert_eq!(delta.as_deref(), Some("hello "));
+    }
 }

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -27,6 +28,7 @@
     "@tauri-apps/cli": "^2",
     "@vitejs/plugin-react": "^4.6.0",
     "tailwindcss": "^4.1.11",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^3.2.4"
   }
 }

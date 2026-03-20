@@ -4,62 +4,86 @@
   <img src="docs/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-eShell 是一个基于 **Tauri 2 + React + Rust** 的桌面运维工作台，交互风格参考 FinalShell。  
-目标是把常见运维动作集中到一个界面内完成：`SSH`、`PTY 终端`、`SFTP`、`状态监控`、`脚本执行`、`AI 运维 Agent`。
+eShell 是一个基于 **Tauri 2 + React + Rust** 的桌面化运维工作台，用一个界面整合 SSH、PTY、SFTP、状态监控、脚本执行和 Ops Agent。
 
-## 功能总览
+## 功能概览
 
-- 多 SSH 会话管理
-- 基于 `xterm.js` 的 PTY 交互终端，体验接近原生 Shell
-- SFTP 文件浏览与传输（左侧目录树 + 右侧目录内容）
-- 文件打开/编辑弹窗，支持 Markdown 渲染与代码高亮
-- 服务器状态面板（CPU / 内存 / 网卡 / 进程 / 磁盘）
-- 脚本中心（保存脚本并在当前会话执行）
-- AI 运维 Agent（多轮会话 + 工具调用）
+- 多 SSH 配置管理与多会话并行
+- 基于 `xterm.js` 的 PTY 终端
+- SFTP 文件浏览、上传、下载、在线编辑
+- 服务状态面板：CPU、内存、网卡、磁盘、进程
+- 脚本中心：保存并在当前会话执行脚本
+- Ops Agent：多轮对话、工具调用、风险命令审批、流式回答
 
-## Ops Agent 能力
+## Ops Agent 现状
 
-- 多轮对话与会话切换
-- 流式输出（前端实时增量渲染）
-- `read_shell`：自动执行只读诊断命令
-- `write_shell`：进入待确认队列，前端审批后才执行
-- AI 配置多 Profile 管理（`baseUrl/apiKey/model`）
+- 会话数据拆分存储：
+  - `ops_agent_conversation_list.json`
+  - `ops_agent_conversations/<conversationId>.json`
+- 工具注册从提示词硬编码改为运行时注册：
+  - `read_shell`
+  - `write_shell`
+- 通用层已拆分：
+  - `context.rs`：提示词与会话上下文装配
+  - `tools/`：工具定义、注册、执行、审批处理
+  - `stream.rs`：OpenAI-compatible SSE 解码
+  - `events.rs`：前端流式事件发射
+  - `service.rs`：对话编排
+- 流式能力已改为真实 SSE 上游流：
+  - Rust 后端对 OpenAI-compatible `/chat/completions` 使用 `stream: true`
+  - 增量解析 SSE `data:` 帧
+  - 前端通过 reducer 处理 `started / delta / tool_read / requires_approval / completed / error`
 
 ## 技术栈
 
 ### 前端
+
 - React 19
 - Vite 7
 - Tailwind CSS 4
 - lucide-react
-- react-markdown / remark-gfm / react-syntax-highlighter
+- react-markdown / remark-gfm / remark-breaks
 - @xterm/xterm + @xterm/addon-fit
+- Vitest
 
 ### 后端
+
 - Tauri 2
 - Rust
-- ssh2（SSH/SFTP/PTY）
-- reqwest（OpenAI-compatible API）
+- ssh2
+- reqwest
 - serde / serde_json
 
-## 项目结构
+## 目录结构
 
 ```text
 .
 ├─ src/
 │  ├─ components/
-│  │  ├─ layout/                 # 左侧导航、顶部窗口栏
-│  │  ├─ panels/                 # Terminal / SFTP / Status / AI 主面板
-│  │  └─ sidebar/                # SSH/脚本/AI 配置弹窗
-│  ├─ hooks/useWorkbench.js      # 前端状态与交互编排核心
-│  └─ lib/tauri-api.js           # Tauri invoke 封装
+│  │  ├─ layout/
+│  │  ├─ panels/
+│  │  └─ sidebar/
+│  ├─ hooks/useWorkbench.js
+│  ├─ lib/
+│  │  ├─ ops-agent-stream.js
+│  │  └─ tauri-api.js
+│  └─ utils/
 ├─ src-tauri/
-│  ├─ src/commands.rs            # Tauri 命令入口
-│  ├─ src/ssh_service.rs         # SSH/SFTP/PTY/状态采集
-│  ├─ src/ops_agent/             # Ops Agent 模块（openai / service / store / types）
-│  ├─ src/storage.rs             # SSH/脚本/AI 配置持久化
-│  └─ src/state.rs               # 运行时会话与缓存
-└─ docs/openapi.yaml             # RPC 文档（基础接口）
+│  └─ src/
+│     ├─ commands.rs
+│     ├─ ssh_service.rs
+│     ├─ storage.rs
+│     ├─ state.rs
+│     └─ ops_agent/
+│        ├─ context.rs
+│        ├─ events.rs
+│        ├─ openai.rs
+│        ├─ service.rs
+│        ├─ store.rs
+│        ├─ stream.rs
+│        ├─ tools/
+│        └─ types.rs
+└─ docs/
 ```
 
 ## 快速开始
@@ -84,7 +108,7 @@ npm install
 npm run dev
 ```
 
-### 4. 桌面应用开发
+### 4. 桌面开发
 
 ```bash
 npm run tauri dev
@@ -97,9 +121,9 @@ npm run build
 npm run tauri build
 ```
 
-## 数据持久化
+## 数据存储
 
-运行时会在当前工作目录创建 `.eshell-data/`。开发模式通常位于 `src-tauri/.eshell-data/`。
+运行时会在项目根目录生成 `.eshell-data/`：
 
 ```text
 .eshell-data/
@@ -113,32 +137,18 @@ npm run tauri build
 ```
 
 说明：
-- `ops_agent_conversation_list.json` 存会话摘要、active 会话、pending actions
-- `ops_agent_conversations/<id>.json` 存单会话完整消息
-- 首条用户消息会自动生成标题：前 10 个字，超出追加 `...`
-- 旧版 `ops_agent.json` / `ai_config.json` 会自动迁移并清理
 
-## 常见问题
-
-### 1) AI 返回 `429 Too Many Requests`
-表示当前模型或 Key 当日额度耗尽。处理方式：
-- 切换到其他可用模型
-- 更换 API Key
-- 次日再试
-
-### 2) 看起来“后续提问没反应”
-已在代码中修复流式错误事件兜底。若仍遇到：
-- 检查 AI 配置是否可用（baseUrl/apiKey/model）
-- 查看左侧状态栏错误信息
-
-## 安全说明
-
-当前本地配置（SSH 密码、AI Key）保存在 JSON 文件中，默认未做系统级加密。  
-建议仅在受控环境使用；生产环境建议增加密钥管理与本地加密。
+- `ops_agent_conversation_list.json` 保存会话摘要、active 会话和 pending actions。
+- `ops_agent_conversations/<id>.json` 保存单会话完整消息。
+- `pendingAction.toolKind` 用于在审批阶段路由回对应工具实现。
+- 旧版 `ops_agent.json` / `ai_config.json` 会在启动时迁移并清理。
 
 ## 测试与检查
 
 ```bash
+# 前端单元测试
+npm test
+
 # 前端构建检查
 npm run build
 
@@ -146,3 +156,15 @@ npm run build
 cd src-tauri
 cargo test
 ```
+
+## 已验证内容
+
+- Rust 单元测试通过：工具注册、SSE 解码、上下文拼装、存储迁移
+- Vitest 单元测试通过：前端流式事件归一化与状态推进
+- Vite 生产构建通过
+
+## 安全说明
+
+- 当前本地配置文件默认未加密，包含 SSH 密码和 AI Key。
+- `write_shell` 必须进入待审批队列，前端确认后才会执行。
+- 生产环境建议补充密钥管理、本地加密和审计日志。

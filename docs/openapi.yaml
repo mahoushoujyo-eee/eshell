@@ -13,6 +13,7 @@ tags:
   - name: status
   - name: scripts
   - name: ai
+  - name: ops-agent
 paths:
   /rpc/list_ssh_configs:
     post:
@@ -400,6 +401,153 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AiAnswer"
+  /rpc/ops_agent_list_conversations:
+    post:
+      tags: [ops-agent]
+      summary: List Ops Agent conversations
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpsAgentConversationSummary"
+  /rpc/ops_agent_create_conversation:
+    post:
+      tags: [ops-agent]
+      summary: Create Ops Agent conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/OpsAgentCreateConversationInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsAgentConversation"
+  /rpc/ops_agent_get_conversation:
+    post:
+      tags: [ops-agent]
+      summary: Get Ops Agent conversation detail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/OpsAgentConversationRef"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsAgentConversation"
+  /rpc/ops_agent_delete_conversation:
+    post:
+      tags: [ops-agent]
+      summary: Delete Ops Agent conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/OpsAgentConversationRef"
+      responses:
+        "200":
+          description: OK
+  /rpc/ops_agent_set_active_conversation:
+    post:
+      tags: [ops-agent]
+      summary: Set active Ops Agent conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/OpsAgentConversationRef"
+      responses:
+        "200":
+          description: OK
+  /rpc/ops_agent_chat_stream_start:
+    post:
+      tags: [ops-agent]
+      summary: Start one Ops Agent chat run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/OpsAgentChatInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsAgentChatAccepted"
+  /rpc/ops_agent_list_pending_actions:
+    post:
+      tags: [ops-agent]
+      summary: List Ops Agent pending actions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/OpsAgentListPendingActionsInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OpsAgentPendingAction"
+  /rpc/ops_agent_resolve_action:
+    post:
+      tags: [ops-agent]
+      summary: Resolve one Ops Agent pending action
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  $ref: "#/components/schemas/OpsAgentResolveActionInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsAgentResolveActionResult"
 
 components:
   schemas:
@@ -581,3 +729,85 @@ components:
       properties:
         answer: { type: string }
         suggestedCommand: { type: string, nullable: true }
+    OpsAgentConversationRef:
+      type: object
+      properties:
+        conversationId: { type: string }
+    OpsAgentCreateConversationInput:
+      type: object
+      properties:
+        title: { type: string, nullable: true }
+        sessionId: { type: string, nullable: true }
+    OpsAgentMessage:
+      type: object
+      properties:
+        id: { type: string }
+        role: { type: string, enum: [system, user, assistant, tool] }
+        content: { type: string }
+        createdAt: { type: string }
+        toolKind: { type: string, nullable: true }
+    OpsAgentConversation:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        sessionId: { type: string, nullable: true }
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpsAgentMessage"
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    OpsAgentConversationSummary:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        sessionId: { type: string, nullable: true }
+        messageCount: { type: integer }
+        lastMessagePreview: { type: string, nullable: true }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    OpsAgentChatInput:
+      type: object
+      properties:
+        conversationId: { type: string, nullable: true }
+        sessionId: { type: string, nullable: true }
+        question: { type: string }
+    OpsAgentChatAccepted:
+      type: object
+      properties:
+        runId: { type: string }
+        conversationId: { type: string }
+        startedAt: { type: string }
+    OpsAgentListPendingActionsInput:
+      type: object
+      properties:
+        sessionId: { type: string, nullable: true }
+        onlyPending: { type: boolean, nullable: true }
+    OpsAgentPendingAction:
+      type: object
+      properties:
+        id: { type: string }
+        toolKind: { type: string }
+        conversationId: { type: string }
+        sessionId: { type: string, nullable: true }
+        command: { type: string }
+        reason: { type: string }
+        status: { type: string, enum: [pending, rejected, executed, failed] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        resolvedAt: { type: string, nullable: true }
+        executionOutput: { type: string, nullable: true }
+        executionExitCode: { type: integer, nullable: true }
+    OpsAgentResolveActionInput:
+      type: object
+      properties:
+        actionId: { type: string }
+        approve: { type: boolean }
+    OpsAgentResolveActionResult:
+      type: object
+      properties:
+        action:
+          $ref: "#/components/schemas/OpsAgentPendingAction"
+        note: { type: string }
