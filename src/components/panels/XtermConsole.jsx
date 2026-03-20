@@ -1,17 +1,21 @@
-import { useEffect, useMemo, useRef } from "react";
+import { Bot, Plus } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { getTerminalWallpaperStyle, normalizeWallpaperSelection } from "../../constants/workbench";
+import { normalizeShellContextContent } from "../../lib/ops-agent-shell-context";
 
 const inputFlushDelayMs = 18;
 const transparentTerminalBackground = "rgba(0, 0, 0, 0)";
 
 export default function XtermConsole({
   activeSessionId,
+  activeSessionName,
   output,
   onInput,
   onResize,
+  onAttachSelection,
   wallpaper,
 }) {
   const hostRef = useRef(null);
@@ -21,10 +25,13 @@ export default function XtermConsole({
   const renderedLengthRef = useRef(0);
   const renderedSessionIdRef = useRef(null);
   const activeSessionIdRef = useRef(activeSessionId);
+  const activeSessionNameRef = useRef(activeSessionName);
   const onInputRef = useRef(onInput);
   const onResizeRef = useRef(onResize);
+  const onAttachSelectionRef = useRef(onAttachSelection);
   const pendingInputRef = useRef("");
   const flushTimerRef = useRef(null);
+  const [selectionText, setSelectionText] = useState("");
   const normalizedWallpaper = useMemo(() => normalizeWallpaperSelection(wallpaper), [wallpaper]);
   const wallpaperStyle = useMemo(() => getTerminalWallpaperStyle(normalizedWallpaper), [normalizedWallpaper]);
 
@@ -33,12 +40,24 @@ export default function XtermConsole({
   }, [activeSessionId]);
 
   useEffect(() => {
+    activeSessionNameRef.current = activeSessionName;
+  }, [activeSessionName]);
+
+  useEffect(() => {
     onInputRef.current = onInput;
   }, [onInput]);
 
   useEffect(() => {
     onResizeRef.current = onResize;
   }, [onResize]);
+
+  useEffect(() => {
+    onAttachSelectionRef.current = onAttachSelection;
+  }, [onAttachSelection]);
+
+  useEffect(() => {
+    setSelectionText("");
+  }, [activeSessionId]);
 
   useEffect(() => {
     if (!hostRef.current) {
@@ -111,6 +130,9 @@ export default function XtermConsole({
         onResizeRef.current?.(sessionId, cols, rows);
       }
     });
+    const selectionDisposable = term.onSelectionChange(() => {
+      setSelectionText(normalizeShellContextContent(term.getSelection()) || "");
+    });
 
     fitTerminal();
 
@@ -125,6 +147,7 @@ export default function XtermConsole({
       window.removeEventListener("resize", fitTerminal);
       dataDisposable.dispose();
       resizeDisposable.dispose();
+      selectionDisposable.dispose();
       if (flushTimerRef.current) {
         window.clearTimeout(flushTimerRef.current);
       }
@@ -153,6 +176,7 @@ export default function XtermConsole({
       } else if (!output) {
         term.writeln("\x1b[38;5;245mPTY connected. Type directly in terminal.\x1b[0m");
       }
+      setSelectionText("");
       if (activeSessionId && term.cols > 0 && term.rows > 0) {
         onResizeRef.current?.(activeSessionId, term.cols, term.rows);
       }
@@ -177,9 +201,41 @@ export default function XtermConsole({
     term.scrollToBottom();
   }, [activeSessionId, output]);
 
+  const handleAttachSelection = () => {
+    const term = termRef.current;
+    if (!term || !selectionText || !activeSessionIdRef.current) {
+      return;
+    }
+
+    onAttachSelectionRef.current?.({
+      sessionId: activeSessionIdRef.current,
+      sessionName: activeSessionNameRef.current || "Shell",
+      content: selectionText,
+    });
+    term.clearSelection();
+    setSelectionText("");
+  };
+
   return (
     <div className="min-h-0 flex-1 overflow-hidden p-2 pb-3">
       <div className="terminal-frame relative h-full w-full overflow-hidden border border-black/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+        {selectionText ? (
+          <button
+            type="button"
+            className="absolute top-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-accent/45 bg-panel/92 px-3 py-1.5 text-[11px] font-medium text-text shadow-[0_10px_26px_rgba(0,0,0,0.22)] backdrop-blur-md transition-colors hover:border-accent hover:bg-accent-soft"
+            onClick={handleAttachSelection}
+            title="Add selected shell content to Ops Agent"
+          >
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white">
+              <Bot className="h-3 w-3" aria-hidden="true" />
+            </span>
+            <span>Add To Agent</span>
+            <span className="rounded-full bg-warm px-1.5 py-0.5 font-mono text-[10px] text-muted">
+              {Array.from(selectionText).length}
+            </span>
+            <Plus className="h-3 w-3 text-accent" aria-hidden="true" />
+          </button>
+        ) : null}
         <div
           ref={hostRef}
           className={[

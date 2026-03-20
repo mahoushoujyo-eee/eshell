@@ -13,6 +13,7 @@ export default function TerminalPanel({
   currentPtyOutput,
   onPtyInput,
   onPtyResize,
+  onAttachSelectionToAi,
   wallpaper,
 }) {
   return (
@@ -87,9 +88,11 @@ export default function TerminalPanel({
 
         <XtermConsole
           activeSessionId={activeSession?.id || null}
+          activeSessionName={activeSession?.configName || "Shell"}
           output={currentPtyOutput}
           onInput={onPtyInput}
           onResize={onPtyResize}
+          onAttachSelection={onAttachSelectionToAi}
           wallpaper={wallpaper}
         />
       </div>

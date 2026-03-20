@@ -10,7 +10,9 @@ use super::context::{
     format_tool_result_user_message, OpsAgentSessionContext, OpsAgentToolPromptHint,
 };
 use super::stream::SseEventDecoder;
-use super::types::{OpsAgentMessage, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply, PlannedToolAction};
+use super::types::{
+    OpsAgentMessage, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply, PlannedToolAction,
+};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -75,7 +77,7 @@ struct PlanToolPayload {
 pub async fn plan_reply(
     config: &AiConfig,
     history: &[OpsAgentMessage],
-    user_question: &str,
+    current_message: &OpsAgentMessage,
     session_context: &OpsAgentSessionContext,
     tool_hints: &[OpsAgentToolPromptHint],
 ) -> AppResult<PlannedAgentReply> {
@@ -87,10 +89,7 @@ pub async fn plan_reply(
         content: build_planner_system_prompt(&config.system_prompt, session_context, tool_hints),
     });
     messages.extend(history.iter().map(convert_history_message));
-    messages.push(WireChatMessage {
-        role: "user".to_string(),
-        content: user_question.trim().to_string(),
-    });
+    messages.push(convert_history_message(current_message));
 
     let content = request_chat_completion(config, messages).await?;
     parse_plan_payload(&content, tool_hints)
@@ -99,7 +98,7 @@ pub async fn plan_reply(
 pub async fn stream_final_answer<F>(
     config: &AiConfig,
     history: &[OpsAgentMessage],
-    user_question: &str,
+    current_message: &OpsAgentMessage,
     session_context: &OpsAgentSessionContext,
     planner_reply: Option<&str>,
     on_delta: F,
@@ -115,10 +114,7 @@ where
         content: build_answer_system_prompt(&config.system_prompt, session_context, planner_reply),
     });
     messages.extend(history.iter().map(convert_history_message));
-    messages.push(WireChatMessage {
-        role: "user".to_string(),
-        content: user_question.trim().to_string(),
-    });
+    messages.push(convert_history_message(current_message));
 
     stream_chat_completion(config, messages, on_delta).await
 }
@@ -174,6 +170,8 @@ fn convert_history_message(item: &OpsAgentMessage) -> WireChatMessage {
     };
     let content = if item.role == OpsAgentRole::Tool {
         format!("[tool-result]\n{}", item.content)
+    } else if item.role == OpsAgentRole::User {
+        format_user_history_message(item)
     } else {
         item.content.clone()
     };
@@ -181,6 +179,20 @@ fn convert_history_message(item: &OpsAgentMessage) -> WireChatMessage {
         role: role.to_string(),
         content,
     }
+}
+
+fn format_user_history_message(item: &OpsAgentMessage) -> String {
+    let question = item.content.trim().to_string();
+    let Some(shell_context) = &item.shell_context else {
+        return question;
+    };
+
+    format!(
+        "Attached shell context from session \"{}\":\n{}\n\nUser request:\n{}",
+        shell_context.session_name,
+        shell_context.content,
+        question
+    )
 }
 
 async fn request_chat_completion(
@@ -384,6 +396,7 @@ fn extract_json_payload(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops_agent::types::OpsAgentShellContext;
 
     #[test]
     fn parse_plan_payload_ignores_unregistered_tool() {
@@ -427,5 +440,28 @@ mod tests {
         .expect("parse delta");
 
         assert_eq!(delta.as_deref(), Some("hello "));
+    }
+
+    #[test]
+    fn convert_history_message_includes_shell_context_for_user_messages() {
+        let wire = convert_history_message(&OpsAgentMessage {
+            id: "msg-1".to_string(),
+            role: OpsAgentRole::User,
+            content: "Why did nginx fail?".to_string(),
+            created_at: "2026-03-20T00:00:00Z".to_string(),
+            tool_kind: None,
+            shell_context: Some(OpsAgentShellContext {
+                session_id: Some("session-1".to_string()),
+                session_name: "Prod".to_string(),
+                content: "systemctl status nginx".to_string(),
+                preview: "systemctl status nginx".to_string(),
+                char_count: 22,
+            }),
+        });
+
+        assert_eq!(wire.role, "user");
+        assert!(wire.content.contains("Attached shell context from session \"Prod\""));
+        assert!(wire.content.contains("systemctl status nginx"));
+        assert!(wire.content.contains("User request:\nWhy did nginx fail?"));
     }
 }

@@ -13,6 +13,7 @@ import {
   reduceOpsAgentStreamEvent,
   upsertOpsAgentPendingAction,
 } from "../lib/ops-agent-stream";
+import { createShellContextAttachment } from "../lib/ops-agent-shell-context";
 import { api } from "../lib/tauri-api";
 import { arrayBufferToBase64, base64ToBytes } from "../utils/encoding";
 import { formatBytes } from "../utils/format";
@@ -147,6 +148,7 @@ export function useWorkbench() {
   const [activeAiProfileId, setActiveAiProfileId] = useState(null);
   const [aiProfileForm, setAiProfileForm] = useState(DEFAULT_AI_PROFILE_FORM);
   const [aiQuestion, setAiQuestion] = useState("");
+  const [aiShellContext, setAiShellContext] = useState(null);
   const [aiConversations, setAiConversations] = useState([]);
   const [activeAiConversationId, setActiveAiConversationId] = useState(null);
   const [activeAiConversation, setActiveAiConversation] = useState(null);
@@ -986,6 +988,7 @@ export function useWorkbench() {
       if (!question || aiStream.runId) {
         return;
       }
+      const shellContext = aiShellContext || null;
       try {
         setAiQuestion("");
         const accepted = await runBusy("AI response", () =>
@@ -993,8 +996,10 @@ export function useWorkbench() {
             conversationId: activeAiConversationId || null,
             sessionId: activeSessionId || null,
             question,
+            shellContext,
           }),
         );
+        setAiShellContext(null);
         const nextStream = {
           runId: accepted.runId,
           conversationId: accepted.conversationId,
@@ -1016,6 +1021,7 @@ export function useWorkbench() {
     [
       activeAiConversationId,
       activeSessionId,
+      aiShellContext,
       aiQuestion,
       aiStream.runId,
       loadAiConversation,
@@ -1255,6 +1261,18 @@ export function useWorkbench() {
     setDirtyFile(true);
   }, []);
 
+  const attachAiShellContext = useCallback((selection) => {
+    const attachment = createShellContextAttachment(selection);
+    if (!attachment) {
+      return;
+    }
+    setAiShellContext(attachment);
+  }, []);
+
+  const clearAiShellContext = useCallback(() => {
+    setAiShellContext(null);
+  }, []);
+
   return {
     theme,
     setTheme,
@@ -1296,6 +1314,7 @@ export function useWorkbench() {
     setAiProfileForm,
     aiQuestion,
     setAiQuestion,
+    aiShellContext,
     aiConversations,
     activeAiConversationId,
     activeAiConversation,
@@ -1321,6 +1340,8 @@ export function useWorkbench() {
     deleteAiConversation,
     resolveAiPendingAction,
     askAi,
+    attachAiShellContext,
+    clearAiShellContext,
     requestSftpDir,
     refreshSftp,
     openEntry,

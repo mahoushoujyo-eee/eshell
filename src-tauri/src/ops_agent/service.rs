@@ -13,8 +13,8 @@ use super::openai;
 use super::tools::{OpsAgentToolExecution, OpsAgentToolOutcome, OpsAgentToolResolveRequest};
 use super::types::{
     OpsAgentActionStatus, OpsAgentChatAccepted, OpsAgentChatInput, OpsAgentConversation,
-    OpsAgentConversationSummary, OpsAgentResolveActionInput, OpsAgentResolveActionResult,
-    OpsAgentRole,
+    OpsAgentConversationSummary, OpsAgentMessage, OpsAgentResolveActionInput,
+    OpsAgentResolveActionResult, OpsAgentRole,
 };
 
 pub fn list_conversations(state: &AppState) -> Vec<OpsAgentConversationSummary> {
@@ -65,9 +65,13 @@ pub fn start_chat_stream(
         input.session_id.as_deref(),
     )?;
     let session_id = conversation.session_id.clone();
-    state
-        .ops_agent
-        .append_message(&conversation.id, OpsAgentRole::User, &question, None)?;
+    let user_message = state.ops_agent.append_message(
+        &conversation.id,
+        OpsAgentRole::User,
+        &question,
+        None,
+        input.shell_context,
+    )?;
 
     let run_id = Uuid::new_v4().to_string();
     let accepted = OpsAgentChatAccepted {
@@ -86,8 +90,8 @@ pub fn start_chat_stream(
             app_for_task.clone(),
             run_id_for_task.clone(),
             conversation_id_for_task.clone(),
-            question,
             session_id,
+            user_message.id,
         )
         .await
         {
@@ -123,6 +127,7 @@ pub async fn resolve_pending_action(
             OpsAgentRole::Assistant,
             &notice,
             Some(updated.tool_kind.clone()),
+            None,
         );
         return Ok(OpsAgentResolveActionResult {
             action: updated,
@@ -146,6 +151,7 @@ pub async fn resolve_pending_action(
         OpsAgentRole::Tool,
         &resolution.message,
         Some(resolution.action.tool_kind.clone()),
+        None,
     );
 
     let note = match resolution.action.status {
@@ -166,24 +172,33 @@ async fn process_chat_stream(
     app: AppHandle,
     run_id: String,
     conversation_id: String,
-    question: String,
     session_id: Option<String>,
+    current_user_message_id: String,
 ) -> AppResult<()> {
     let emitter = OpsAgentEventEmitter::new(app, run_id, conversation_id.clone());
     emitter.started();
 
     let config = state.storage.get_ai_config();
-    let history = state.ops_agent.get_conversation(&conversation_id)?.messages;
+    let conversation = state.ops_agent.get_conversation(&conversation_id)?;
+    let (history, current_user_message) =
+        split_history_for_current_message(conversation.messages, &current_user_message_id)?;
     let session_context = load_session_context(&state, session_id.as_deref());
     let tool_hints = state.ops_agent_tools.prompt_hints();
-    let plan = openai::plan_reply(&config, &history, &question, &session_context, &tool_hints).await?;
+    let plan = openai::plan_reply(
+        &config,
+        &history,
+        &current_user_message,
+        &session_context,
+        &tool_hints,
+    )
+    .await?;
 
     let mut pending_action = None;
     let assistant_answer = if plan.tool.kind.is_none() {
         stream_answer_with_fallback(
             &config,
             &history,
-            &question,
+            &current_user_message,
             &session_context,
             Some(plan.reply.as_str()),
             &emitter,
@@ -211,6 +226,7 @@ async fn process_chat_stream(
                         OpsAgentRole::Tool,
                         &execution.message,
                         Some(execution.tool_kind.clone()),
+                        None,
                     );
                     if let Some(label) = execution.stream_label.clone() {
                         emitter.tool_read(label);
@@ -255,15 +271,40 @@ async fn process_chat_stream(
         OpsAgentRole::Assistant,
         &assistant_answer,
         None,
+        None,
     )?;
     emitter.completed(assistant_answer, pending_action);
     Ok(())
 }
 
+fn split_history_for_current_message(
+    messages: Vec<OpsAgentMessage>,
+    current_message_id: &str,
+) -> AppResult<(Vec<OpsAgentMessage>, OpsAgentMessage)> {
+    let current_index = messages
+        .iter()
+        .position(|item| item.id == current_message_id)
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "ops agent message {current_message_id} for active chat run"
+            ))
+        })?;
+    let current_message = messages[current_index].clone();
+    if current_message.role != OpsAgentRole::User {
+        return Err(AppError::Validation(
+            "active chat run message must be a user message".to_string(),
+        ));
+    }
+
+    let history = messages.into_iter().take(current_index).collect::<Vec<_>>();
+
+    Ok((history, current_message))
+}
+
 async fn stream_answer_with_fallback(
     config: &crate::models::AiConfig,
     history: &[super::types::OpsAgentMessage],
-    question: &str,
+    current_message: &OpsAgentMessage,
     session_context: &super::context::OpsAgentSessionContext,
     planner_reply: Option<&str>,
     emitter: &OpsAgentEventEmitter,
@@ -271,7 +312,7 @@ async fn stream_answer_with_fallback(
     match openai::stream_final_answer(
         config,
         history,
-        question,
+        current_message,
         session_context,
         planner_reply,
         |delta| {

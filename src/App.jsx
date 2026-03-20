@@ -95,6 +95,7 @@ function App() {
     setAiProfileForm,
     aiQuestion,
     setAiQuestion,
+    aiShellContext,
     aiConversations,
     activeAiConversationId,
     activeAiConversation,
@@ -120,6 +121,8 @@ function App() {
     deleteAiConversation,
     resolveAiPendingAction,
     askAi,
+    attachAiShellContext,
+    clearAiShellContext,
     requestSftpDir,
     refreshSftp,
     openEntry,
@@ -243,6 +246,8 @@ function App() {
       resolvingActionId={resolvingAiActionId}
       aiQuestion={aiQuestion}
       setAiQuestion={setAiQuestion}
+      shellContext={aiShellContext}
+      onClearShellContext={clearAiShellContext}
       isStreaming={isAiStreaming}
       streamingText={aiStreamingText}
       onAskAi={askAi}
@@ -265,6 +270,10 @@ function App() {
       currentPtyOutput={currentPtyOutput}
       onPtyInput={sendPtyInput}
       onPtyResize={resizePty}
+      onAttachSelectionToAi={(selection) => {
+        attachAiShellContext(selection);
+        setShowAiPanel(true);
+      }}
       wallpaper={wallpaper}
     />
   );

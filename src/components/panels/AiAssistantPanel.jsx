@@ -1,6 +1,7 @@
 import {
   Bot,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -9,6 +10,7 @@ import {
   Send,
   Settings2,
   ShieldAlert,
+  TerminalSquare,
   Trash2,
   X,
 } from "lucide-react";
@@ -16,6 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { normalizeShellContextAttachment } from "../../lib/ops-agent-shell-context";
 
 const MARKDOWN_COMPONENTS = {
   h1: (props) => <h1 className="mb-2 text-base font-semibold" {...props} />,
@@ -101,6 +104,110 @@ function HeaderActionButton({ title, onClick, children, disabled = false }) {
   );
 }
 
+function ShellContextChip({
+  shellContext,
+  expanded = false,
+  onToggle,
+  removable = false,
+  onRemove,
+  inverted = false,
+}) {
+  const interactive = typeof onToggle === "function";
+  const frameClass = inverted
+    ? "border-white/18 bg-white/10 text-white hover:border-white/28 hover:bg-white/14"
+    : "border-border/75 bg-surface/78 text-text hover:border-accent/35 hover:bg-accent-soft/55";
+  const iconClass = inverted
+    ? "bg-white/14 text-white"
+    : "bg-accent-soft text-accent";
+  const buttonClass = interactive
+    ? "transition-colors"
+    : "";
+
+  const body = (
+    <>
+      <span
+        className={[
+          "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
+          iconClass,
+        ].join(" ")}
+      >
+        <TerminalSquare className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+      <div className="min-w-0">
+        <div
+          className={[
+            "truncate text-[10px] font-semibold uppercase tracking-[0.16em]",
+            inverted ? "text-white/70" : "text-muted",
+          ].join(" ")}
+        >
+          Shell Context / {shellContext.sessionName}
+        </div>
+        {!interactive ? (
+          <div className={["truncate font-mono text-[11px]", inverted ? "text-white" : "text-text"].join(" ")}>
+            {shellContext.preview}
+          </div>
+        ) : null}
+      </div>
+      <span
+        className={[
+          "rounded-full px-1.5 py-0.5 font-mono text-[10px]",
+          inverted ? "bg-white/12 text-white/80" : "bg-warm text-muted",
+        ].join(" ")}
+      >
+        {shellContext.charCount}
+      </span>
+      {interactive ? (
+        expanded ? (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        )
+      ) : null}
+      {removable ? (
+        <button
+          type="button"
+          className={[
+            "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
+            inverted ? "hover:bg-white/10" : "hover:bg-black/5",
+          ].join(" ")}
+          onClick={onRemove}
+          title="Remove selected shell context"
+        >
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      ) : null}
+    </>
+  );
+
+  if (interactive) {
+    return (
+      <button
+        type="button"
+        className={[
+          "inline-flex min-w-0 max-w-full items-center gap-2 rounded-2xl border px-2.5 py-1.5 text-left text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
+          frameClass,
+          buttonClass,
+        ].join(" ")}
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className={[
+        "inline-flex min-w-0 max-w-full items-center gap-2 rounded-2xl border px-2.5 py-1.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
+        frameClass,
+      ].join(" ")}
+    >
+      {body}
+    </div>
+  );
+}
+
 export default function AiAssistantPanel({
   aiProfiles,
   activeAiProfileId,
@@ -116,6 +223,8 @@ export default function AiAssistantPanel({
   resolvingActionId,
   aiQuestion,
   setAiQuestion,
+  shellContext,
+  onClearShellContext,
   isStreaming,
   streamingText,
   onAskAi,
@@ -136,6 +245,7 @@ export default function AiAssistantPanel({
     }
     return window.localStorage.getItem("eshell:ai-history-visible") !== "0";
   });
+  const [expandedShellMessageIds, setExpandedShellMessageIds] = useState(() => ({}));
 
   useEffect(() => {
     const node = messageScrollRef.current;
@@ -152,12 +262,23 @@ export default function AiAssistantPanel({
     window.localStorage.setItem("eshell:ai-history-visible", historyVisible ? "1" : "0");
   }, [historyVisible]);
 
+  useEffect(() => {
+    setExpandedShellMessageIds({});
+  }, [activeConversationId]);
+
   const handleInputKeyDown = (event) => {
     if (event.key !== "Enter" || event.shiftKey) {
       return;
     }
     event.preventDefault();
     onAskAi(event);
+  };
+
+  const toggleShellContextMessage = (messageId) => {
+    setExpandedShellMessageIds((current) => ({
+      ...current,
+      [messageId]: !current[messageId],
+    }));
   };
 
   return (
@@ -408,6 +529,8 @@ export default function AiAssistantPanel({
                   const isUser = message.role === "user";
                   const isTool = message.role === "tool";
                   const isAssistant = message.role === "assistant";
+                  const shellContext = normalizeShellContextAttachment(message.shellContext);
+                  const shellContextExpanded = Boolean(expandedShellMessageIds[message.id]);
 
                   return (
                     <div key={message.id} className={["flex", isUser ? "justify-end" : "justify-start"].join(" ")}>
@@ -426,6 +549,30 @@ export default function AiAssistantPanel({
                           <span>{roleLabel(message.role)}</span>
                           <span>{formatTime(message.createdAt)}</span>
                         </div>
+                        {shellContext ? (
+                          <div className="mb-2">
+                            <ShellContextChip
+                              shellContext={shellContext}
+                              expanded={shellContextExpanded}
+                              onToggle={() => toggleShellContextMessage(message.id)}
+                              inverted={isUser}
+                            />
+                          </div>
+                        ) : null}
+                        {shellContext && shellContextExpanded ? (
+                          <div
+                            className={[
+                              "mb-2 rounded-2xl border px-3 py-2",
+                              isUser
+                                ? "border-white/18 bg-black/12 text-white/92"
+                                : "border-border/75 bg-surface/72 text-text",
+                            ].join(" ")}
+                          >
+                            <pre className="whitespace-pre-wrap break-words font-mono text-[11px]">
+                              {shellContext.content}
+                            </pre>
+                          </div>
+                        ) : null}
                         {isAssistant ? (
                           <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
                             {message.content}
@@ -469,6 +616,15 @@ export default function AiAssistantPanel({
             ].join(" ")}
             onSubmit={onAskAi}
           >
+            {shellContext ? (
+              <div className="mb-2 flex items-center">
+                <ShellContextChip
+                  shellContext={shellContext}
+                  removable
+                  onRemove={onClearShellContext}
+                />
+              </div>
+            ) : null}
             <textarea
               className={[
                 "w-full border border-border/75 bg-surface/75 px-3 py-2 text-sm outline-none",

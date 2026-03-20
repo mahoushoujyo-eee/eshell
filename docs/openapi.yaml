@@ -738,6 +738,14 @@ components:
       properties:
         title: { type: string, nullable: true }
         sessionId: { type: string, nullable: true }
+    OpsAgentShellContext:
+      type: object
+      properties:
+        sessionId: { type: string, nullable: true }
+        sessionName: { type: string }
+        content: { type: string }
+        preview: { type: string }
+        charCount: { type: integer }
     OpsAgentMessage:
       type: object
       properties:
@@ -746,6 +754,10 @@ components:
         content: { type: string }
         createdAt: { type: string }
         toolKind: { type: string, nullable: true }
+        shellContext:
+          allOf:
+            - $ref: "#/components/schemas/OpsAgentShellContext"
+          nullable: true
     OpsAgentConversation:
       type: object
       properties:
@@ -774,6 +786,10 @@ components:
         conversationId: { type: string, nullable: true }
         sessionId: { type: string, nullable: true }
         question: { type: string }
+        shellContext:
+          allOf:
+            - $ref: "#/components/schemas/OpsAgentShellContext"
+          nullable: true
     OpsAgentChatAccepted:
       type: object
       properties:

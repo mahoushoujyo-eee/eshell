@@ -11,7 +11,7 @@ use crate::models::now_rfc3339;
 
 use super::types::{
     OpsAgentActionStatus, OpsAgentConversation, OpsAgentConversationSummary, OpsAgentData,
-    OpsAgentMessage, OpsAgentPendingAction, OpsAgentRole, OpsAgentToolKind,
+    OpsAgentMessage, OpsAgentPendingAction, OpsAgentRole, OpsAgentShellContext, OpsAgentToolKind,
 };
 
 const LEGACY_DATA_FILE: &str = "ops_agent.json";
@@ -192,11 +192,18 @@ impl OpsAgentStore {
         role: OpsAgentRole,
         content: &str,
         tool_kind: Option<OpsAgentToolKind>,
+        shell_context: Option<OpsAgentShellContext>,
     ) -> AppResult<OpsAgentMessage> {
         let trimmed = content.trim();
         if trimmed.is_empty() {
             return Err(AppError::Validation("message content cannot be empty".to_string()));
         }
+
+        let shell_context = if role == OpsAgentRole::User {
+            OpsAgentShellContext::normalize(shell_context)
+        } else {
+            None
+        };
 
         let mut guard = self.data.write().expect("ops agent lock poisoned");
         let (message, snapshot) = {
@@ -221,6 +228,7 @@ impl OpsAgentStore {
                 content: trimmed.to_string(),
                 created_at: now_rfc3339(),
                 tool_kind,
+                shell_context,
             };
 
             conversation.messages.push(message.clone());
@@ -638,7 +646,7 @@ mod tests {
         assert_eq!(store.list_conversation_summaries().len(), 1);
 
         store
-            .append_message(&conversation.id, OpsAgentRole::User, "check cpu", None)
+            .append_message(&conversation.id, OpsAgentRole::User, "check cpu", None, None)
             .expect("append user");
         store
             .append_message(
@@ -646,6 +654,7 @@ mod tests {
                 OpsAgentRole::Assistant,
                 "running read_shell",
                 Some(OpsAgentToolKind::read_shell()),
+                None,
             )
             .expect("append assistant");
 
@@ -674,11 +683,52 @@ mod tests {
             .expect("create conversation");
 
         store
-            .append_message(&conversation.id, OpsAgentRole::User, "abcdefghijklmnopqrstuvwxyz", None)
+            .append_message(
+                &conversation.id,
+                OpsAgentRole::User,
+                "abcdefghijklmnopqrstuvwxyz",
+                None,
+                None,
+            )
             .expect("append user");
 
         let loaded = store.get_conversation(&conversation.id).expect("load conversation");
         assert_eq!(loaded.title, "abcdefghij...");
+    }
+
+    #[test]
+    fn shell_context_is_persisted_with_user_message() {
+        let store = OpsAgentStore::new(temp_dir("shell-context")).expect("create store");
+        let conversation = store
+            .create_conversation(Some("Shell Context"), Some("session-1"))
+            .expect("create conversation");
+
+        store
+            .append_message(
+                &conversation.id,
+                OpsAgentRole::User,
+                "What changed here?",
+                None,
+                Some(OpsAgentShellContext {
+                    session_id: Some("session-1".to_string()),
+                    session_name: "Prod".to_string(),
+                    content: "systemctl status nginx".to_string(),
+                    preview: String::new(),
+                    char_count: 0,
+                }),
+            )
+            .expect("append user");
+
+        let loaded = store.get_conversation(&conversation.id).expect("load conversation");
+        let shell_context = loaded.messages[0]
+            .shell_context
+            .as_ref()
+            .expect("shell context");
+
+        assert_eq!(shell_context.session_id.as_deref(), Some("session-1"));
+        assert_eq!(shell_context.session_name, "Prod");
+        assert_eq!(shell_context.content, "systemctl status nginx");
+        assert_eq!(shell_context.preview, "systemctl status nginx");
     }
 
     #[test]
@@ -713,6 +763,7 @@ mod tests {
                 content: "legacy question".to_string(),
                 created_at: now.clone(),
                 tool_kind: None,
+                shell_context: None,
             }],
             created_at: now.clone(),
             updated_at: now,
