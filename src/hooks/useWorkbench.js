@@ -115,8 +115,8 @@ export function useWorkbench() {
       return DEFAULT_WALLPAPER;
     }
   });
-  const [showSftpPanel, setShowSftpPanel] = useState(true);
-  const [showStatusPanel, setShowStatusPanel] = useState(true);
+  const [showSftpPanel, setShowSftpPanel] = useState(false);
+  const [showStatusPanel, setShowStatusPanel] = useState(false);
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");

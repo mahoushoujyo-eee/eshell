@@ -90,6 +90,13 @@ const roleLabel = (role) => {
   return "Agent";
 };
 
+const toolLabel = (toolKind) => {
+  if (typeof toolKind !== "string" || !toolKind.trim()) {
+    return "tool";
+  }
+  return toolKind.trim();
+};
+
 function HeaderActionButton({ title, onClick, children, disabled = false }) {
   return (
     <button
@@ -208,6 +215,27 @@ function ShellContextChip({
   );
 }
 
+function ToolMessageChip({ toolKind, expanded = false, onToggle }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-2xl border border-[#efc77a] bg-[#fff3d8] px-2.5 py-1.5 text-left text-[11px] text-[#5f3e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors hover:border-[#e1b95d] hover:bg-[#ffecc3]"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      title={expanded ? "Hide tool details" : "Show tool details"}
+    >
+      <span className="rounded-full bg-[#f5d48e] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[#714800]">
+        {toolLabel(toolKind)}
+      </span>
+      {expanded ? (
+        <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      ) : (
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      )}
+    </button>
+  );
+}
+
 export default function AiAssistantPanel({
   aiProfiles,
   activeAiProfileId,
@@ -246,6 +274,7 @@ export default function AiAssistantPanel({
     return window.localStorage.getItem("eshell:ai-history-visible") !== "0";
   });
   const [expandedShellMessageIds, setExpandedShellMessageIds] = useState(() => ({}));
+  const [expandedToolMessageIds, setExpandedToolMessageIds] = useState(() => ({}));
 
   useEffect(() => {
     const node = messageScrollRef.current;
@@ -264,6 +293,7 @@ export default function AiAssistantPanel({
 
   useEffect(() => {
     setExpandedShellMessageIds({});
+    setExpandedToolMessageIds({});
   }, [activeConversationId]);
 
   const handleInputKeyDown = (event) => {
@@ -276,6 +306,13 @@ export default function AiAssistantPanel({
 
   const toggleShellContextMessage = (messageId) => {
     setExpandedShellMessageIds((current) => ({
+      ...current,
+      [messageId]: !current[messageId],
+    }));
+  };
+
+  const toggleToolMessage = (messageId) => {
+    setExpandedToolMessageIds((current) => ({
       ...current,
       [messageId]: !current[messageId],
     }));
@@ -531,6 +568,7 @@ export default function AiAssistantPanel({
                   const isAssistant = message.role === "assistant";
                   const shellContext = normalizeShellContextAttachment(message.shellContext);
                   const shellContextExpanded = Boolean(expandedShellMessageIds[message.id]);
+                  const toolMessageExpanded = Boolean(expandedToolMessageIds[message.id]);
 
                   return (
                     <div key={message.id} className={["flex", isUser ? "justify-end" : "justify-start"].join(" ")}>
@@ -573,7 +611,22 @@ export default function AiAssistantPanel({
                             </pre>
                           </div>
                         ) : null}
-                        {isAssistant ? (
+                        {isTool ? (
+                          <>
+                            <div className="mb-1">
+                              <ToolMessageChip
+                                toolKind={message.toolKind}
+                                expanded={toolMessageExpanded}
+                                onToggle={() => toggleToolMessage(message.id)}
+                              />
+                            </div>
+                            {toolMessageExpanded ? (
+                              <pre className="whitespace-pre-wrap break-words font-mono text-[12px]">
+                                {message.content}
+                              </pre>
+                            ) : null}
+                          </>
+                        ) : isAssistant ? (
                           <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
                             {message.content}
                           </ReactMarkdown>
