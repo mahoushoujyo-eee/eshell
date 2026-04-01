@@ -66,7 +66,7 @@ pub fn build_planner_system_prompt(
     tool_hints: &[OpsAgentToolPromptHint],
 ) -> String {
     format!(
-        "{base}\n\nYou are an operations agent planner. Decide whether a tool call is needed.\n\
+        "{base}\n\nYou are an operations ReAct planner. Decide the next best action at each step.\n\
 Return STRICT JSON only without markdown:\n\
 {{\"reply\":\"...\",\"tool\":{{\"kind\":\"none|<registered-tool>\",\"command\":\"...\",\"reason\":\"...\"}}}}\n\
 Registered tools:\n\
@@ -74,11 +74,12 @@ Registered tools:\n\
 Session context:\n\
 {session_block}\n\
 Rules:\n\
-1) Use kind=\"none\" when no tool is required.\n\
+1) Treat this as a loop: pick one tool action, observe result, then you will be asked again.\n\
 2) Only emit one tool per turn.\n\
-3) Keep reply concise and user-facing.\n\
-4) Omit command when kind=\"none\".\n\
-5) Choose a registered tool name exactly as documented above.",
+3) Use kind=\"none\" only when evidence is sufficient and you are ready for final user answer.\n\
+4) Keep reply concise and user-facing.\n\
+5) Omit command when kind=\"none\".\n\
+6) Choose a registered tool name exactly as documented above.",
         base = base_prompt.trim(),
         tool_block = format_tool_catalog(tool_hints),
         session_block = session_context.to_prompt_block(),
@@ -109,6 +110,7 @@ Prefer evidence-based statements, highlight uncertainty, and keep next steps saf
 }
 
 /// Builds the summary prompt after a tool has produced output.
+#[allow(dead_code)]
 pub fn build_tool_summary_prompt(base_prompt: &str, session_context: &OpsAgentSessionContext) -> String {
     format!(
         "{base}\n\nGiven shell tool execution results, provide a concise markdown answer.\n\
@@ -121,6 +123,7 @@ Session context:\n\
 }
 
 /// Formats tool execution details as a user message for the summarizer.
+#[allow(dead_code)]
 pub fn format_tool_result_user_message(
     tool_kind: &OpsAgentToolKind,
     command: &str,
@@ -200,35 +203,35 @@ mod tests {
             &OpsAgentSessionContext::default(),
             &[
                 OpsAgentToolPromptHint {
-                    kind: OpsAgentToolKind::read_shell(),
-                    description: "Safe read-only shell diagnostics.".to_string(),
-                    usage_notes: vec!["Use for ls/cat/grep.".to_string()],
+                    kind: OpsAgentToolKind::shell(),
+                    description: "Unified shell command execution.".to_string(),
+                    usage_notes: vec!["Read-only runs immediately; writes require approval.".to_string()],
                     requires_approval: false,
                 },
                 OpsAgentToolPromptHint {
-                    kind: OpsAgentToolKind::write_shell(),
-                    description: "Mutating shell commands.".to_string(),
-                    usage_notes: vec!["Use for restart/edit/remove.".to_string()],
-                    requires_approval: true,
+                    kind: OpsAgentToolKind::ui_context(),
+                    description: "Read UI-attached shell context.".to_string(),
+                    usage_notes: vec!["Use when user attached terminal snippets.".to_string()],
+                    requires_approval: false,
                 },
             ],
         );
 
-        assert!(prompt.contains("read_shell"));
-        assert!(prompt.contains("write_shell"));
-        assert!(prompt.contains("requires approval"));
+        assert!(prompt.contains("shell"));
+        assert!(prompt.contains("ui_context"));
+        assert!(prompt.contains("no approval"));
     }
 
     #[test]
     fn tool_result_message_contains_exit_code() {
         let payload = format_tool_result_user_message(
-            &OpsAgentToolKind::read_shell(),
+            &OpsAgentToolKind::shell(),
             "df -h",
             "stdout:\n/dev/root",
             Some(0),
         );
 
-        assert!(payload.contains("kind: read_shell"));
+        assert!(payload.contains("kind: shell"));
         assert!(payload.contains("exitCode: 0"));
     }
 }

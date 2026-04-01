@@ -121,6 +121,7 @@ function App() {
     deleteAiConversation,
     resolveAiPendingAction,
     askAi,
+    cancelAiStreaming,
     attachAiShellContext,
     clearAiShellContext,
     requestSftpDir,
@@ -251,6 +252,7 @@ function App() {
       isStreaming={isAiStreaming}
       streamingText={aiStreamingText}
       onAskAi={askAi}
+      onCancelStreaming={cancelAiStreaming}
       onOpenAiConfig={() => setIsAiModalOpen(true)}
       onClose={() => setShowAiPanel(false)}
       variant="dock"

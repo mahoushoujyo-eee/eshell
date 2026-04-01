@@ -1,6 +1,8 @@
 pub mod context;
 pub mod events;
+pub mod logging;
 pub mod openai;
+pub mod run_registry;
 pub mod service;
 pub mod store;
 pub mod stream;

@@ -11,7 +11,8 @@ use crate::models::now_rfc3339;
 
 use super::types::{
     OpsAgentActionStatus, OpsAgentConversation, OpsAgentConversationSummary, OpsAgentData,
-    OpsAgentMessage, OpsAgentPendingAction, OpsAgentRole, OpsAgentShellContext, OpsAgentToolKind,
+    OpsAgentMessage, OpsAgentPendingAction, OpsAgentRiskLevel, OpsAgentRole, OpsAgentShellContext,
+    OpsAgentToolKind,
 };
 
 const LEGACY_DATA_FILE: &str = "ops_agent.json";
@@ -274,6 +275,7 @@ impl OpsAgentStore {
         conversation_id: &str,
         session_id: Option<&str>,
         tool_kind: OpsAgentToolKind,
+        risk_level: OpsAgentRiskLevel,
         command: &str,
         reason: &str,
     ) -> AppResult<OpsAgentPendingAction> {
@@ -292,6 +294,7 @@ impl OpsAgentStore {
         let action = OpsAgentPendingAction {
             id: Uuid::new_v4().to_string(),
             tool_kind,
+            risk_level,
             conversation_id: conversation_id.to_string(),
             session_id: session_id.map(|item| item.to_string()),
             command: command.trim().to_string(),
@@ -663,12 +666,14 @@ mod tests {
                 &conversation.id,
                 Some("session-1"),
                 OpsAgentToolKind::write_shell(),
+                OpsAgentRiskLevel::High,
                 "reboot",
                 "danger",
             )
             .expect("create action");
         assert_eq!(action.status, OpsAgentActionStatus::Pending);
         assert_eq!(action.tool_kind, OpsAgentToolKind::write_shell());
+        assert_eq!(action.risk_level, OpsAgentRiskLevel::High);
         assert_eq!(store.list_pending_actions(Some("session-1"), true).len(), 1);
 
         let rejected = store.mark_action_rejected(&action.id).expect("reject");

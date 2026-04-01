@@ -67,4 +67,6 @@ export const api = {
     invoke("ops_agent_list_pending_actions", { input: { sessionId, onlyPending } }),
   opsAgentResolveAction: (actionId, approve) =>
     invoke("ops_agent_resolve_action", { input: { actionId, approve } }),
+  opsAgentCancelRun: (runId) =>
+    invoke("ops_agent_cancel_run", { input: { runId } }),
 };

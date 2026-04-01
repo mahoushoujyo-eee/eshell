@@ -61,6 +61,14 @@ impl Storage {
         })
     }
 
+    /// Returns the persistent data directory (typically `.eshell-data`).
+    pub fn data_dir(&self) -> PathBuf {
+        self.ai_profiles_path
+            .parent()
+            .map(|item| item.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
     /// Returns SSH connection configurations sorted by creation order.
     pub fn list_ssh_configs(&self) -> Vec<SshConfig> {
         self.ssh_configs
@@ -678,5 +686,67 @@ mod tests {
             .expect("active profile");
         assert_eq!(updated.base_url, "https://api.openai.com/v1");
         assert_eq!(active.model, "gpt-4o-mini");
+    }
+
+    #[test]
+    fn get_ai_config_prefers_requested_active_profile() {
+        const REQUESTED_PROFILE_ID: &str = "cb722d99-ae20-4761-93ab-aa76c4c05c39";
+
+        let root = temp_dir("ai-profile-priority");
+        std::fs::create_dir_all(&root).expect("create temp root");
+
+        let payload = serde_json::json!({
+            "profiles": [
+                {
+                    "id": "backup-profile",
+                    "name": "Backup",
+                    "baseUrl": "https://api.openai.com/v1",
+                    "apiKey": "backup-key",
+                    "model": "gpt-4o-mini",
+                    "systemPrompt": "backup prompt",
+                    "temperature": 0.7,
+                    "maxTokens": 1024,
+                    "createdAt": "2026-03-20T09:46:30.522552100+00:00",
+                    "updatedAt": "2026-03-20T09:46:30.522552100+00:00"
+                },
+                {
+                    "id": REQUESTED_PROFILE_ID,
+                    "name": "Default",
+                    "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+                    "apiKey": "ark-test-key",
+                    "model": "doubao-seed-2-0-lite-260215",
+                    "systemPrompt": "You are a Linux operations assistant. Return concise answers and include safe shell commands when needed.",
+                    "temperature": 0.2,
+                    "maxTokens": 100000,
+                    "createdAt": "2026-03-20T09:46:30.522552100+00:00",
+                    "updatedAt": "2026-03-20T09:46:30.522552100+00:00"
+                }
+            ],
+            "activeProfileId": REQUESTED_PROFILE_ID
+        });
+
+        std::fs::write(
+            root.join("ai_profiles.json"),
+            serde_json::to_string_pretty(&payload).expect("serialize payload"),
+        )
+        .expect("write ai_profiles");
+
+        let storage = Storage::new(root).expect("create storage");
+        let profiles = storage.list_ai_profiles();
+        assert_eq!(
+            profiles.active_profile_id.as_deref(),
+            Some(REQUESTED_PROFILE_ID)
+        );
+
+        let config = storage.get_ai_config();
+        assert_eq!(config.base_url, "https://ark.cn-beijing.volces.com/api/v3");
+        assert_eq!(config.model, "doubao-seed-2-0-lite-260215");
+        assert_eq!(config.max_tokens, 100000);
+        assert_eq!(config.temperature, 0.2);
+        assert!(
+            config
+                .system_prompt
+                .contains("Linux operations assistant")
+        );
     }
 }

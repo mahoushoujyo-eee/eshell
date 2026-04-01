@@ -1032,6 +1032,18 @@ export function useWorkbench() {
     ],
   );
 
+  const cancelAiStreaming = useCallback(async () => {
+    const runId = aiStreamRef.current.runId;
+    if (!runId) {
+      return;
+    }
+    try {
+      await api.opsAgentCancelRun(runId);
+    } catch (err) {
+      onError(err);
+    }
+  }, [onError]);
+
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
@@ -1340,6 +1352,7 @@ export function useWorkbench() {
     deleteAiConversation,
     resolveAiPendingAction,
     askAi,
+    cancelAiStreaming,
     attachAiShellContext,
     clearAiShellContext,
     requestSftpDir,

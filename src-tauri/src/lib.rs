@@ -63,6 +63,7 @@ pub fn run() {
             commands::ops_agent_chat_stream_start,
             commands::ops_agent_list_pending_actions,
             commands::ops_agent_resolve_action,
+            commands::ops_agent_cancel_run,
             commands::ai_ask
         ])
         .run(tauri::generate_context!())

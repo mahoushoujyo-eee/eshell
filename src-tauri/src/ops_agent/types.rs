@@ -39,6 +39,14 @@ impl OpsAgentToolKind {
         Self("write_shell".to_string())
     }
 
+    pub fn shell() -> Self {
+        Self("shell".to_string())
+    }
+
+    pub fn ui_context() -> Self {
+        Self("ui_context".to_string())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -61,6 +69,15 @@ pub enum OpsAgentActionStatus {
     Rejected,
     Executed,
     Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OpsAgentRiskLevel {
+    #[default]
+    Low,
+    Medium,
+    High,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -120,6 +137,8 @@ pub struct OpsAgentPendingAction {
     pub id: String,
     #[serde(default = "default_pending_action_tool_kind")]
     pub tool_kind: OpsAgentToolKind,
+    #[serde(default)]
+    pub risk_level: OpsAgentRiskLevel,
     pub conversation_id: String,
     pub session_id: Option<String>,
     pub command: String,
@@ -222,6 +241,20 @@ pub struct OpsAgentResolveActionInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OpsAgentCancelRunInput {
+    pub run_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentCancelRunResult {
+    pub run_id: String,
+    pub cancelled: bool,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpsAgentResolveActionResult {
     pub action: OpsAgentPendingAction,
     pub note: String,
@@ -301,7 +334,7 @@ impl OpsAgentShellContext {
 }
 
 fn default_pending_action_tool_kind() -> OpsAgentToolKind {
-    OpsAgentToolKind::write_shell()
+    OpsAgentToolKind::shell()
 }
 
 fn default_shell_context_session_name() -> String {
@@ -389,5 +422,26 @@ mod tests {
 
         assert!(message.tool_kind.is_none());
         assert!(message.shell_context.is_none());
+    }
+
+    #[test]
+    fn pending_action_defaults_risk_level_for_legacy_payloads() {
+        let action = serde_json::from_value::<OpsAgentPendingAction>(json!({
+            "id": "action-1",
+            "toolKind": "write_shell",
+            "conversationId": "conv-1",
+            "sessionId": "session-1",
+            "command": "systemctl restart nginx",
+            "reason": "restart service",
+            "status": "pending",
+            "createdAt": "2026-03-20T00:00:00Z",
+            "updatedAt": "2026-03-20T00:00:00Z",
+            "resolvedAt": null,
+            "executionOutput": null,
+            "executionExitCode": null
+        }))
+        .expect("deserialize legacy pending action");
+
+        assert_eq!(action.risk_level, OpsAgentRiskLevel::Low);
     }
 }

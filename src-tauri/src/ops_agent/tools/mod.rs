@@ -11,7 +11,7 @@ use crate::state::AppState;
 use super::context::OpsAgentToolPromptHint;
 use super::types::{OpsAgentPendingAction, OpsAgentToolKind};
 
-pub use shell::{ReadShellTool, WriteShellTool};
+pub use shell::{ShellTool, UiContextTool};
 
 type ToolFuture<T> = Pin<Box<dyn Future<Output = AppResult<T>> + Send + 'static>>;
 
@@ -46,6 +46,7 @@ pub struct OpsAgentToolRequest {
 
 /// Output returned by an immediately executed tool.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct OpsAgentToolExecution {
     pub tool_kind: OpsAgentToolKind,
     pub command: String,
@@ -119,7 +120,16 @@ impl OpsAgentToolRegistry {
     }
 
     pub fn get(&self, kind: &OpsAgentToolKind) -> Option<Arc<dyn OpsAgentTool>> {
-        self.tools.get(kind.as_str()).cloned()
+        if let Some(tool) = self.tools.get(kind.as_str()) {
+            return Some(tool.clone());
+        }
+
+        // Compatibility alias for older persisted tool kinds.
+        if kind == &OpsAgentToolKind::read_shell() || kind == &OpsAgentToolKind::write_shell() {
+            return self.tools.get(OpsAgentToolKind::shell().as_str()).cloned();
+        }
+
+        None
     }
 
     pub fn prompt_hints(&self) -> Vec<OpsAgentToolPromptHint> {
@@ -135,8 +145,8 @@ impl OpsAgentToolRegistry {
 
 pub fn default_ops_agent_tool_registry() -> OpsAgentToolRegistry {
     let mut registry = OpsAgentToolRegistry::new();
-    registry.register(ReadShellTool);
-    registry.register(WriteShellTool);
+    registry.register(ShellTool);
+    registry.register(UiContextTool);
     registry
 }
 
@@ -183,11 +193,12 @@ mod tests {
     fn registry_supports_multiple_tools() {
         let mut registry = OpsAgentToolRegistry::new();
         registry.register(StubTool);
-        registry.register(ReadShellTool);
+        registry.register(ShellTool);
 
         let hints = registry.prompt_hints();
         assert_eq!(hints.len(), 2);
         assert!(registry.get(&OpsAgentToolKind::new("stub_tool")).is_some());
-        assert!(registry.get(&OpsAgentToolKind::read_shell()).is_some());
+        assert!(registry.get(&OpsAgentToolKind::shell()).is_some());
+        assert!(registry.get(&OpsAgentToolKind::write_shell()).is_some());
     }
 }

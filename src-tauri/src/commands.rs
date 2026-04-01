@@ -14,10 +14,11 @@ use crate::models::{
 };
 use crate::ops_agent::service as ops_agent_service;
 use crate::ops_agent::types::{
-    OpsAgentChatAccepted, OpsAgentChatInput, OpsAgentConversation, OpsAgentConversationSummary,
-    OpsAgentCreateConversationInput, OpsAgentDeleteConversationInput, OpsAgentGetConversationInput,
-    OpsAgentListPendingActionsInput, OpsAgentPendingAction, OpsAgentResolveActionInput,
-    OpsAgentResolveActionResult, OpsAgentSetActiveConversationInput,
+    OpsAgentCancelRunInput, OpsAgentCancelRunResult, OpsAgentChatAccepted, OpsAgentChatInput,
+    OpsAgentConversation, OpsAgentConversationSummary, OpsAgentCreateConversationInput,
+    OpsAgentDeleteConversationInput, OpsAgentGetConversationInput, OpsAgentListPendingActionsInput,
+    OpsAgentPendingAction, OpsAgentResolveActionInput, OpsAgentResolveActionResult,
+    OpsAgentSetActiveConversationInput,
 };
 use crate::ssh_service;
 use crate::state::AppState;
@@ -365,6 +366,15 @@ pub async fn ops_agent_resolve_action(
     ops_agent_service::resolve_pending_action(app_state, input)
         .await
         .map_err(to_command_error)
+}
+
+/// Cancels one running OpsAgent chat stream by run id.
+#[tauri::command]
+pub fn ops_agent_cancel_run(
+    state: State<'_, Arc<AppState>>,
+    input: OpsAgentCancelRunInput,
+) -> Result<OpsAgentCancelRunResult, String> {
+    ops_agent_service::cancel_chat_run(&state, &input.run_id).map_err(to_command_error)
 }
 
 /// Sends question to configured OpenAI-compatible provider.

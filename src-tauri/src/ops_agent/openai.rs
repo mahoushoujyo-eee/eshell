@@ -119,6 +119,7 @@ where
     stream_chat_completion(config, messages, on_delta).await
 }
 
+#[allow(dead_code)]
 pub async fn stream_tool_summary<F>(
     config: &AiConfig,
     history: &[OpsAgentMessage],
@@ -334,7 +335,10 @@ fn normalize_planned_reply(
         reason: None,
     });
 
-    let requested_kind = OpsAgentToolKind::new(tool.kind.unwrap_or_default());
+    let requested_kind = normalize_tool_kind_alias(
+        OpsAgentToolKind::new(tool.kind.unwrap_or_default()),
+        registered_tools,
+    );
     let kind = if requested_kind.is_none() || registered_tools.contains(requested_kind.as_str()) {
         requested_kind
     } else {
@@ -365,6 +369,27 @@ fn normalize_planned_reply(
             reason: tool.reason.map(|item| item.trim().to_string()),
         },
     }
+}
+
+fn normalize_tool_kind_alias(
+    requested_kind: OpsAgentToolKind,
+    registered_tools: &HashSet<String>,
+) -> OpsAgentToolKind {
+    if requested_kind == OpsAgentToolKind::read_shell()
+        || requested_kind == OpsAgentToolKind::write_shell()
+    {
+        if registered_tools.contains(OpsAgentToolKind::shell().as_str()) {
+            return OpsAgentToolKind::shell();
+        }
+    }
+
+    if requested_kind == OpsAgentToolKind::new("read_ui_context")
+        && registered_tools.contains(OpsAgentToolKind::ui_context().as_str())
+    {
+        return OpsAgentToolKind::ui_context();
+    }
+
+    requested_kind
 }
 
 fn parse_stream_delta(raw: &str) -> AppResult<Option<String>> {
@@ -420,7 +445,7 @@ mod tests {
         let payload = parse_plan_payload(
             r#"{"reply":"check","tool":{"kind":"read_shell","command":"df -h","reason":"inspect"}}"#,
             &[OpsAgentToolPromptHint {
-                kind: OpsAgentToolKind::read_shell(),
+                kind: OpsAgentToolKind::shell(),
                 description: "read".to_string(),
                 usage_notes: Vec::new(),
                 requires_approval: false,
@@ -428,8 +453,28 @@ mod tests {
         )
         .expect("parse plan");
 
-        assert_eq!(payload.tool.kind, OpsAgentToolKind::read_shell());
+        assert_eq!(payload.tool.kind, OpsAgentToolKind::shell());
         assert_eq!(payload.tool.command.as_deref(), Some("df -h"));
+    }
+
+    #[test]
+    fn parse_plan_payload_maps_legacy_write_shell_to_shell() {
+        let payload = parse_plan_payload(
+            r#"{"reply":"restart","tool":{"kind":"write_shell","command":"systemctl restart nginx","reason":"recover"}}"#,
+            &[OpsAgentToolPromptHint {
+                kind: OpsAgentToolKind::shell(),
+                description: "shell".to_string(),
+                usage_notes: Vec::new(),
+                requires_approval: false,
+            }],
+        )
+        .expect("parse plan");
+
+        assert_eq!(payload.tool.kind, OpsAgentToolKind::shell());
+        assert_eq!(
+            payload.tool.command.as_deref(),
+            Some("systemctl restart nginx")
+        );
     }
 
     #[test]

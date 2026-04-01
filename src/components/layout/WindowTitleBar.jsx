@@ -1,6 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Bot, Copy, Minus, Square, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function WindowControlButton({ title, onClick, tone = "normal", children }) {
   return (
@@ -52,6 +52,7 @@ function AiEntryButton({ active, busy, onClick }) {
 export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStreaming = false }) {
   const appWindow = getCurrentWindow();
   const [isMaximized, setIsMaximized] = useState(false);
+  const titleBarRef = useRef(null);
 
   useEffect(() => {
     let mounted = true;
@@ -106,14 +107,44 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
       setIsMaximized(await appWindow.isMaximized());
     }, "toggle-maximize");
 
+  useEffect(() => {
+    const titleBarElement = titleBarRef.current;
+    if (!titleBarElement) {
+      return undefined;
+    }
+
+    const handleMouseDown = (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      if (event.detail === 2) {
+        void handleToggleMaximize();
+        return;
+      }
+
+      appWindow.startDragging().catch((error) => {
+        console.error("window action failed: start-dragging", error);
+      });
+    };
+
+    titleBarElement.addEventListener("mousedown", handleMouseDown);
+    return () => titleBarElement.removeEventListener("mousedown", handleMouseDown);
+  }, [appWindow]);
+
   return (
     <header className="flex h-9 shrink-0 items-center border-b border-border bg-surface/95 px-2">
       <div
+        ref={titleBarRef}
         data-tauri-drag-region
         className="flex min-w-0 flex-1 items-center gap-2 px-1 text-sm text-muted select-none"
       >
-        <span className="text-[11px] font-semibold tracking-[0.2em] uppercase">eShell</span>
-        <span className="truncate text-xs opacity-85">Operations Console</span>
+        <span data-tauri-drag-region className="text-[11px] font-semibold tracking-[0.2em] uppercase">
+          eShell
+        </span>
+        <span data-tauri-drag-region className="truncate text-xs opacity-85">
+          Operations Console
+        </span>
       </div>
 
       <div className="ml-3 flex items-center gap-2">

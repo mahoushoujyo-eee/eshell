@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Loader2,
   MessageSquareMore,
   Plus,
@@ -68,6 +69,31 @@ const MARKDOWN_COMPONENTS = {
 
 const actionButtonClass =
   "inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/75 bg-surface/75 text-muted transition-colors hover:border-accent/45 hover:bg-accent-soft hover:text-text";
+const messageActionButtonClass =
+  "inline-flex items-center gap-1.5 rounded-xl border border-border/75 bg-surface/70 px-2.5 py-1.5 text-[11px] font-medium text-muted transition-colors hover:border-accent/45 hover:bg-accent-soft hover:text-text";
+
+const copyText = async (value) => {
+  const text = String(value || "");
+  if (!text) {
+    return false;
+  }
+
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textArea);
+  return copied;
+};
 
 const formatTime = (value) => {
   if (!value) {
@@ -95,6 +121,26 @@ const toolLabel = (toolKind) => {
     return "tool";
   }
   return toolKind.trim();
+};
+
+const pendingRiskLabel = (riskLevel) => {
+  if (typeof riskLevel !== "string" || !riskLevel.trim()) {
+    return "unknown";
+  }
+  return riskLevel.trim().toLowerCase();
+};
+
+const pendingRiskBadgeClass = (riskLevel) => {
+  if (riskLevel === "high") {
+    return "border-danger/45 bg-danger/15 text-danger";
+  }
+  if (riskLevel === "medium") {
+    return "border-[#e1b95d] bg-[#ffecc3] text-[#8a5a00]";
+  }
+  if (riskLevel === "low") {
+    return "border-success/45 bg-success/10 text-success";
+  }
+  return "border-border/75 bg-surface/70 text-muted";
 };
 
 function HeaderActionButton({ title, onClick, children, disabled = false }) {
@@ -256,6 +302,7 @@ export default function AiAssistantPanel({
   isStreaming,
   streamingText,
   onAskAi,
+  onCancelStreaming,
   onOpenAiConfig,
   onClose,
   variant = "panel",
@@ -275,6 +322,8 @@ export default function AiAssistantPanel({
   });
   const [expandedShellMessageIds, setExpandedShellMessageIds] = useState(() => ({}));
   const [expandedToolMessageIds, setExpandedToolMessageIds] = useState(() => ({}));
+  const [copiedMessageKey, setCopiedMessageKey] = useState(null);
+  const copyFeedbackTimerRef = useRef(null);
 
   useEffect(() => {
     const node = messageScrollRef.current;
@@ -294,7 +343,17 @@ export default function AiAssistantPanel({
   useEffect(() => {
     setExpandedShellMessageIds({});
     setExpandedToolMessageIds({});
+    setCopiedMessageKey(null);
   }, [activeConversationId]);
+
+  useEffect(
+    () => () => {
+      if (copyFeedbackTimerRef.current) {
+        window.clearTimeout(copyFeedbackTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const handleInputKeyDown = (event) => {
     if (event.key !== "Enter" || event.shiftKey) {
@@ -316,6 +375,26 @@ export default function AiAssistantPanel({
       ...current,
       [messageId]: !current[messageId],
     }));
+  };
+
+  const handleCopyMessage = async (messageKey, content) => {
+    try {
+      const copied = await copyText(content);
+      if (!copied) {
+        return;
+      }
+
+      setCopiedMessageKey(messageKey);
+      if (copyFeedbackTimerRef.current) {
+        window.clearTimeout(copyFeedbackTimerRef.current);
+      }
+      copyFeedbackTimerRef.current = window.setTimeout(() => {
+        setCopiedMessageKey((current) => (current === messageKey ? null : current));
+        copyFeedbackTimerRef.current = null;
+      }, 1800);
+    } catch (error) {
+      console.error("copy ai message failed", error);
+    }
   };
 
   return (
@@ -507,13 +586,24 @@ export default function AiAssistantPanel({
               <div className="max-h-32 space-y-2 overflow-auto">
                 {pendingActions.map((action) => {
                   const busy = resolvingActionId === action.id;
+                  const riskLevel = pendingRiskLabel(action.riskLevel);
                   return (
                     <div
                       key={action.id}
                       className="rounded-2xl border border-[#efc77a] bg-[#fff3d8] p-2 text-[11px]"
                     >
-                      <div className="mb-1 truncate font-mono text-[11px] text-[#5f3e00]">
-                        {action.command}
+                      <div className="mb-1 flex items-center gap-2">
+                        <div className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#5f3e00]">
+                          {action.command}
+                        </div>
+                        <span
+                          className={[
+                            "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                            pendingRiskBadgeClass(riskLevel),
+                          ].join(" ")}
+                        >
+                          {riskLevel}
+                        </span>
                       </div>
                       <div className="mb-2 truncate text-[#8a5a00]">{action.reason || "no reason"}</div>
                       <div className="flex items-center justify-end gap-1.5">
@@ -627,9 +717,34 @@ export default function AiAssistantPanel({
                             ) : null}
                           </>
                         ) : isAssistant ? (
-                          <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
-                            {message.content}
-                          </ReactMarkdown>
+                          <>
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm, remarkBreaks]}
+                              components={MARKDOWN_COMPONENTS}
+                            >
+                              {message.content}
+                            </ReactMarkdown>
+                            <div className="mt-3 flex justify-end">
+                              <button
+                                type="button"
+                                className={[
+                                  messageActionButtonClass,
+                                  copiedMessageKey === message.id
+                                    ? "border-success/45 bg-success/10 text-success hover:border-success/45 hover:bg-success/10 hover:text-success"
+                                    : "",
+                                ].join(" ")}
+                                onClick={() => handleCopyMessage(message.id, message.content)}
+                                title="Copy AI reply"
+                              >
+                                {copiedMessageKey === message.id ? (
+                                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                                )}
+                                {copiedMessageKey === message.id ? "Copied" : "Copy"}
+                              </button>
+                            </div>
+                          </>
                         ) : (
                           <pre className="whitespace-pre-wrap break-words font-mono text-[12px]">
                             {message.content}
@@ -655,6 +770,27 @@ export default function AiAssistantPanel({
                       <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
                         {streamingText || "..."}
                       </ReactMarkdown>
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          className={[
+                            messageActionButtonClass,
+                            copiedMessageKey === "__streaming__"
+                              ? "border-success/45 bg-success/10 text-success hover:border-success/45 hover:bg-success/10 hover:text-success"
+                              : "",
+                          ].join(" ")}
+                          onClick={() => handleCopyMessage("__streaming__", streamingText)}
+                          disabled={!streamingText}
+                          title="Copy streaming reply"
+                        >
+                          {copiedMessageKey === "__streaming__" ? (
+                            <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                          )}
+                          {copiedMessageKey === "__streaming__" ? "Copied" : "Copy"}
+                        </button>
+                      </div>
                     </article>
                   </div>
                 )}
@@ -696,15 +832,19 @@ export default function AiAssistantPanel({
                 {hasManagedShell && onClose ? " / Esc to close" : ""}
               </span>
               <button
-                type="submit"
-                disabled={!aiQuestion.trim() || isStreaming}
+                type={isStreaming ? "button" : "submit"}
+                onClick={isStreaming ? onCancelStreaming : undefined}
+                disabled={isStreaming ? false : !aiQuestion.trim()}
                 className={[
-                  "inline-flex items-center gap-1.5 border border-accent bg-accent px-4 py-2 text-xs font-medium text-white disabled:opacity-45",
+                  "inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white disabled:opacity-45",
+                  isStreaming
+                    ? "border border-danger/70 bg-danger/85 hover:bg-danger"
+                    : "border border-accent bg-accent",
                   isDrawer ? "rounded-2xl shadow-[0_12px_28px_rgba(28,122,103,0.28)]" : "rounded-xl shadow-none",
                 ].join(" ")}
               >
-                {isStreaming ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                {isStreaming ? "Streaming" : "Send"}
+                {isStreaming ? <X className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
+                {isStreaming ? "Stop" : "Send"}
               </button>
             </div>
           </form>

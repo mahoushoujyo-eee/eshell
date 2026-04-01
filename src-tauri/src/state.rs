@@ -4,6 +4,7 @@ use std::sync::mpsc::Sender;
 use std::sync::RwLock;
 
 use crate::error::{AppError, AppResult};
+use crate::ops_agent::run_registry::OpsAgentRunRegistry;
 use crate::models::{ServerStatus, ShellSession};
 use crate::ops_agent::store::OpsAgentStore;
 use crate::ops_agent::tools::{default_ops_agent_tool_registry, OpsAgentToolRegistry};
@@ -26,6 +27,7 @@ pub struct AppState {
     pub storage: Storage,
     pub ops_agent: OpsAgentStore,
     pub ops_agent_tools: OpsAgentToolRegistry,
+    pub ops_agent_runs: OpsAgentRunRegistry,
     sessions: RwLock<HashMap<String, ShellSession>>,
     status_cache: RwLock<HashMap<String, ServerStatus>>,
     pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>,
@@ -46,6 +48,7 @@ impl AppState {
             storage: Storage::new(storage_root.clone())?,
             ops_agent: OpsAgentStore::new(storage_root)?,
             ops_agent_tools,
+            ops_agent_runs: OpsAgentRunRegistry::new(),
             sessions: RwLock::new(HashMap::new()),
             status_cache: RwLock::new(HashMap::new()),
             pty_channels: RwLock::new(HashMap::new()),
