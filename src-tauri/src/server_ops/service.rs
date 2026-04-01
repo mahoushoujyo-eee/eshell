@@ -1,3 +1,4 @@
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
@@ -28,6 +29,10 @@ use crate::state::{AppState, PtyCommand};
 const DEFAULT_PTY_COLS: u16 = 120;
 const DEFAULT_PTY_ROWS: u16 = 36;
 const MAX_SESSION_LAST_OUTPUT_CHARS: usize = 16_000;
+const PTY_IDLE_SLEEP_MS: u64 = 8;
+const PTY_MAX_COMMANDS_PER_TICK: usize = 64;
+const PTY_MAX_WRITE_OPS_PER_TICK: usize = 24;
+const PTY_MAX_READ_CHUNKS_PER_TICK: usize = 8;
 
 /// Creates a shell session and starts a long-lived PTY worker for interactive terminal IO.
 pub fn open_shell_session(
@@ -440,6 +445,7 @@ fn start_pty_worker(
     session_id: String,
     ssh: Session,
 ) -> AppResult<()> {
+    ssh.set_keepalive(true, 20);
     let mut channel = ssh.channel_session()?;
     channel.request_pty(
         "xterm-256color",
@@ -456,6 +462,15 @@ fn start_pty_worker(
 
     let (tx, rx) = mpsc::channel::<PtyCommand>();
     state.put_pty_channel(session_id.clone(), tx);
+    append_server_ops_debug_log(
+        state.as_ref(),
+        "pty.worker.started",
+        &session_id,
+        format!(
+            "keepalive_sec=20 cols={} rows={}",
+            DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS
+        ),
+    );
 
     thread::spawn(move || {
         run_pty_worker(state, app, session_id, ssh, channel, rx);
@@ -474,47 +489,76 @@ fn run_pty_worker(
 ) {
     let mut io_buffer = [0_u8; 16_384];
     let mut keep_running = true;
+    let mut pending_input = Vec::<u8>::new();
+    let mut pending_input_offset = 0usize;
 
     while keep_running {
-        loop {
-            match rx.try_recv() {
-                Ok(PtyCommand::Input(data)) => {
-                    if write_channel_input(&mut channel, data.as_bytes()).is_err() {
-                        keep_running = false;
-                        break;
-                    }
-                }
-                Ok(PtyCommand::Resize { cols, rows }) => {
-                    let _ = channel.request_pty_size(u32::from(cols), u32::from(rows), None, None);
-                }
-                Ok(PtyCommand::Close) => {
-                    keep_running = false;
-                    break;
-                }
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    keep_running = false;
-                    break;
-                }
-            }
+        let batch = drain_pty_command_batch(&rx, PTY_MAX_COMMANDS_PER_TICK);
+        if batch.close_requested {
+            append_server_ops_debug_log(
+                state.as_ref(),
+                "pty.worker.stop_requested",
+                &session_id,
+                "reason=close_command_or_channel_dropped",
+            );
+            break;
         }
 
+        if let Some((cols, rows)) = batch.latest_resize {
+            let _ = channel.request_pty_size(u32::from(cols), u32::from(rows), None, None);
+        }
+
+        if !batch.input.is_empty() {
+            pending_input.extend_from_slice(&batch.input);
+        }
+        compact_pending_input(&mut pending_input, &mut pending_input_offset);
+
+        let wrote_any = match pump_channel_input(
+            &mut channel,
+            &mut pending_input,
+            &mut pending_input_offset,
+            PTY_MAX_WRITE_OPS_PER_TICK,
+        ) {
+            Ok(written) => written > 0,
+            Err(error) => {
+                append_server_ops_debug_log(
+                    state.as_ref(),
+                    "pty.worker.write_failed",
+                    &session_id,
+                    error.to_string(),
+                );
+                break;
+            }
+        };
+
         let mut did_read = false;
-        match channel.read(&mut io_buffer) {
-            Ok(size) if size > 0 => {
-                did_read = true;
-                let chunk = String::from_utf8_lossy(&io_buffer[..size]).to_string();
-                append_session_output(&state, &session_id, &chunk);
-                emit_pty_output(&app, &session_id, &chunk);
-            }
-            Ok(_) => {
-                if channel.eof() {
-                    keep_running = false;
+        let mut read_chunks = 0usize;
+        while read_chunks < PTY_MAX_READ_CHUNKS_PER_TICK {
+            match channel.read(&mut io_buffer) {
+                Ok(size) if size > 0 => {
+                    did_read = true;
+                    read_chunks += 1;
+                    let chunk = String::from_utf8_lossy(&io_buffer[..size]).to_string();
+                    append_session_output(&state, &session_id, &chunk);
+                    emit_pty_output(&app, &session_id, &chunk);
                 }
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(_) => {
-                keep_running = false;
+                Ok(_) => {
+                    if channel.eof() {
+                        keep_running = false;
+                    }
+                    break;
+                }
+                Err(err) if is_transient_pty_io_error(&err) => break,
+                Err(err) => {
+                    append_server_ops_debug_log(
+                        state.as_ref(),
+                        "pty.worker.read_failed",
+                        &session_id,
+                        err.to_string(),
+                    );
+                    keep_running = false;
+                    break;
+                }
             }
         }
 
@@ -522,13 +566,19 @@ fn run_pty_worker(
             keep_running = false;
         }
 
-        if !did_read {
-            thread::sleep(Duration::from_millis(12));
+        if !did_read && !wrote_any && batch.drained_messages == 0 {
+            thread::sleep(Duration::from_millis(PTY_IDLE_SLEEP_MS));
         }
     }
 
     let _ = channel.close();
     let _ = channel.wait_close();
+    append_server_ops_debug_log(
+        state.as_ref(),
+        "pty.worker.stopped",
+        &session_id,
+        "session_removed=true",
+    );
     let _ = state.remove_session(&session_id);
 }
 
@@ -548,6 +598,29 @@ fn append_session_output(state: &AppState, session_id: &str, chunk: &str) {
         trim_to_last_chars(&mut session.last_output, MAX_SESSION_LAST_OUTPUT_CHARS);
         session.updated_at = now_rfc3339();
     });
+}
+
+fn append_server_ops_debug_log(
+    state: &AppState,
+    event: &str,
+    session_id: &str,
+    detail: impl AsRef<str>,
+) {
+    let path = state.storage.data_dir().join("server_ops_debug.log");
+    let line = format!(
+        "{} [{}] session_id={} {}\n",
+        now_rfc3339(),
+        event,
+        session_id,
+        detail.as_ref()
+    );
+
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = file.write_all(line.as_bytes());
+    }
 }
 
 fn trim_to_last_chars(value: &mut String, max_chars: usize) {
@@ -570,42 +643,120 @@ fn trim_to_last_chars(value: &mut String, max_chars: usize) {
     value.drain(..drop_bytes);
 }
 
-fn write_channel_input(channel: &mut ssh2::Channel, data: &[u8]) -> AppResult<()> {
-    let mut written = 0usize;
+#[derive(Debug, Default, PartialEq, Eq)]
+struct PtyCommandBatch {
+    input: Vec<u8>,
+    latest_resize: Option<(u16, u16)>,
+    close_requested: bool,
+    drained_messages: usize,
+}
 
-    while written < data.len() {
-        match channel.write(&data[written..]) {
+fn drain_pty_command_batch(
+    rx: &mpsc::Receiver<PtyCommand>,
+    max_messages: usize,
+) -> PtyCommandBatch {
+    let mut batch = PtyCommandBatch::default();
+    let max_messages = max_messages.max(1);
+
+    while batch.drained_messages < max_messages {
+        match rx.try_recv() {
+            Ok(PtyCommand::Input(data)) => {
+                batch.drained_messages += 1;
+                if !data.is_empty() {
+                    batch.input.extend_from_slice(data.as_bytes());
+                }
+            }
+            Ok(PtyCommand::Resize { cols, rows }) => {
+                batch.drained_messages += 1;
+                batch.latest_resize = Some((cols, rows));
+            }
+            Ok(PtyCommand::Close) => {
+                batch.drained_messages += 1;
+                batch.close_requested = true;
+                break;
+            }
+            Err(mpsc::TryRecvError::Empty) => break,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                batch.close_requested = true;
+                break;
+            }
+        }
+    }
+
+    batch
+}
+
+fn compact_pending_input(pending_input: &mut Vec<u8>, pending_offset: &mut usize) {
+    if *pending_offset == 0 {
+        return;
+    }
+
+    if *pending_offset >= pending_input.len() {
+        pending_input.clear();
+        *pending_offset = 0;
+        return;
+    }
+
+    if *pending_offset >= 4096 && *pending_offset * 2 >= pending_input.len() {
+        pending_input.drain(..*pending_offset);
+        *pending_offset = 0;
+    }
+}
+
+fn pump_channel_input(
+    channel: &mut ssh2::Channel,
+    pending_input: &mut Vec<u8>,
+    pending_offset: &mut usize,
+    max_write_ops: usize,
+) -> AppResult<usize> {
+    if *pending_offset >= pending_input.len() {
+        pending_input.clear();
+        *pending_offset = 0;
+        return Ok(0);
+    }
+
+    let mut written_total = 0usize;
+    let mut write_ops = 0usize;
+    let max_write_ops = max_write_ops.max(1);
+
+    while *pending_offset < pending_input.len() && write_ops < max_write_ops {
+        match channel.write(&pending_input[*pending_offset..]) {
             Ok(0) => {
                 if channel.eof() {
                     return Err(AppError::Runtime(
                         "pty channel closed while writing".to_string(),
                     ));
                 }
-                thread::sleep(Duration::from_millis(4));
+                break;
             }
             Ok(size) => {
-                written += size;
+                *pending_offset += size;
+                written_total += size;
+                write_ops += 1;
             }
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(4));
-            }
-            Err(err) => {
-                return Err(AppError::Io(err));
-            }
-        }
-    }
-
-    loop {
-        match channel.flush() {
-            Ok(_) => break,
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(4));
-            }
+            Err(err) if is_transient_pty_io_error(&err) => break,
             Err(err) => return Err(AppError::Io(err)),
         }
     }
 
-    Ok(())
+    compact_pending_input(pending_input, pending_offset);
+    Ok(written_total)
+}
+
+fn is_transient_pty_io_error(err: &std::io::Error) -> bool {
+    if matches!(
+        err.kind(),
+        std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::Interrupted
+    ) {
+        return true;
+    }
+
+    let message = err.to_string().to_ascii_lowercase();
+    message.contains("would block")
+        || message.contains("resource temporarily unavailable")
+        || message.contains("timed out")
 }
 
 fn connect(config: &SshConfig) -> AppResult<Session> {
@@ -666,4 +817,77 @@ fn run_channel_command(session: &Session, command: &str) -> AppResult<(String, S
         String::from_utf8_lossy(&stderr).to_string(),
         exit_code,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drain_pty_command_batch_respects_limit_and_keeps_order() {
+        let (tx, rx) = mpsc::channel::<PtyCommand>();
+        tx.send(PtyCommand::Input("aa".to_string()))
+            .expect("send input");
+        tx.send(PtyCommand::Resize {
+            cols: 120,
+            rows: 40,
+        })
+        .expect("send resize");
+        tx.send(PtyCommand::Input("bb".to_string()))
+            .expect("send input");
+
+        let first = drain_pty_command_batch(&rx, 2);
+        assert_eq!(first.drained_messages, 2);
+        assert_eq!(first.input, b"aa");
+        assert_eq!(first.latest_resize, Some((120, 40)));
+        assert!(!first.close_requested);
+
+        let second = drain_pty_command_batch(&rx, 2);
+        assert_eq!(second.drained_messages, 1);
+        assert_eq!(second.input, b"bb");
+        assert_eq!(second.latest_resize, None);
+        assert!(!second.close_requested);
+    }
+
+    #[test]
+    fn drain_pty_command_batch_stops_on_close() {
+        let (tx, rx) = mpsc::channel::<PtyCommand>();
+        tx.send(PtyCommand::Input("before".to_string()))
+            .expect("send input");
+        tx.send(PtyCommand::Close).expect("send close");
+        tx.send(PtyCommand::Input("after".to_string()))
+            .expect("send input");
+
+        let batch = drain_pty_command_batch(&rx, 10);
+        assert!(batch.close_requested);
+        assert_eq!(batch.input, b"before");
+        assert_eq!(batch.drained_messages, 2);
+    }
+
+    #[test]
+    fn compact_pending_input_drops_consumed_prefix_when_large_enough() {
+        let mut pending = vec![b'x'; 10_000];
+        pending.extend_from_slice(b"tail");
+        let mut offset = 10_000usize;
+
+        compact_pending_input(&mut pending, &mut offset);
+
+        assert_eq!(pending, b"tail");
+        assert_eq!(offset, 0);
+    }
+
+    #[test]
+    fn is_transient_pty_io_error_detects_timeout_and_wouldblock() {
+        let timeout = std::io::Error::new(std::io::ErrorKind::TimedOut, "operation timed out");
+        assert!(is_transient_pty_io_error(&timeout));
+
+        let blocked = std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Resource temporarily unavailable",
+        );
+        assert!(is_transient_pty_io_error(&blocked));
+
+        let broken = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe");
+        assert!(!is_transient_pty_io_error(&broken));
+    }
 }

@@ -14,6 +14,7 @@ import {
   upsertOpsAgentPendingAction,
 } from "../lib/ops-agent-stream";
 import { createShellContextAttachment } from "../lib/ops-agent-shell-context";
+import { createPtyInputSender } from "../lib/pty-input-sender";
 import { api } from "../lib/tauri-api";
 import { arrayBufferToBase64, base64ToBytes } from "../utils/encoding";
 import { formatBytes } from "../utils/format";
@@ -161,6 +162,9 @@ export function useWorkbench() {
   const sessionAliasRef = useRef(new Map());
   const statusRequestTokenRef = useRef(new Map());
   const aiStreamRef = useRef(EMPTY_OPS_AGENT_STREAM);
+  const ptyInputSenderRef = useRef(null);
+  const onErrorRef = useRef(() => {});
+  const runWithSessionReconnectRef = useRef(null);
 
   const activeSession = useMemo(
     () => sessions.find((item) => item.id === activeSessionId) || null,
@@ -234,11 +238,26 @@ export function useWorkbench() {
     }
 
     const aliasKeys = [];
+    const relatedSessionIds = new Set([sessionId]);
     sessionAliasRef.current.forEach((value, key) => {
       if (key === sessionId || value === sessionId) {
         aliasKeys.push(key);
+        if (typeof key === "string" && key) {
+          relatedSessionIds.add(key);
+        }
+        if (typeof value === "string" && value) {
+          relatedSessionIds.add(value);
+        }
       }
     });
+
+    const inputSender = ptyInputSenderRef.current;
+    if (inputSender) {
+      relatedSessionIds.forEach((id) => {
+        inputSender.clearSession(id);
+      });
+    }
+
     aliasKeys.forEach((key) => {
       sessionAliasRef.current.delete(key);
     });
@@ -398,6 +417,37 @@ export function useWorkbench() {
     },
     [reconnectSession, resolveSessionAlias],
   );
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    runWithSessionReconnectRef.current = runWithSessionReconnect;
+  }, [runWithSessionReconnect]);
+
+  useEffect(() => {
+    const sender = createPtyInputSender({
+      send: (sessionId, data) => {
+        const runWithReconnect = runWithSessionReconnectRef.current;
+        if (typeof runWithReconnect !== "function") {
+          return Promise.reject(new Error("PTY input sender is not ready"));
+        }
+        return runWithReconnect(sessionId, (activeId) => api.ptyWriteInput(activeId, data));
+      },
+      onError: (error) => {
+        onErrorRef.current(error);
+      },
+    });
+    ptyInputSenderRef.current = sender;
+
+    return () => {
+      sender.dispose();
+      if (ptyInputSenderRef.current === sender) {
+        ptyInputSenderRef.current = null;
+      }
+    };
+  }, []);
 
   const applyAiProfilesState = useCallback((state, keepForm = false) => {
     const normalized = normalizeAiProfilesState(state);
@@ -822,11 +872,21 @@ export function useWorkbench() {
       if (!sessionId || !data) {
         return;
       }
-      void runWithSessionReconnect(sessionId, (activeId) => api.ptyWriteInput(activeId, data)).catch(
-        onError,
-      );
+      const sender = ptyInputSenderRef.current;
+      if (sender) {
+        sender.enqueue(sessionId, data);
+        return;
+      }
+
+      const runWithReconnect = runWithSessionReconnectRef.current;
+      if (!runWithReconnect) {
+        return;
+      }
+      void runWithReconnect(sessionId, (activeId) => api.ptyWriteInput(activeId, data)).catch((error) => {
+        onErrorRef.current(error);
+      });
     },
-    [onError, runWithSessionReconnect],
+    [],
   );
 
   const resizePty = useCallback((sessionId, cols, rows) => {
