@@ -13,17 +13,17 @@ use ssh2::{ErrorCode, FileStat, Session};
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use crate::error::{AppError, AppResult};
-use crate::models::{
-    now_rfc3339, CommandExecutionResult, FetchServerStatusInput, MemoryStatus, NetworkInterfaceStatus,
-    PtyOutputEvent, SftpDownloadPayload, SftpDownloadInput, SftpEntry, SftpEntryType, SftpFileContent,
-    SftpListInput, SftpListResponse, SftpReadInput, SftpUploadInput, SftpWriteInput, ShellSession,
-    SshConfig,
-};
-use crate::state::{AppState, PtyCommand};
 use super::status_parser::{
     parse_cpu_percent, parse_disks, parse_memory, parse_network_interfaces, parse_top_processes,
 };
+use crate::error::{AppError, AppResult};
+use crate::models::{
+    now_rfc3339, CommandExecutionResult, FetchServerStatusInput, MemoryStatus,
+    NetworkInterfaceStatus, PtyOutputEvent, SftpDownloadInput, SftpDownloadPayload, SftpEntry,
+    SftpEntryType, SftpFileContent, SftpListInput, SftpListResponse, SftpReadInput,
+    SftpUploadInput, SftpWriteInput, ShellSession, SshConfig,
+};
+use crate::state::{AppState, PtyCommand};
 
 const DEFAULT_PTY_COLS: u16 = 120;
 const DEFAULT_PTY_ROWS: u16 = 36;
@@ -276,7 +276,10 @@ pub fn sftp_download_file(
 }
 
 /// Collects server runtime metrics and updates session-bound cache.
-pub fn fetch_server_status(state: &AppState, input: FetchServerStatusInput) -> AppResult<crate::models::ServerStatus> {
+pub fn fetch_server_status(
+    state: &AppState,
+    input: FetchServerStatusInput,
+) -> AppResult<crate::models::ServerStatus> {
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
     let ssh = connect(&config)?;
@@ -292,15 +295,15 @@ pub fn fetch_server_status(state: &AppState, input: FetchServerStatusInput) -> A
     let net_output = run_channel_command(&ssh, "cat /proc/net/dev")?.0;
     let network_interfaces = parse_network_interfaces(&net_output);
     let selected_interface = pick_selected_interface(&network_interfaces, input.selected_interface);
-    let selected_interface_traffic = selected_interface
-        .as_ref()
-        .and_then(|name| network_interfaces.iter().find(|item| &item.interface == name).cloned());
+    let selected_interface_traffic = selected_interface.as_ref().and_then(|name| {
+        network_interfaces
+            .iter()
+            .find(|item| &item.interface == name)
+            .cloned()
+    });
 
-    let process_output = run_channel_command(
-        &ssh,
-        "ps -eo pid,pcpu,pmem,comm --sort=-pcpu | head -n 5",
-    )?
-    .0;
+    let process_output =
+        run_channel_command(&ssh, "ps -eo pid,pcpu,pmem,comm --sort=-pcpu | head -n 5")?.0;
     let top_processes = parse_top_processes(&process_output);
 
     let disk_output = run_channel_command(&ssh, "df -hP")?.0;
@@ -322,7 +325,10 @@ pub fn fetch_server_status(state: &AppState, input: FetchServerStatusInput) -> A
 }
 
 /// Reads previously cached server status for current shell session.
-pub fn get_cached_server_status(state: &AppState, session_id: &str) -> Option<crate::models::ServerStatus> {
+pub fn get_cached_server_status(
+    state: &AppState,
+    session_id: &str,
+) -> Option<crate::models::ServerStatus> {
     state.get_cached_status(session_id)
 }
 
@@ -438,7 +444,12 @@ fn start_pty_worker(
     channel.request_pty(
         "xterm-256color",
         None,
-        Some((u32::from(DEFAULT_PTY_COLS), u32::from(DEFAULT_PTY_ROWS), 0, 0)),
+        Some((
+            u32::from(DEFAULT_PTY_COLS),
+            u32::from(DEFAULT_PTY_ROWS),
+            0,
+            0,
+        )),
     )?;
     channel.shell()?;
     ssh.set_blocking(false);
@@ -566,7 +577,9 @@ fn write_channel_input(channel: &mut ssh2::Channel, data: &[u8]) -> AppResult<()
         match channel.write(&data[written..]) {
             Ok(0) => {
                 if channel.eof() {
-                    return Err(AppError::Runtime("pty channel closed while writing".to_string()));
+                    return Err(AppError::Runtime(
+                        "pty channel closed while writing".to_string(),
+                    ));
                 }
                 thread::sleep(Duration::from_millis(4));
             }

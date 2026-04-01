@@ -1,3 +1,4 @@
+pub mod commands;
 mod service;
 mod status_parser;
 

@@ -957,7 +957,7 @@ export function useWorkbench() {
       setResolvingAiActionId(actionId);
       try {
         await runBusy(approve ? "Approve command" : "Reject command", () =>
-          api.opsAgentResolveAction(actionId, approve),
+          api.opsAgentResolveAction(actionId, approve, activeSessionId || null),
         );
         await Promise.all([
           reloadAiPendingActions(activeSessionId || null),

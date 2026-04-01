@@ -39,6 +39,7 @@ impl OpsAgentToolDefinition {
 pub struct OpsAgentToolRequest {
     pub state: Arc<AppState>,
     pub conversation_id: String,
+    pub current_user_message_id: Option<String>,
     pub session_id: Option<String>,
     pub command: String,
     pub reason: Option<String>,
@@ -181,11 +182,12 @@ mod tests {
             }
         }
 
-        fn execute(self: Arc<Self>, _request: OpsAgentToolRequest) -> ToolFuture<OpsAgentToolOutcome> {
+        fn execute(
+            self: Arc<Self>,
+            _request: OpsAgentToolRequest,
+        ) -> ToolFuture<OpsAgentToolOutcome> {
             let _ = self;
-            Box::pin(async {
-                Err(AppError::Runtime("not implemented".to_string()))
-            })
+            Box::pin(async { Err(AppError::Runtime("not implemented".to_string())) })
         }
     }
 

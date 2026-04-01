@@ -1,9 +1,11 @@
-﻿use std::sync::Arc;
+use std::sync::Arc;
 
 use crate::error::{AppError, AppResult};
 use crate::models::CommandExecutionResult;
 use crate::ops_agent::logging::append_debug_log;
-use crate::ops_agent::types::{OpsAgentActionStatus, OpsAgentRiskLevel, OpsAgentRole, OpsAgentToolKind};
+use crate::ops_agent::types::{
+    OpsAgentActionStatus, OpsAgentRiskLevel, OpsAgentRole, OpsAgentToolKind,
+};
 use crate::server_ops;
 
 use super::{
@@ -84,14 +86,7 @@ const READ_ONLY_GIT_ACTIONS: &[&str] = &[
 ];
 
 const READ_ONLY_DOCKER_ACTIONS: &[&str] = &[
-    "ps",
-    "images",
-    "inspect",
-    "logs",
-    "stats",
-    "version",
-    "info",
-    "events",
+    "ps", "images", "inspect", "logs", "stats", "version", "info", "events",
 ];
 
 const READ_ONLY_KUBECTL_ACTIONS: &[&str] = &[
@@ -107,32 +102,9 @@ const READ_ONLY_KUBECTL_ACTIONS: &[&str] = &[
 ];
 
 const MUTATING_ROOT_COMMANDS: &[&str] = &[
-    "rm",
-    "mv",
-    "cp",
-    "touch",
-    "mkdir",
-    "rmdir",
-    "chmod",
-    "chown",
-    "chgrp",
-    "ln",
-    "tee",
-    "dd",
-    "mkfs",
-    "fdisk",
-    "mount",
-    "umount",
-    "shutdown",
-    "reboot",
-    "poweroff",
-    "init",
-    "halt",
-    "apt",
-    "apt-get",
-    "yum",
-    "dnf",
-    "pacman",
+    "rm", "mv", "cp", "touch", "mkdir", "rmdir", "chmod", "chown", "chgrp", "ln", "tee", "dd",
+    "mkfs", "fdisk", "mount", "umount", "shutdown", "reboot", "poweroff", "init", "halt", "apt",
+    "apt-get", "yum", "dnf", "pacman",
 ];
 
 const HIGH_RISK_PATTERNS: &[&str] = &[
@@ -202,10 +174,14 @@ impl OpsAgentTool for ShellTool {
                 AppError::Validation("shell tool requires an active SSH session".to_string())
             })?;
             let raw_command = request.command.trim().to_string();
-            let reason = request.reason.unwrap_or_else(|| "planner did not provide reason".to_string());
+            let reason = request
+                .reason
+                .unwrap_or_else(|| "planner did not provide reason".to_string());
 
             if raw_command.is_empty() {
-                return Err(AppError::Validation("shell command cannot be empty".to_string()));
+                return Err(AppError::Validation(
+                    "shell command cannot be empty".to_string(),
+                ));
             }
 
             append_debug_log(
@@ -234,6 +210,7 @@ impl OpsAgentTool for ShellTool {
                         );
                         let action = request.state.ops_agent.create_pending_action(
                             &conversation_id,
+                            request.current_user_message_id.as_deref(),
                             Some(session_id.as_str()),
                             OpsAgentToolKind::shell(),
                             risk_level,
@@ -261,8 +238,10 @@ impl OpsAgentTool for ShellTool {
             };
 
             let execution =
-                execute_remote_command(request.state.clone(), session_id, validated.clone()).await?;
-            let output = format_execution_output(&execution.stdout, &execution.stderr, execution.exit_code);
+                execute_remote_command(request.state.clone(), session_id, validated.clone())
+                    .await?;
+            let output =
+                format_execution_output(&execution.stdout, &execution.stderr, execution.exit_code);
 
             append_debug_log(
                 request.state.as_ref(),
@@ -313,7 +292,10 @@ impl OpsAgentTool for ShellTool {
                     "shell.approval_failed",
                     None,
                     Some(updated.conversation_id.as_str()),
-                    format!("action_id={} command={} reason=missing_session_id", updated.id, updated.command),
+                    format!(
+                        "action_id={} command={} reason=missing_session_id",
+                        updated.id, updated.command
+                    ),
                 );
                 return Ok(OpsAgentToolResolution {
                     message: format!(
@@ -325,11 +307,15 @@ impl OpsAgentTool for ShellTool {
             };
 
             let command = action.command.clone();
-            let execution = execute_remote_command(request.state.clone(), session_id, command.clone()).await;
+            let execution =
+                execute_remote_command(request.state.clone(), session_id, command.clone()).await;
             match execution {
                 Ok(execution) => {
-                    let output =
-                        format_execution_output(&execution.stdout, &execution.stderr, execution.exit_code);
+                    let output = format_execution_output(
+                        &execution.stdout,
+                        &execution.stderr,
+                        execution.exit_code,
+                    );
                     let updated = request.state.ops_agent.mark_action_executed(
                         &action.id,
                         output.clone(),
@@ -451,9 +437,11 @@ async fn execute_remote_command(
     session_id: String,
     command: String,
 ) -> AppResult<CommandExecutionResult> {
-    tauri::async_runtime::spawn_blocking(move || server_ops::execute_command(&state, &session_id, &command))
-        .await
-        .map_err(|error| AppError::Runtime(error.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        server_ops::execute_command(&state, &session_id, &command)
+    })
+    .await
+    .map_err(|error| AppError::Runtime(error.to_string()))?
 }
 
 fn validate_read_shell_command(command: &str) -> AppResult<String> {
@@ -612,14 +600,19 @@ fn should_request_approval_after_read_rejection(error: &AppError) -> bool {
     };
 
     let normalized = message.to_ascii_lowercase();
-    if normalized.contains("command chaining")
-        || normalized.contains("redirection")
+    if normalized.contains("redirection")
         || normalized.contains("substitution")
         || normalized.contains("empty pipeline segment")
         || normalized.contains("missing a root command")
         || normalized.contains("cannot be empty")
     {
         return false;
+    }
+
+    // Chained commands can still be valid user intent. Instead of failing the run,
+    // route them to explicit approval as write-shell style execution.
+    if normalized.contains("command chaining") {
+        return true;
     }
 
     normalized.contains("not in the allowlist")
@@ -689,6 +682,10 @@ mod tests {
         let blocked = validate_read_shell_command("java -version").expect_err("blocked");
         assert!(should_request_approval_after_read_rejection(&blocked));
 
+        let chained =
+            validate_read_shell_command("which hadoop && hadoop version").expect_err("chained");
+        assert!(should_request_approval_after_read_rejection(&chained));
+
         let invalid = validate_read_shell_command("ls > out.txt").expect_err("invalid");
         assert!(!should_request_approval_after_read_rejection(&invalid));
     }
@@ -709,4 +706,3 @@ mod tests {
         );
     }
 }
-

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
-use crate::models::{AiAnswer, AiAskInput, AiConfig, AiChatMessage, AiRole};
+use crate::models::{AiAnswer, AiAskInput, AiChatMessage, AiConfig, AiRole};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -73,10 +73,7 @@ pub async fn ask_ai(state: &AppState, input: AiAskInput) -> AppResult<AiAnswer> 
 }
 
 async fn request_completion(config: &AiConfig, messages: &[AiChatMessage]) -> AppResult<String> {
-    let endpoint = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let payload = ChatCompletionsRequest {
         model: config.model.clone(),
         messages: messages
@@ -387,7 +384,10 @@ mod tests {
             .recv_timeout(Duration::from_secs(2))
             .expect("captured request");
         assert_eq!(captured.path, "/chat/completions");
-        assert_eq!(captured.authorization.as_deref(), Some("Bearer test-api-key"));
+        assert_eq!(
+            captured.authorization.as_deref(),
+            Some("Bearer test-api-key")
+        );
         assert_eq!(captured.body_json["model"], "doubao-seed-2-0-lite-260215");
         assert_eq!(captured.body_json["temperature"], 0.2);
         assert_eq!(captured.body_json["max_tokens"], 100000);

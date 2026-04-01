@@ -4,8 +4,8 @@ use std::sync::mpsc::Sender;
 use std::sync::RwLock;
 
 use crate::error::{AppError, AppResult};
-use crate::ops_agent::run_registry::OpsAgentRunRegistry;
 use crate::models::{ServerStatus, ShellSession};
+use crate::ops_agent::run_registry::OpsAgentRunRegistry;
 use crate::ops_agent::store::OpsAgentStore;
 use crate::ops_agent::tools::{default_ops_agent_tool_registry, OpsAgentToolRegistry};
 use crate::storage::Storage;

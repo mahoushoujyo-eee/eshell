@@ -36,7 +36,9 @@ impl OpsAgentSessionContext {
         ));
 
         if let Some(last_output_preview) = &self.last_output_preview {
-            rows.push(format!("Recent terminal output preview:\n{last_output_preview}"));
+            rows.push(format!(
+                "Recent terminal output preview:\n{last_output_preview}"
+            ));
         }
 
         rows.join("\n")
@@ -111,7 +113,10 @@ Prefer evidence-based statements, highlight uncertainty, and keep next steps saf
 
 /// Builds the summary prompt after a tool has produced output.
 #[allow(dead_code)]
-pub fn build_tool_summary_prompt(base_prompt: &str, session_context: &OpsAgentSessionContext) -> String {
+pub fn build_tool_summary_prompt(
+    base_prompt: &str,
+    session_context: &OpsAgentSessionContext,
+) -> String {
     format!(
         "{base}\n\nGiven shell tool execution results, provide a concise markdown answer.\n\
 Include: what happened, the most relevant evidence, and a safe next step when useful.\n\
@@ -185,7 +190,10 @@ fn build_last_output_preview(value: &str) -> Option<String> {
         return None;
     }
 
-    let mut preview = compact.chars().take(LAST_OUTPUT_PREVIEW_CHARS).collect::<String>();
+    let mut preview = compact
+        .chars()
+        .take(LAST_OUTPUT_PREVIEW_CHARS)
+        .collect::<String>();
     if compact.chars().count() > LAST_OUTPUT_PREVIEW_CHARS {
         preview.push_str("...");
     }
@@ -205,7 +213,9 @@ mod tests {
                 OpsAgentToolPromptHint {
                     kind: OpsAgentToolKind::shell(),
                     description: "Unified shell command execution.".to_string(),
-                    usage_notes: vec!["Read-only runs immediately; writes require approval.".to_string()],
+                    usage_notes: vec![
+                        "Read-only runs immediately; writes require approval.".to_string()
+                    ],
                     requires_approval: false,
                 },
                 OpsAgentToolPromptHint {

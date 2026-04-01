@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +14,9 @@ use super::stream::SseEventDecoder;
 use super::types::{
     OpsAgentMessage, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply, PlannedToolAction,
 };
+
+const OPS_AGENT_AI_PLAN_TIMEOUT_SECS: u64 = 45;
+const OPS_AGENT_AI_STREAM_TIMEOUT_SECS: u64 = 240;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -190,9 +194,7 @@ fn format_user_history_message(item: &OpsAgentMessage) -> String {
 
     format!(
         "Attached shell context from session \"{}\":\n{}\n\nUser request:\n{}",
-        shell_context.session_name,
-        shell_context.content,
-        question
+        shell_context.session_name, shell_context.content, question
     )
 }
 
@@ -200,7 +202,14 @@ async fn request_chat_completion(
     config: &AiConfig,
     messages: Vec<WireChatMessage>,
 ) -> AppResult<String> {
-    let response = build_client_request(config, messages, None).send().await?;
+    let response = build_client_request(
+        config,
+        messages,
+        None,
+        Duration::from_secs(OPS_AGENT_AI_PLAN_TIMEOUT_SECS),
+    )
+    .send()
+    .await?;
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -232,7 +241,14 @@ async fn stream_chat_completion<F>(
 where
     F: FnMut(&str) -> AppResult<()>,
 {
-    let response = build_client_request(config, messages, Some(true)).send().await?;
+    let response = build_client_request(
+        config,
+        messages,
+        Some(true),
+        Duration::from_secs(OPS_AGENT_AI_STREAM_TIMEOUT_SECS),
+    )
+    .send()
+    .await?;
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -288,6 +304,7 @@ fn build_client_request(
     config: &AiConfig,
     messages: Vec<WireChatMessage>,
     stream: Option<bool>,
+    timeout: Duration,
 ) -> reqwest::RequestBuilder {
     let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let payload = ChatCompletionsRequest {
@@ -300,18 +317,23 @@ fn build_client_request(
 
     reqwest::Client::new()
         .post(endpoint)
+        .timeout(timeout)
         .bearer_auth(&config.api_key)
         .json(&payload)
 }
 
-fn parse_plan_payload(raw: &str, tool_hints: &[OpsAgentToolPromptHint]) -> AppResult<PlannedAgentReply> {
-    let json_text = extract_json_payload(raw).unwrap_or_else(|| raw.trim().to_string());
-    if let Ok(payload) = serde_json::from_str::<PlanPayload>(&json_text) {
-        let registered = tool_hints
-            .iter()
-            .map(|item| item.kind.to_string())
-            .collect::<HashSet<_>>();
-        return Ok(normalize_planned_reply(payload, &registered));
+fn parse_plan_payload(
+    raw: &str,
+    tool_hints: &[OpsAgentToolPromptHint],
+) -> AppResult<PlannedAgentReply> {
+    let registered = tool_hints
+        .iter()
+        .map(|item| item.kind.to_string())
+        .collect::<HashSet<_>>();
+    for candidate in iter_plan_payload_candidates(raw) {
+        if let Ok(payload) = serde_json::from_str::<PlanPayload>(&candidate) {
+            return Ok(normalize_planned_reply(payload, &registered));
+        }
     }
 
     Ok(PlannedAgentReply {
@@ -359,7 +381,11 @@ fn normalize_planned_reply(
     } else {
         kind
     };
-    let normalized_command = if normalized_kind.is_none() { None } else { command };
+    let normalized_command = if normalized_kind.is_none() {
+        None
+    } else {
+        command
+    };
 
     PlannedAgentReply {
         reply,
@@ -401,17 +427,82 @@ fn parse_stream_delta(raw: &str) -> AppResult<Option<String>> {
         .map(|item| item.trim_end_matches('\0').to_string()))
 }
 
+#[cfg(test)]
 fn extract_json_payload(raw: &str) -> Option<String> {
+    extract_json_objects(raw).into_iter().next()
+}
+
+fn iter_plan_payload_candidates(raw: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
     let trimmed = raw.trim();
-    if trimmed.starts_with('{') && trimmed.ends_with('}') {
-        return Some(trimmed.to_string());
+    if !trimmed.is_empty() {
+        candidates.push(trimmed.to_string());
     }
 
-    if let Some(start) = trimmed.find('{') {
-        if let Some(end) = trimmed.rfind('}') {
-            if end > start {
-                return Some(trimmed[start..=end].to_string());
+    for object in extract_json_objects(trimmed) {
+        if !candidates.iter().any(|item| item == &object) {
+            candidates.push(object);
+        }
+    }
+
+    candidates
+}
+
+fn extract_json_objects(raw: &str) -> Vec<String> {
+    let mut rows = Vec::new();
+    let mut cursor = 0usize;
+    while cursor < raw.len() {
+        let Some(offset) = raw[cursor..].find('{') else {
+            break;
+        };
+        let start = cursor + offset;
+        if let Some(end) = find_balanced_json_object_end(raw, start) {
+            if end >= start {
+                rows.push(raw[start..=end].to_string());
+                cursor = end + 1;
+                continue;
             }
+        }
+        cursor = start + 1;
+    }
+    rows
+}
+
+fn find_balanced_json_object_end(raw: &str, start: usize) -> Option<usize> {
+    if raw.get(start..=start)? != "{" {
+        return None;
+    }
+
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (relative_index, ch) in raw[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                if depth == 0 {
+                    return None;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    return Some(start + relative_index);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -505,8 +596,44 @@ mod tests {
         });
 
         assert_eq!(wire.role, "user");
-        assert!(wire.content.contains("Attached shell context from session \"Prod\""));
+        assert!(wire
+            .content
+            .contains("Attached shell context from session \"Prod\""));
         assert!(wire.content.contains("systemctl status nginx"));
         assert!(wire.content.contains("User request:\nWhy did nginx fail?"));
+    }
+
+    #[test]
+    fn parse_plan_payload_uses_first_valid_json_object_when_multiple_are_returned() {
+        let raw = r#"{"reply":"查看本地Hadoop安装情况","tool":{"kind":"shell","command":"which hadoop && hadoop version","reason":"检查Hadoop是否安装及版本"}}
+{"reply":"查看Hadoop配置文件","tool":{"kind":"shell","command":"ls -la $HADOOP_HOME/etc/hadoop","reason":"检查配置文件"}}"#;
+        let payload = parse_plan_payload(
+            raw,
+            &[OpsAgentToolPromptHint {
+                kind: OpsAgentToolKind::shell(),
+                description: "shell".to_string(),
+                usage_notes: Vec::new(),
+                requires_approval: false,
+            }],
+        )
+        .expect("parse plan");
+
+        assert_eq!(payload.tool.kind, OpsAgentToolKind::shell());
+        assert_eq!(
+            payload.tool.command.as_deref(),
+            Some("which hadoop && hadoop version")
+        );
+    }
+
+    #[test]
+    fn extract_json_payload_reads_first_object_from_multiple_json_blocks() {
+        let raw = r#"prefix
+{"reply":"a","tool":{"kind":"none","command":"","reason":""}}
+{"reply":"b","tool":{"kind":"none","command":"","reason":""}}"#;
+        let payload = extract_json_payload(raw).expect("first json object");
+        assert_eq!(
+            payload,
+            r#"{"reply":"a","tool":{"kind":"none","command":"","reason":""}}"#
+        );
     }
 }

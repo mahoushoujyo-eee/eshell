@@ -104,6 +104,7 @@ impl OpsAgentStore {
         _title_hint: &str,
         session_id: Option<&str>,
     ) -> AppResult<OpsAgentConversation> {
+        let normalized_session_id = normalize_session_id(session_id);
         if let Some(id) = conversation_id {
             let mut guard = self.data.write().expect("ops agent lock poisoned");
             let index = guard
@@ -113,8 +114,10 @@ impl OpsAgentStore {
                 .ok_or_else(|| AppError::NotFound(format!("ops agent conversation {id}")))?;
 
             let mut should_persist_conversation = false;
-            if guard.conversations[index].session_id.is_none() {
-                guard.conversations[index].session_id = session_id.map(|item| item.to_string());
+            if normalized_session_id.is_some()
+                && guard.conversations[index].session_id != normalized_session_id
+            {
+                guard.conversations[index].session_id = normalized_session_id.clone();
                 guard.conversations[index].updated_at = now_rfc3339();
                 should_persist_conversation = true;
             }
@@ -129,7 +132,7 @@ impl OpsAgentStore {
             return Ok(snapshot);
         }
 
-        self.create_conversation(None, session_id)
+        self.create_conversation(None, normalized_session_id.as_deref())
     }
 
     pub fn create_conversation(
@@ -142,7 +145,7 @@ impl OpsAgentStore {
         let conversation = OpsAgentConversation {
             id: Uuid::new_v4().to_string(),
             title: derive_conversation_title(title),
-            session_id: session_id.map(|item| item.to_string()),
+            session_id: normalize_session_id(session_id),
             messages: Vec::new(),
             created_at: now.clone(),
             updated_at: now,
@@ -173,7 +176,9 @@ impl OpsAgentStore {
             return Err(AppError::NotFound(format!("ops agent conversation {id}")));
         }
 
-        guard.pending_actions.retain(|item| item.conversation_id != id);
+        guard
+            .pending_actions
+            .retain(|item| item.conversation_id != id);
         let active_valid = guard
             .active_conversation_id
             .as_ref()
@@ -197,7 +202,9 @@ impl OpsAgentStore {
     ) -> AppResult<OpsAgentMessage> {
         let trimmed = content.trim();
         if trimmed.is_empty() {
-            return Err(AppError::Validation("message content cannot be empty".to_string()));
+            return Err(AppError::Validation(
+                "message content cannot be empty".to_string(),
+            ));
         }
 
         let shell_context = if role == OpsAgentRole::User {
@@ -273,6 +280,7 @@ impl OpsAgentStore {
     pub fn create_pending_action(
         &self,
         conversation_id: &str,
+        source_user_message_id: Option<&str>,
         session_id: Option<&str>,
         tool_kind: OpsAgentToolKind,
         risk_level: OpsAgentRiskLevel,
@@ -280,11 +288,17 @@ impl OpsAgentStore {
         reason: &str,
     ) -> AppResult<OpsAgentPendingAction> {
         if command.trim().is_empty() {
-            return Err(AppError::Validation("tool command cannot be empty".to_string()));
+            return Err(AppError::Validation(
+                "tool command cannot be empty".to_string(),
+            ));
         }
 
         let mut guard = self.data.write().expect("ops agent lock poisoned");
-        if !guard.conversations.iter().any(|item| item.id == conversation_id) {
+        if !guard
+            .conversations
+            .iter()
+            .any(|item| item.id == conversation_id)
+        {
             return Err(AppError::NotFound(format!(
                 "ops agent conversation {conversation_id}"
             )));
@@ -296,6 +310,14 @@ impl OpsAgentStore {
             tool_kind,
             risk_level,
             conversation_id: conversation_id.to_string(),
+            source_user_message_id: source_user_message_id.and_then(|value| {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            }),
             session_id: session_id.map(|item| item.to_string()),
             command: command.trim().to_string(),
             reason: reason.trim().to_string(),
@@ -396,7 +418,10 @@ impl OpsAgentStore {
     }
 
     fn persist_list_locked(&self, data: &OpsAgentData) -> AppResult<()> {
-        write_json_pretty(&self.list_path, &OpsAgentConversationListData::from_data(data))
+        write_json_pretty(
+            &self.list_path,
+            &OpsAgentConversationListData::from_data(data),
+        )
     }
 
     fn persist_all_locked(&self, data: &OpsAgentData) -> AppResult<()> {
@@ -439,7 +464,8 @@ impl OpsAgentStore {
     }
 
     fn conversation_path(&self, conversation_id: &str) -> PathBuf {
-        self.conversations_dir.join(format!("{conversation_id}.json"))
+        self.conversations_dir
+            .join(format!("{conversation_id}.json"))
     }
 }
 
@@ -455,6 +481,16 @@ fn derive_conversation_title(title: Option<&str>) -> String {
         out.push_str("...");
     }
     out
+}
+
+fn normalize_session_id(session_id: Option<&str>) -> Option<String> {
+    let session_id = session_id?;
+    let trimmed = session_id.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn should_auto_rename_title(current_title: &str) -> bool {
@@ -504,10 +540,8 @@ fn load_ops_agent_data(
 ) -> AppResult<OpsAgentData> {
     if list_path.exists() {
         let list_data = read_json_or_default::<OpsAgentConversationListData>(list_path)?;
-        let conversations = load_conversations_with_preferred_order(
-            conversations_dir,
-            &list_data.conversations,
-        )?;
+        let conversations =
+            load_conversations_with_preferred_order(conversations_dir, &list_data.conversations)?;
 
         return Ok(OpsAgentData {
             conversations,
@@ -649,7 +683,13 @@ mod tests {
         assert_eq!(store.list_conversation_summaries().len(), 1);
 
         store
-            .append_message(&conversation.id, OpsAgentRole::User, "check cpu", None, None)
+            .append_message(
+                &conversation.id,
+                OpsAgentRole::User,
+                "check cpu",
+                None,
+                None,
+            )
             .expect("append user");
         store
             .append_message(
@@ -664,6 +704,7 @@ mod tests {
         let action = store
             .create_pending_action(
                 &conversation.id,
+                None,
                 Some("session-1"),
                 OpsAgentToolKind::write_shell(),
                 OpsAgentRiskLevel::High,
@@ -674,6 +715,7 @@ mod tests {
         assert_eq!(action.status, OpsAgentActionStatus::Pending);
         assert_eq!(action.tool_kind, OpsAgentToolKind::write_shell());
         assert_eq!(action.risk_level, OpsAgentRiskLevel::High);
+        assert!(action.source_user_message_id.is_none());
         assert_eq!(store.list_pending_actions(Some("session-1"), true).len(), 1);
 
         let rejected = store.mark_action_rejected(&action.id).expect("reject");
@@ -697,7 +739,9 @@ mod tests {
             )
             .expect("append user");
 
-        let loaded = store.get_conversation(&conversation.id).expect("load conversation");
+        let loaded = store
+            .get_conversation(&conversation.id)
+            .expect("load conversation");
         assert_eq!(loaded.title, "abcdefghij...");
     }
 
@@ -724,7 +768,9 @@ mod tests {
             )
             .expect("append user");
 
-        let loaded = store.get_conversation(&conversation.id).expect("load conversation");
+        let loaded = store
+            .get_conversation(&conversation.id)
+            .expect("load conversation");
         let shell_context = loaded.messages[0]
             .shell_context
             .as_ref()
@@ -745,11 +791,10 @@ mod tests {
             .expect("create conversation");
 
         assert!(root.join(CONVERSATION_LIST_FILE).exists());
-        assert!(
-            root.join(CONVERSATIONS_DIR)
-                .join(format!("{}.json", conversation.id))
-                .exists()
-        );
+        assert!(root
+            .join(CONVERSATIONS_DIR)
+            .join(format!("{}.json", conversation.id))
+            .exists());
     }
 
     #[test]
@@ -785,10 +830,27 @@ mod tests {
         let store = OpsAgentStore::new(root.clone()).expect("create store from legacy");
         assert_eq!(store.list_conversation_summaries().len(), 1);
         assert!(root.join(CONVERSATION_LIST_FILE).exists());
-        assert!(
-            root.join(CONVERSATIONS_DIR)
-                .join("legacy-conv-1.json")
-                .exists()
-        );
+        assert!(root
+            .join(CONVERSATIONS_DIR)
+            .join("legacy-conv-1.json")
+            .exists());
+    }
+
+    #[test]
+    fn ensure_conversation_rebinds_session_when_request_uses_new_session() {
+        let store = OpsAgentStore::new(temp_dir("session-rebind")).expect("create store");
+        let conversation = store
+            .create_conversation(Some("Session Rebind"), Some("session-1"))
+            .expect("create conversation");
+
+        let rebound = store
+            .ensure_conversation(Some(&conversation.id), "ignored", Some("session-2"))
+            .expect("rebind session");
+
+        assert_eq!(rebound.session_id.as_deref(), Some("session-2"));
+        let loaded = store
+            .get_conversation(&conversation.id)
+            .expect("reload conversation");
+        assert_eq!(loaded.session_id.as_deref(), Some("session-2"));
     }
 }

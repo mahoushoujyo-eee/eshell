@@ -111,9 +111,7 @@ mod tests {
     #[test]
     fn cancel_marks_handle_state() {
         let registry = OpsAgentRunRegistry::new();
-        let handle = registry
-            .register("run-1", "conv-1")
-            .expect("register run");
+        let handle = registry.register("run-1", "conv-1").expect("register run");
         assert!(!handle.is_cancelled());
 
         let first_cancel = registry.cancel("run-1").expect("cancel run");

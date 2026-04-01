@@ -140,6 +140,8 @@ pub struct OpsAgentPendingAction {
     #[serde(default)]
     pub risk_level: OpsAgentRiskLevel,
     pub conversation_id: String,
+    #[serde(default)]
+    pub source_user_message_id: Option<String>,
     pub session_id: Option<String>,
     pub command: String,
     pub reason: String,
@@ -237,6 +239,8 @@ pub struct OpsAgentListPendingActionsInput {
 pub struct OpsAgentResolveActionInput {
     pub action_id: String,
     pub approve: bool,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

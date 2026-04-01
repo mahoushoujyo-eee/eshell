@@ -65,8 +65,8 @@ export const api = {
     invoke("ops_agent_chat_stream_start", { input }),
   opsAgentListPendingActions: (sessionId = null, onlyPending = true) =>
     invoke("ops_agent_list_pending_actions", { input: { sessionId, onlyPending } }),
-  opsAgentResolveAction: (actionId, approve) =>
-    invoke("ops_agent_resolve_action", { input: { actionId, approve } }),
+  opsAgentResolveAction: (actionId, approve, sessionId = null) =>
+    invoke("ops_agent_resolve_action", { input: { actionId, approve, sessionId } }),
   opsAgentCancelRun: (runId) =>
     invoke("ops_agent_cancel_run", { input: { runId } }),
 };

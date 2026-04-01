@@ -10,7 +10,11 @@ pub struct OpsAgentEventEmitter {
 }
 
 impl OpsAgentEventEmitter {
-    pub fn new(app: AppHandle, run_id: impl Into<String>, conversation_id: impl Into<String>) -> Self {
+    pub fn new(
+        app: AppHandle,
+        run_id: impl Into<String>,
+        conversation_id: impl Into<String>,
+    ) -> Self {
         Self {
             app,
             run_id: run_id.into(),
