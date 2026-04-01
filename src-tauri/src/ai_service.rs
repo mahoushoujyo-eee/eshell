@@ -182,7 +182,7 @@ fn extract_suggested_command(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{now_rfc3339, AiAskInput, AiProfileInput, ShellSession};
+    use crate::models::{now_rfc3339, AiAskInput, AiProfile, AiProfileInput, ShellSession};
     use crate::state::AppState;
     use serde_json::Value;
     use std::env;
@@ -193,8 +193,6 @@ mod tests {
     use std::sync::mpsc;
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-    const REQUESTED_PROFILE_ID: &str = "cb722d99-ae20-4761-93ab-aa76c4c05c39";
 
     #[derive(Debug)]
     struct CapturedHttpRequest {
@@ -209,6 +207,14 @@ mod tests {
             .expect("clock drift")
             .as_nanos();
         env::temp_dir().join(format!("eshell-ai-service-{name}-{stamp}"))
+    }
+
+    fn is_usable_profile(profile: &AiProfile) -> bool {
+        !profile.base_url.trim().is_empty()
+            && !profile.api_key.trim().is_empty()
+            && !profile.model.trim().is_empty()
+            && (0.0..=2.0).contains(&profile.temperature)
+            && profile.max_tokens > 0
     }
 
     fn find_header_end(bytes: &[u8]) -> Option<usize> {
@@ -410,7 +416,7 @@ mod tests {
 
     #[test]
     #[ignore = "Optional live smoke test; run with ESHELL_RUN_LIVE_AI_SMOKE=1"]
-    fn live_smoke_prefers_requested_profile() {
+    fn live_smoke_uses_first_usable_profile() {
         if env::var("ESHELL_RUN_LIVE_AI_SMOKE").ok().as_deref() != Some("1") {
             eprintln!("Skipping live smoke test; set ESHELL_RUN_LIVE_AI_SMOKE=1 to run.");
             return;
@@ -433,25 +439,29 @@ mod tests {
 
         let state = AppState::new(root).expect("create app state");
         let profiles = state.storage.list_ai_profiles();
-        if !profiles
+        let selected = profiles
             .profiles
             .iter()
-            .any(|item| item.id == REQUESTED_PROFILE_ID)
-        {
+            .find(|item| is_usable_profile(item))
+            .cloned();
+        let Some(selected_profile) = selected else {
             eprintln!(
-                "Skipping live smoke test: requested profile {} not present.",
-                REQUESTED_PROFILE_ID
+                "Skipping live smoke test: no usable profile found in {}.",
+                source_profiles.display()
             );
             return;
-        }
+        };
 
         state
             .storage
-            .set_active_ai_profile(REQUESTED_PROFILE_ID)
-            .expect("activate requested profile");
+            .set_active_ai_profile(&selected_profile.id)
+            .expect("activate selected profile");
         let config = state.storage.get_ai_config();
-        assert_eq!(config.base_url, "https://ark.cn-beijing.volces.com/api/v3");
-        assert_eq!(config.model, "doubao-seed-2-0-lite-260215");
+        assert_eq!(
+            config.base_url,
+            selected_profile.base_url.trim_end_matches('/')
+        );
+        assert_eq!(config.model, selected_profile.model);
 
         let answer = tauri::async_runtime::block_on(ask_ai(
             &state,

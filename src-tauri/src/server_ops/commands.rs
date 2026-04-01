@@ -6,8 +6,9 @@ use crate::error::{to_command_error, AppError, AppResult};
 use crate::models::{
     CloseShellInput, CommandExecutionResult, ExecuteCommandInput, FetchServerStatusInput,
     OpenShellInput, PtyResizeInput, PtyWriteInput, RunScriptInput, RunScriptResult,
-    SftpDownloadInput, SftpDownloadPayload, SftpFileContent, SftpListInput, SftpListResponse,
-    SftpReadInput, SftpUploadInput, SftpWriteInput, ShellSession,
+    SftpCancelTransferInput, SftpDownloadInput, SftpDownloadPayload, SftpDownloadToLocalInput,
+    SftpFileContent, SftpListInput, SftpListResponse, SftpReadInput, SftpTransferResult,
+    SftpUploadInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession,
 };
 use crate::state::AppState;
 
@@ -109,6 +110,17 @@ pub async fn sftp_upload_file(
     run_blocking(move || super::sftp_upload_file(&app_state, input)).await
 }
 
+/// Uploads local file bytes (base64 payload) and emits transfer progress events.
+#[tauri::command]
+pub async fn sftp_upload_file_with_progress(
+    state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
+    input: SftpUploadWithProgressInput,
+) -> Result<SftpTransferResult, String> {
+    let app_state = Arc::clone(state.inner());
+    run_blocking(move || super::sftp_upload_file_with_progress(&app_state, &app, input)).await
+}
+
 /// Downloads remote file content via SFTP and returns base64 payload.
 #[tauri::command]
 pub async fn sftp_download_file(
@@ -117,6 +129,32 @@ pub async fn sftp_download_file(
 ) -> Result<SftpDownloadPayload, String> {
     let app_state = Arc::clone(state.inner());
     run_blocking(move || super::sftp_download_file(&app_state, input)).await
+}
+
+/// Downloads one remote file directly to a local directory with progress events.
+#[tauri::command]
+pub async fn sftp_download_file_to_local(
+    state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
+    input: SftpDownloadToLocalInput,
+) -> Result<SftpTransferResult, String> {
+    let app_state = Arc::clone(state.inner());
+    run_blocking(move || super::sftp_download_file_to_local(&app_state, &app, input)).await
+}
+
+/// Returns default local download directory for current OS.
+#[tauri::command]
+pub fn sftp_default_download_dir() -> Result<String, String> {
+    Ok(super::default_download_dir())
+}
+
+/// Requests cancellation for a running transfer task.
+#[tauri::command]
+pub fn sftp_cancel_transfer(
+    state: State<'_, Arc<AppState>>,
+    input: SftpCancelTransferInput,
+) -> Result<bool, String> {
+    Ok(super::sftp_cancel_transfer(&state, &input.transfer_id))
 }
 
 /// Returns the current server runtime metrics (CPU/memory/network/process/disk).

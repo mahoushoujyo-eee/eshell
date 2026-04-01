@@ -13,6 +13,8 @@ export default function SplitPane({
   minSecondarySize = 220,
   collapsed = false,
   collapsedPrimarySize = 0,
+  collapseSecondary = false,
+  collapsedSecondarySize = 0,
   primary,
   secondary,
   className = "",
@@ -24,10 +26,10 @@ export default function SplitPane({
   const isHorizontal = direction === "horizontal";
 
   useEffect(() => {
-    if (collapsed) {
+    if (collapsed || collapseSecondary) {
       setDragging(false);
     }
-  }, [collapsed]);
+  }, [collapsed, collapseSecondary]);
 
   useEffect(() => {
     if (!dragging) {
@@ -82,7 +84,14 @@ export default function SplitPane({
 
   const primaryFlexBasis = collapsed
     ? `${collapsedPrimarySize}px`
-    : primaryBasis;
+    : collapseSecondary
+      ? "auto"
+      : primaryBasis;
+  const primaryFlexGrow = collapsed ? 0 : collapseSecondary ? 1 : 0;
+  const secondaryFlexBasis = collapseSecondary
+    ? `${collapsedSecondarySize}px`
+    : secondaryBasis;
+  const secondaryFlexGrow = collapseSecondary ? 0 : 1;
 
   return (
     <div
@@ -97,7 +106,7 @@ export default function SplitPane({
         className="min-h-0 min-w-0 overflow-hidden"
         style={{
           flexBasis: primaryFlexBasis,
-          flexGrow: 0,
+          flexGrow: primaryFlexGrow,
           flexShrink: 0,
           transition: "flex-basis 220ms ease",
         }}
@@ -110,13 +119,13 @@ export default function SplitPane({
         aria-label={isHorizontal ? "Resize columns" : "Resize rows"}
         className={[
           "relative shrink-0 bg-border/80 transition-colors",
-          collapsed ? "pointer-events-none opacity-0" : "",
+          collapsed || collapseSecondary ? "pointer-events-none opacity-0" : "",
           isHorizontal
             ? "w-px cursor-col-resize hover:bg-accent/80"
             : "h-px cursor-row-resize hover:bg-accent/80",
         ].join(" ")}
         onMouseDown={() => {
-          if (!collapsed) {
+          if (!collapsed && !collapseSecondary) {
             setDragging(true);
           }
         }}
@@ -125,7 +134,9 @@ export default function SplitPane({
       <div
         className="min-h-0 min-w-0 flex-1 overflow-hidden"
         style={{
-          flexBasis: secondaryBasis,
+          flexBasis: secondaryFlexBasis,
+          flexGrow: secondaryFlexGrow,
+          flexShrink: 0,
           transition: "flex-basis 220ms ease",
         }}
       >

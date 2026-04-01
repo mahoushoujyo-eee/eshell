@@ -1,7 +1,7 @@
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
@@ -20,9 +20,10 @@ use super::status_parser::{
 use crate::error::{AppError, AppResult};
 use crate::models::{
     now_rfc3339, CommandExecutionResult, FetchServerStatusInput, MemoryStatus,
-    NetworkInterfaceStatus, PtyOutputEvent, SftpDownloadInput, SftpDownloadPayload, SftpEntry,
-    SftpEntryType, SftpFileContent, SftpListInput, SftpListResponse, SftpReadInput,
-    SftpUploadInput, SftpWriteInput, ShellSession, SshConfig,
+    NetworkInterfaceStatus, PtyOutputEvent, SftpDownloadInput, SftpDownloadPayload,
+    SftpDownloadToLocalInput, SftpEntry, SftpEntryType, SftpFileContent, SftpListInput,
+    SftpListResponse, SftpReadInput, SftpTransferEvent, SftpTransferResult, SftpUploadInput,
+    SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshConfig,
 };
 use crate::state::{AppState, PtyCommand};
 
@@ -33,6 +34,8 @@ const PTY_IDLE_SLEEP_MS: u64 = 8;
 const PTY_MAX_COMMANDS_PER_TICK: usize = 64;
 const PTY_MAX_WRITE_OPS_PER_TICK: usize = 24;
 const PTY_MAX_READ_CHUNKS_PER_TICK: usize = 8;
+const SFTP_TRANSFER_EVENT: &str = "sftp-transfer";
+const SFTP_TRANSFER_CHUNK_BYTES: usize = 64 * 1024;
 
 /// Creates a shell session and starts a long-lived PTY worker for interactive terminal IO.
 pub fn open_shell_session(
@@ -252,6 +255,153 @@ pub fn sftp_upload_file(state: &AppState, input: SftpUploadInput) -> AppResult<(
     Ok(())
 }
 
+/// Uploads base64 payload and emits chunk-level progress events.
+pub fn sftp_upload_file_with_progress(
+    state: &AppState,
+    app: &AppHandle,
+    input: SftpUploadWithProgressInput,
+) -> AppResult<SftpTransferResult> {
+    let _transfer_guard = SftpTransferGuard::new(state, &input.transfer_id);
+    let session = state.get_session(&input.session_id)?;
+    let config = state.storage.find_ssh_config(&session.config_id)?;
+    let ssh = connect(&config)?;
+    let sftp = ssh.sftp()?;
+    let remote_path = normalize_remote_path(&input.remote_path);
+    let file_name = input
+        .local_name
+        .unwrap_or_else(|| extract_remote_file_name(&remote_path));
+    let local_path = file_name.clone();
+    let bytes = BASE64_STANDARD.decode(input.content_base64.as_bytes())?;
+    let total_bytes = bytes.len() as u64;
+    let mut transferred_bytes = 0_u64;
+
+    emit_sftp_transfer_event(
+        app,
+        SftpTransferEvent {
+            transfer_id: input.transfer_id.clone(),
+            session_id: input.session_id.clone(),
+            direction: "upload".to_string(),
+            stage: "started".to_string(),
+            remote_path: remote_path.clone(),
+            local_path: Some(local_path.clone()),
+            file_name: file_name.clone(),
+            transferred_bytes,
+            total_bytes: Some(total_bytes),
+            percent: 0.0,
+            message: None,
+        },
+    );
+
+    let mut remote_file = match sftp.create(Path::new(&remote_path)) {
+        Ok(file) => file,
+        Err(error) => {
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "upload".to_string(),
+                    stage: "failed".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path),
+                    file_name,
+                    transferred_bytes,
+                    total_bytes: Some(total_bytes),
+                    percent: 0.0,
+                    message: Some(error.to_string()),
+                },
+            );
+            return Err(AppError::Ssh(error));
+        }
+    };
+
+    for chunk in bytes.chunks(SFTP_TRANSFER_CHUNK_BYTES) {
+        if state.is_sftp_transfer_cancelled(&input.transfer_id) {
+            let _ = sftp.unlink(Path::new(&remote_path));
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "upload".to_string(),
+                    stage: "cancelled".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path.clone()),
+                    file_name: file_name.clone(),
+                    transferred_bytes,
+                    total_bytes: Some(total_bytes),
+                    percent: compute_transfer_percent(transferred_bytes, Some(total_bytes)),
+                    message: Some("Transfer cancelled by user".to_string()),
+                },
+            );
+            return Err(AppError::Runtime("transfer cancelled by user".to_string()));
+        }
+
+        if let Err(error) = remote_file.write_all(chunk) {
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "upload".to_string(),
+                    stage: "failed".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path.clone()),
+                    file_name: file_name.clone(),
+                    transferred_bytes,
+                    total_bytes: Some(total_bytes),
+                    percent: compute_transfer_percent(transferred_bytes, Some(total_bytes)),
+                    message: Some(error.to_string()),
+                },
+            );
+            return Err(AppError::Io(error));
+        }
+        transferred_bytes += chunk.len() as u64;
+        emit_sftp_transfer_event(
+            app,
+            SftpTransferEvent {
+                transfer_id: input.transfer_id.clone(),
+                session_id: input.session_id.clone(),
+                direction: "upload".to_string(),
+                stage: "progress".to_string(),
+                remote_path: remote_path.clone(),
+                local_path: Some(local_path.clone()),
+                file_name: file_name.clone(),
+                transferred_bytes,
+                total_bytes: Some(total_bytes),
+                percent: compute_transfer_percent(transferred_bytes, Some(total_bytes)),
+                message: None,
+            },
+        );
+    }
+
+    emit_sftp_transfer_event(
+        app,
+        SftpTransferEvent {
+            transfer_id: input.transfer_id.clone(),
+            session_id: input.session_id.clone(),
+            direction: "upload".to_string(),
+            stage: "completed".to_string(),
+            remote_path: remote_path.clone(),
+            local_path: Some(local_path.clone()),
+            file_name: file_name.clone(),
+            transferred_bytes: total_bytes,
+            total_bytes: Some(total_bytes),
+            percent: 100.0,
+            message: None,
+        },
+    );
+
+    Ok(SftpTransferResult {
+        transfer_id: input.transfer_id,
+        direction: "upload".to_string(),
+        remote_path,
+        local_path,
+        file_name,
+        size: total_bytes,
+    })
+}
+
 /// Downloads remote file and returns base64-encoded bytes for frontend save flow.
 pub fn sftp_download_file(
     state: &AppState,
@@ -278,6 +428,216 @@ pub fn sftp_download_file(
         content_base64: BASE64_STANDARD.encode(&bytes),
         size: bytes.len(),
     })
+}
+
+/// Downloads a remote file to a configured local directory and emits progress events.
+pub fn sftp_download_file_to_local(
+    state: &AppState,
+    app: &AppHandle,
+    input: SftpDownloadToLocalInput,
+) -> AppResult<SftpTransferResult> {
+    let _transfer_guard = SftpTransferGuard::new(state, &input.transfer_id);
+    let session = state.get_session(&input.session_id)?;
+    let config = state.storage.find_ssh_config(&session.config_id)?;
+    let ssh = connect(&config)?;
+    let sftp = ssh.sftp()?;
+    let remote_path = normalize_remote_path(&input.remote_path);
+    let file_name = extract_remote_file_name(&remote_path);
+    let local_dir = normalize_local_dir(&input.local_dir)?;
+    std::fs::create_dir_all(&local_dir)?;
+    let local_path_buf = local_dir.join(&file_name);
+    let local_path = local_path_buf.to_string_lossy().to_string();
+
+    let mut remote_file = match sftp.open(Path::new(&remote_path)) {
+        Ok(file) => file,
+        Err(error) => {
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "download".to_string(),
+                    stage: "failed".to_string(),
+                    remote_path,
+                    local_path: Some(local_path),
+                    file_name,
+                    transferred_bytes: 0,
+                    total_bytes: None,
+                    percent: 0.0,
+                    message: Some(error.to_string()),
+                },
+            );
+            return Err(AppError::Ssh(error));
+        }
+    };
+
+    let total_bytes = sftp.stat(Path::new(&remote_path)).ok().and_then(|stat| stat.size);
+    let mut local_file = match File::create(&local_path_buf) {
+        Ok(file) => file,
+        Err(error) => {
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "download".to_string(),
+                    stage: "failed".to_string(),
+                    remote_path,
+                    local_path: Some(local_path),
+                    file_name,
+                    transferred_bytes: 0,
+                    total_bytes,
+                    percent: 0.0,
+                    message: Some(error.to_string()),
+                },
+            );
+            return Err(AppError::Io(error));
+        }
+    };
+
+    let mut transferred_bytes = 0_u64;
+    emit_sftp_transfer_event(
+        app,
+        SftpTransferEvent {
+            transfer_id: input.transfer_id.clone(),
+            session_id: input.session_id.clone(),
+            direction: "download".to_string(),
+            stage: "started".to_string(),
+            remote_path: remote_path.clone(),
+            local_path: Some(local_path.clone()),
+            file_name: file_name.clone(),
+            transferred_bytes,
+            total_bytes,
+            percent: 0.0,
+            message: None,
+        },
+    );
+
+    let mut buffer = vec![0_u8; SFTP_TRANSFER_CHUNK_BYTES];
+    loop {
+        if state.is_sftp_transfer_cancelled(&input.transfer_id) {
+            let _ = std::fs::remove_file(&local_path_buf);
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "download".to_string(),
+                    stage: "cancelled".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path.clone()),
+                    file_name: file_name.clone(),
+                    transferred_bytes,
+                    total_bytes,
+                    percent: compute_transfer_percent(transferred_bytes, total_bytes),
+                    message: Some("Transfer cancelled by user".to_string()),
+                },
+            );
+            return Err(AppError::Runtime("transfer cancelled by user".to_string()));
+        }
+
+        let read_size = match remote_file.read(&mut buffer) {
+            Ok(size) => size,
+            Err(error) => {
+                emit_sftp_transfer_event(
+                    app,
+                    SftpTransferEvent {
+                        transfer_id: input.transfer_id.clone(),
+                        session_id: input.session_id.clone(),
+                        direction: "download".to_string(),
+                        stage: "failed".to_string(),
+                        remote_path: remote_path.clone(),
+                        local_path: Some(local_path.clone()),
+                        file_name: file_name.clone(),
+                        transferred_bytes,
+                        total_bytes,
+                        percent: compute_transfer_percent(transferred_bytes, total_bytes),
+                        message: Some(error.to_string()),
+                    },
+                );
+                return Err(AppError::Io(error));
+            }
+        };
+
+        if read_size == 0 {
+            break;
+        }
+
+        if let Err(error) = local_file.write_all(&buffer[..read_size]) {
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "download".to_string(),
+                    stage: "failed".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path.clone()),
+                    file_name: file_name.clone(),
+                    transferred_bytes,
+                    total_bytes,
+                    percent: compute_transfer_percent(transferred_bytes, total_bytes),
+                    message: Some(error.to_string()),
+                },
+            );
+            return Err(AppError::Io(error));
+        }
+
+        transferred_bytes += read_size as u64;
+        emit_sftp_transfer_event(
+            app,
+            SftpTransferEvent {
+                transfer_id: input.transfer_id.clone(),
+                session_id: input.session_id.clone(),
+                direction: "download".to_string(),
+                stage: "progress".to_string(),
+                remote_path: remote_path.clone(),
+                local_path: Some(local_path.clone()),
+                file_name: file_name.clone(),
+                transferred_bytes,
+                total_bytes,
+                percent: compute_transfer_percent(transferred_bytes, total_bytes),
+                message: None,
+            },
+        );
+    }
+
+    let final_size = total_bytes.unwrap_or(transferred_bytes);
+    emit_sftp_transfer_event(
+        app,
+        SftpTransferEvent {
+            transfer_id: input.transfer_id.clone(),
+            session_id: input.session_id.clone(),
+            direction: "download".to_string(),
+            stage: "completed".to_string(),
+            remote_path: remote_path.clone(),
+            local_path: Some(local_path.clone()),
+            file_name: file_name.clone(),
+            transferred_bytes: final_size,
+            total_bytes: Some(final_size),
+            percent: 100.0,
+            message: None,
+        },
+    );
+
+    Ok(SftpTransferResult {
+        transfer_id: input.transfer_id,
+        direction: "download".to_string(),
+        remote_path,
+        local_path,
+        file_name,
+        size: final_size,
+    })
+}
+
+/// Returns a sensible default local download directory for current OS.
+pub fn default_download_dir() -> String {
+    resolve_default_download_dir().to_string_lossy().to_string()
+}
+
+/// Requests cancellation for a running SFTP transfer.
+pub fn sftp_cancel_transfer(state: &AppState, transfer_id: &str) -> bool {
+    state.cancel_sftp_transfer(transfer_id)
 }
 
 /// Collects server runtime metrics and updates session-bound cache.
@@ -335,6 +695,73 @@ pub fn get_cached_server_status(
     session_id: &str,
 ) -> Option<crate::models::ServerStatus> {
     state.get_cached_status(session_id)
+}
+
+struct SftpTransferGuard<'a> {
+    state: &'a AppState,
+    transfer_id: String,
+}
+
+impl<'a> SftpTransferGuard<'a> {
+    fn new(state: &'a AppState, transfer_id: &str) -> Self {
+        state.begin_sftp_transfer(transfer_id);
+        Self {
+            state,
+            transfer_id: transfer_id.to_string(),
+        }
+    }
+}
+
+impl Drop for SftpTransferGuard<'_> {
+    fn drop(&mut self) {
+        self.state.clear_sftp_transfer(&self.transfer_id);
+    }
+}
+
+fn emit_sftp_transfer_event(app: &AppHandle, event: SftpTransferEvent) {
+    let _ = app.emit(SFTP_TRANSFER_EVENT, event);
+}
+
+fn compute_transfer_percent(transferred_bytes: u64, total_bytes: Option<u64>) -> f64 {
+    match total_bytes {
+        Some(0) | None => 0.0,
+        Some(total) => {
+            let ratio = (transferred_bytes as f64 / total as f64) * 100.0;
+            ratio.clamp(0.0, 100.0)
+        }
+    }
+}
+
+fn extract_remote_file_name(remote_path: &str) -> String {
+    remote_path
+        .rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "download.bin".to_string())
+}
+
+fn normalize_local_dir(value: &str) -> AppResult<PathBuf> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::Validation(
+            "download directory cannot be empty".to_string(),
+        ));
+    }
+    Ok(PathBuf::from(trimmed))
+}
+
+fn resolve_default_download_dir() -> PathBuf {
+    if cfg!(target_os = "windows") {
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            return PathBuf::from(user_profile).join("Downloads");
+        }
+    } else if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home).join("Downloads");
+    }
+
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("downloads")
 }
 
 fn pick_selected_interface(

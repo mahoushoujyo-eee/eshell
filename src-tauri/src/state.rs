@@ -31,6 +31,7 @@ pub struct AppState {
     sessions: RwLock<HashMap<String, ShellSession>>,
     status_cache: RwLock<HashMap<String, ServerStatus>>,
     pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>,
+    sftp_transfer_cancellations: RwLock<HashMap<String, bool>>,
 }
 
 impl AppState {
@@ -52,6 +53,7 @@ impl AppState {
             sessions: RwLock::new(HashMap::new()),
             status_cache: RwLock::new(HashMap::new()),
             pty_channels: RwLock::new(HashMap::new()),
+            sftp_transfer_cancellations: RwLock::new(HashMap::new()),
         })
     }
 
@@ -168,5 +170,43 @@ impl AppState {
             .write()
             .expect("status cache lock poisoned")
             .insert(session_id.to_string(), status);
+    }
+
+    /// Marks one transfer as active unless it was already pre-cancelled.
+    pub fn begin_sftp_transfer(&self, transfer_id: &str) {
+        self.sftp_transfer_cancellations
+            .write()
+            .expect("sftp cancellation lock poisoned")
+            .entry(transfer_id.to_string())
+            .or_insert(false);
+    }
+
+    /// Requests cancellation for a transfer.
+    pub fn cancel_sftp_transfer(&self, transfer_id: &str) -> bool {
+        let mut guard = self
+            .sftp_transfer_cancellations
+            .write()
+            .expect("sftp cancellation lock poisoned");
+        let existed = guard.contains_key(transfer_id);
+        guard.insert(transfer_id.to_string(), true);
+        existed
+    }
+
+    /// Checks whether transfer is cancelled.
+    pub fn is_sftp_transfer_cancelled(&self, transfer_id: &str) -> bool {
+        self.sftp_transfer_cancellations
+            .read()
+            .expect("sftp cancellation lock poisoned")
+            .get(transfer_id)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// Clears one transfer cancellation marker.
+    pub fn clear_sftp_transfer(&self, transfer_id: &str) {
+        self.sftp_transfer_cancellations
+            .write()
+            .expect("sftp cancellation lock poisoned")
+            .remove(transfer_id);
     }
 }

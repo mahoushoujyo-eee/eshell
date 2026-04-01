@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  ArrowDownToLine,
+  ArrowUpToLine,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Download,
+  FolderCog,
   File,
   FileQuestion,
   Folder,
@@ -10,7 +14,9 @@ import {
   Link2,
   Loader2,
   RefreshCw,
+  TriangleAlert,
   Upload,
+  X,
 } from "lucide-react";
 import SplitPane from "../SplitPane";
 import { normalizeRemotePath } from "../../utils/path";
@@ -22,6 +28,10 @@ export default function SftpPanel({
   refreshSftp,
   uploadFile,
   downloadFile,
+  cancelTransfer,
+  downloadDirectory,
+  onDownloadDirectoryChange,
+  transfers,
   selectedEntry,
   sftpEntries,
   openEntry,
@@ -32,6 +42,7 @@ export default function SftpPanel({
   const [expandedPaths, setExpandedPaths] = useState({ "/": true });
   const [loadingPaths, setLoadingPaths] = useState({});
   const [selectedTreePath, setSelectedTreePath] = useState("/");
+  const [showTransferPanel, setShowTransferPanel] = useState(false);
 
   const getDirectoryNodes = useCallback((entries) => {
     const deduped = new Map();
@@ -133,6 +144,82 @@ export default function SftpPanel({
     }
   };
 
+  const transferRows = Array.isArray(transfers) ? transfers.slice(0, 8) : [];
+  const activeTransferCount = transferRows.filter((item) =>
+    item && ["queued", "started", "progress"].includes(item.stage),
+  ).length;
+
+  const transferStageLabel = (stage) => {
+    switch (stage) {
+      case "queued":
+        return "Queued";
+      case "started":
+      case "progress":
+        return "Transferring";
+      case "completed":
+        return "Completed";
+      case "cancelled":
+        return "Cancelled";
+      case "failed":
+        return "Failed";
+      default:
+        return "Pending";
+    }
+  };
+
+  const transferStageColor = (stage) => {
+    switch (stage) {
+      case "completed":
+        return "text-success";
+      case "cancelled":
+        return "text-warning";
+      case "failed":
+        return "text-danger";
+      case "queued":
+        return "text-warning";
+      default:
+        return "text-accent";
+    }
+  };
+
+  const transferDirectionLabel = (direction) =>
+    direction === "upload" ? "Upload" : "Download";
+
+  const configureDownloadDirectory = () => {
+    if (typeof onDownloadDirectoryChange !== "function") {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const current = typeof downloadDirectory === "string" ? downloadDirectory : "";
+    const next = window.prompt("Set local download directory", current);
+    if (next === null) {
+      return;
+    }
+    onDownloadDirectoryChange(next);
+  };
+
+  const renderTransferIcon = (transfer) => {
+    if (transfer.stage === "completed") {
+      return <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />;
+    }
+    if (transfer.stage === "cancelled") {
+      return <X className="h-3.5 w-3.5 text-warning" aria-hidden="true" />;
+    }
+    if (transfer.stage === "failed") {
+      return <TriangleAlert className="h-3.5 w-3.5 text-danger" aria-hidden="true" />;
+    }
+    if (transfer.stage === "queued") {
+      return <Loader2 className="h-3.5 w-3.5 animate-spin text-warning" aria-hidden="true" />;
+    }
+    if (transfer.direction === "upload") {
+      return <ArrowUpToLine className="h-3.5 w-3.5 text-accent" aria-hidden="true" />;
+    }
+    return <ArrowDownToLine className="h-3.5 w-3.5 text-accent" aria-hidden="true" />;
+  };
+
   const toggleNode = async (nodePath) => {
     const normalized = normalizeRemotePath(nodePath);
     const expanded = Boolean(expandedPaths[normalized]);
@@ -225,7 +312,7 @@ export default function SftpPanel({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-panel">
+    <div className="relative flex h-full min-h-0 flex-col bg-panel">
       <div className="flex items-center justify-between border-b border-border px-2 py-2">
         <div className="inline-flex items-center gap-2 text-sm font-semibold">
           <FolderOpen className="h-4 w-4 text-accent" aria-hidden="true" />
@@ -243,6 +330,17 @@ export default function SftpPanel({
             Refresh
           </button>
 
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
+            onClick={configureDownloadDirectory}
+            disabled={!activeSessionId}
+            title={downloadDirectory || "Set local download folder"}
+          >
+            <FolderCog className="h-3.5 w-3.5" aria-hidden="true" />
+            Path
+          </button>
+
           <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft">
             <Upload className="h-3.5 w-3.5" aria-hidden="true" />
             Upload
@@ -257,6 +355,24 @@ export default function SftpPanel({
           >
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
             Download
+          </button>
+
+          <button
+            type="button"
+            className={[
+              "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors",
+              showTransferPanel ? "bg-accent-soft" : "hover:bg-accent-soft",
+            ].join(" ")}
+            onClick={() => setShowTransferPanel((prev) => !prev)}
+            title="Toggle transfer queue"
+          >
+            <ArrowUpToLine className="h-3.5 w-3.5" aria-hidden="true" />
+            Transfers
+            {activeTransferCount > 0 ? (
+              <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                {activeTransferCount}
+              </span>
+            ) : null}
           </button>
         </div>
       </div>
@@ -352,6 +468,108 @@ export default function SftpPanel({
           }
         />
       </div>
+
+      {showTransferPanel ? (
+        <section className="absolute right-2 top-[3rem] z-20 w-[360px] max-w-[calc(100%-1rem)] rounded-lg border border-border bg-panel/95 p-2 shadow-xl backdrop-blur-sm">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="inline-flex items-center gap-1.5 text-xs font-semibold">
+              <ArrowDownToLine className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+              Transfer Queue
+            </div>
+            <button
+              type="button"
+              className="rounded-md border border-border px-2 py-0.5 text-[10px] transition-colors hover:bg-accent-soft"
+              onClick={() => setShowTransferPanel(false)}
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mb-2 rounded-md border border-border/70 bg-surface/50 px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="truncate text-[10px] text-muted">
+                Download Dir: {downloadDirectory || "(not set)"}
+              </div>
+              <button
+                type="button"
+                className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] transition-colors hover:bg-accent-soft"
+                onClick={configureDownloadDirectory}
+              >
+                Change
+              </button>
+            </div>
+          </div>
+
+          <div className="max-h-72 overflow-auto pr-0.5">
+            {transferRows.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border/70 bg-surface/40 px-2 py-2 text-[11px] text-muted">
+                No transfer tasks yet.
+              </div>
+            ) : (
+              transferRows.map((transfer) => (
+                <div
+                  key={transfer.transferId}
+                  className="mb-1.5 rounded-md border border-border/70 bg-panel/80 px-2 py-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      {renderTransferIcon(transfer)}
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-medium">{transfer.fileName}</div>
+                        <div className="truncate text-[10px] text-muted">
+                          {transferDirectionLabel(transfer.direction)}: {transfer.remotePath}
+                        </div>
+                      </div>
+                    </div>
+                    <span className={`text-[10px] font-medium ${transferStageColor(transfer.stage)}`}>
+                      {transferStageLabel(transfer.stage)}
+                    </span>
+                  </div>
+
+                  {["queued", "started", "progress"].includes(transfer.stage) ? (
+                    <div className="mt-1 flex justify-end">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] transition-colors hover:bg-accent-soft"
+                        onClick={() => cancelTransfer?.(transfer.transferId)}
+                      >
+                        <X className="h-3 w-3" aria-hidden="true" />
+                        Cancel
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-1.5">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-border/60">
+                      <div
+                        className={`h-full transition-all ${
+                          transfer.stage === "failed" ? "bg-danger" : "bg-accent"
+                        }`}
+                        style={{ width: `${Math.max(0, Math.min(100, transfer.percent || 0))}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-[10px] text-muted">
+                      <span>
+                        {formatBytes(transfer.transferredBytes || 0)}
+                        {transfer.totalBytes ? ` / ${formatBytes(transfer.totalBytes)}` : ""}
+                      </span>
+                      <span>{Math.round(transfer.percent || 0)}%</span>
+                    </div>
+                    {transfer.localPath ? (
+                      <div className="mt-1 truncate text-[10px] text-muted">
+                        Local: {transfer.localPath}
+                      </div>
+                    ) : null}
+                    {transfer.message ? (
+                      <div className="mt-1 truncate text-[10px] text-danger">{transfer.message}</div>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

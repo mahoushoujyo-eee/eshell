@@ -1,9 +1,12 @@
 use super::*;
 
 use std::env;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::models::{AiConfigInput, AiProfileInput, ScriptInput, SshConfigInput};
+use crate::models::{
+    AiConfigInput, AiProfile, AiProfileInput, AiProfilesState, ScriptInput, SshConfigInput,
+};
 
 fn temp_dir(name: &str) -> PathBuf {
     let stamp = SystemTime::now()
@@ -11,6 +14,59 @@ fn temp_dir(name: &str) -> PathBuf {
         .expect("clock drift")
         .as_nanos();
     env::temp_dir().join(format!("eshell-{name}-{stamp}"))
+}
+
+fn is_usable_profile(profile: &AiProfile) -> bool {
+    !profile.base_url.trim().is_empty()
+        && !profile.api_key.trim().is_empty()
+        && !profile.model.trim().is_empty()
+        && (0.0..=2.0).contains(&profile.temperature)
+        && profile.max_tokens > 0
+}
+
+fn eshell_ai_profiles_path() -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let candidates = vec![
+        manifest_dir.join(".eshell-data").join("ai_profiles.json"),
+        PathBuf::from(".eshell-data").join("ai_profiles.json"),
+        PathBuf::from("src-tauri")
+            .join(".eshell-data")
+            .join("ai_profiles.json"),
+    ];
+    candidates
+        .into_iter()
+        .find(|path| path.exists())
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join(".eshell-data")
+                .join("ai_profiles.json")
+        })
+}
+
+fn first_usable_profile_from_eshell_data() -> AiProfile {
+    let path = eshell_ai_profiles_path();
+    let raw = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+        panic!(
+            "read {} failed: {error}",
+            path.as_path().display()
+        )
+    });
+    let state: AiProfilesState = serde_json::from_str(&raw).unwrap_or_else(|error| {
+        panic!(
+            "parse {} failed: {error}",
+            path.as_path().display()
+        )
+    });
+    state
+        .profiles
+        .into_iter()
+        .find(is_usable_profile)
+        .unwrap_or_else(|| {
+            panic!(
+                "no usable ai profile found in {}",
+                path.as_path().display()
+            )
+        })
 }
 
 #[test]
@@ -81,17 +137,18 @@ fn script_crud_works() {
 
 #[test]
 fn ai_profile_crud_works() {
+    let profile_seed = first_usable_profile_from_eshell_data();
     let storage = Storage::new(temp_dir("ai-profile")).expect("create storage");
     let created_state = storage
         .save_ai_profile(AiProfileInput {
             id: None,
-            name: "ModelScope".to_string(),
-            base_url: "https://api-inference.modelscope.cn/v1".to_string(),
-            api_key: "key".to_string(),
-            model: "moonshotai/Kimi-K2.5".to_string(),
-            system_prompt: "assistant".to_string(),
-            temperature: 0.2,
-            max_tokens: 800,
+            name: "SeedProfile".to_string(),
+            base_url: profile_seed.base_url.clone(),
+            api_key: profile_seed.api_key.clone(),
+            model: profile_seed.model.clone(),
+            system_prompt: profile_seed.system_prompt.clone(),
+            temperature: profile_seed.temperature,
+            max_tokens: profile_seed.max_tokens,
         })
         .expect("save profile");
 
@@ -99,7 +156,7 @@ fn ai_profile_crud_works() {
     let profile_id = created_state
         .profiles
         .iter()
-        .find(|item| item.name == "ModelScope")
+        .find(|item| item.name == "SeedProfile")
         .expect("profile")
         .id
         .clone();
@@ -111,7 +168,7 @@ fn ai_profile_crud_works() {
         switched.active_profile_id.as_deref(),
         Some(profile_id.as_str())
     );
-    assert_eq!(storage.get_ai_config().model, "moonshotai/Kimi-K2.5");
+    assert_eq!(storage.get_ai_config().model, profile_seed.model);
 
     let deleted = storage
         .delete_ai_profile(&profile_id)
@@ -121,15 +178,17 @@ fn ai_profile_crud_works() {
 
 #[test]
 fn save_ai_config_updates_active_profile() {
+    let profile_seed = first_usable_profile_from_eshell_data();
+    let expected_base_url = profile_seed.base_url.trim_end_matches('/').to_string();
     let storage = Storage::new(temp_dir("ai-config")).expect("create storage");
     let updated = storage
         .save_ai_config(AiConfigInput {
-            base_url: "https://api.openai.com/v1/".to_string(),
-            api_key: "key".to_string(),
-            model: "gpt-4o-mini".to_string(),
-            system_prompt: "assistant".to_string(),
-            temperature: 0.4,
-            max_tokens: 512,
+            base_url: format!("{expected_base_url}/"),
+            api_key: profile_seed.api_key.clone(),
+            model: profile_seed.model.clone(),
+            system_prompt: profile_seed.system_prompt.clone(),
+            temperature: profile_seed.temperature,
+            max_tokens: profile_seed.max_tokens,
         })
         .expect("save config");
 
@@ -138,13 +197,23 @@ fn save_ai_config_updates_active_profile() {
         .active_profile_id
         .and_then(|id| state.profiles.into_iter().find(|item| item.id == id))
         .expect("active profile");
-    assert_eq!(updated.base_url, "https://api.openai.com/v1");
-    assert_eq!(active.model, "gpt-4o-mini");
+    assert_eq!(updated.base_url, expected_base_url);
+    assert_eq!(active.model, profile_seed.model);
+    assert_eq!(active.api_key, profile_seed.api_key);
 }
 
 #[test]
 fn get_ai_config_prefers_requested_active_profile() {
-    const REQUESTED_PROFILE_ID: &str = "cb722d99-ae20-4761-93ab-aa76c4c05c39";
+    let profile_seed = first_usable_profile_from_eshell_data();
+    const REQUESTED_PROFILE_ID: &str = "requested-profile";
+    let expected_base_url = profile_seed.base_url.trim_end_matches('/').to_string();
+    let requested_name = profile_seed.name.clone();
+    let requested_base_url = profile_seed.base_url.clone();
+    let requested_api_key = profile_seed.api_key.clone();
+    let requested_model = profile_seed.model.clone();
+    let requested_system_prompt = profile_seed.system_prompt.clone();
+    let requested_temperature = profile_seed.temperature;
+    let requested_max_tokens = profile_seed.max_tokens;
 
     let root = temp_dir("ai-profile-priority");
     std::fs::create_dir_all(&root).expect("create temp root");
@@ -154,9 +223,9 @@ fn get_ai_config_prefers_requested_active_profile() {
             {
                 "id": "backup-profile",
                 "name": "Backup",
-                "baseUrl": "https://api.openai.com/v1",
-                "apiKey": "backup-key",
-                "model": "gpt-4o-mini",
+                "baseUrl": format!("{expected_base_url}/backup"),
+                "apiKey": format!("{}-backup", requested_api_key.as_str()),
+                "model": format!("{}-backup", requested_model.as_str()),
                 "systemPrompt": "backup prompt",
                 "temperature": 0.7,
                 "maxTokens": 1024,
@@ -165,13 +234,13 @@ fn get_ai_config_prefers_requested_active_profile() {
             },
             {
                 "id": REQUESTED_PROFILE_ID,
-                "name": "Default",
-                "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
-                "apiKey": "ark-test-key",
-                "model": "doubao-seed-2-0-lite-260215",
-                "systemPrompt": "You are a Linux operations assistant. Return concise answers and include safe shell commands when needed.",
-                "temperature": 0.2,
-                "maxTokens": 100000,
+                "name": requested_name,
+                "baseUrl": requested_base_url,
+                "apiKey": requested_api_key,
+                "model": requested_model,
+                "systemPrompt": requested_system_prompt,
+                "temperature": requested_temperature,
+                "maxTokens": requested_max_tokens,
                 "createdAt": "2026-03-20T09:46:30.522552100+00:00",
                 "updatedAt": "2026-03-20T09:46:30.522552100+00:00"
             }
@@ -193,9 +262,9 @@ fn get_ai_config_prefers_requested_active_profile() {
     );
 
     let config = storage.get_ai_config();
-    assert_eq!(config.base_url, "https://ark.cn-beijing.volces.com/api/v3");
-    assert_eq!(config.model, "doubao-seed-2-0-lite-260215");
-    assert_eq!(config.max_tokens, 100000);
-    assert_eq!(config.temperature, 0.2);
-    assert!(config.system_prompt.contains("Linux operations assistant"));
+    assert_eq!(config.base_url, expected_base_url);
+    assert_eq!(config.model, profile_seed.model);
+    assert_eq!(config.max_tokens, profile_seed.max_tokens);
+    assert_eq!(config.temperature, profile_seed.temperature);
+    assert_eq!(config.system_prompt, profile_seed.system_prompt);
 }

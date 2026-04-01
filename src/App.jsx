@@ -80,6 +80,8 @@ function App() {
     activeSession,
     commandInput,
     setCommandInput,
+    downloadDirectory,
+    sftpTransfers,
     currentPtyOutput,
     currentPath,
     currentStatus,
@@ -111,6 +113,7 @@ function App() {
     resizePty,
     uploadFile,
     downloadFile,
+    cancelSftpTransfer,
     saveScript,
     runScript,
     saveAiProfile,
@@ -131,6 +134,7 @@ function App() {
     handleDeleteScript,
     handleNicChange,
     handleOpenFileContentChange,
+    handleDownloadDirectoryChange,
     formatBytes,
   } = useWorkbench();
 
@@ -213,6 +217,10 @@ function App() {
       refreshSftp={refreshSftp}
       uploadFile={uploadFile}
       downloadFile={downloadFile}
+      cancelTransfer={cancelSftpTransfer}
+      downloadDirectory={downloadDirectory}
+      onDownloadDirectoryChange={handleDownloadDirectoryChange}
+      transfers={sftpTransfers}
       selectedEntry={selectedEntry}
       sftpEntries={sftpEntries}
       openEntry={openEntry}
@@ -300,17 +308,18 @@ function App() {
     bottomPanelsContent = rightPanelsContent;
   }
 
-  const mainWorkspaceContent = bottomPanelsContent ? (
+  const hasBottomPanels = Boolean(bottomPanelsContent);
+  const mainWorkspaceContent = (
     <SplitPane
       direction="vertical"
       initialRatio={0.5}
       minPrimarySize={290}
       minSecondarySize={280}
+      collapseSecondary={!hasBottomPanels}
+      collapsedSecondarySize={0}
       primary={terminalPanel}
       secondary={<section className="h-full">{bottomPanelsContent}</section>}
     />
-  ) : (
-    <section className="h-full">{terminalPanel}</section>
   );
 
   return (

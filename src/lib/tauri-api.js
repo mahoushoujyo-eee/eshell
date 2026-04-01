@@ -27,8 +27,25 @@ export const api = {
     invoke("sftp_upload_file", {
       input: { sessionId, remotePath, contentBase64 },
     }),
+  sftpUploadFileWithProgress: (
+    sessionId,
+    remotePath,
+    contentBase64,
+    transferId,
+    localName = null,
+  ) =>
+    invoke("sftp_upload_file_with_progress", {
+      input: { sessionId, remotePath, contentBase64, transferId, localName },
+    }),
   sftpDownloadFile: (sessionId, remotePath) =>
     invoke("sftp_download_file", { input: { sessionId, remotePath } }),
+  sftpDownloadFileToLocal: (sessionId, remotePath, localDir, transferId) =>
+    invoke("sftp_download_file_to_local", {
+      input: { sessionId, remotePath, localDir, transferId },
+    }),
+  sftpDefaultDownloadDir: () => invoke("sftp_default_download_dir"),
+  sftpCancelTransfer: (transferId) =>
+    invoke("sftp_cancel_transfer", { input: { transferId } }),
 
   fetchServerStatus: (sessionId, selectedInterface) =>
     invoke("fetch_server_status", {
