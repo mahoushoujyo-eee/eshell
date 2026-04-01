@@ -118,6 +118,15 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
         return;
       }
 
+      const targetElement = event.target instanceof Element ? event.target : null;
+      if (
+        targetElement?.closest(
+          "button, a, input, textarea, select, [role='button'], [data-window-control], [data-tauri-no-drag]",
+        )
+      ) {
+        return;
+      }
+
       if (event.detail === 2) {
         void handleToggleMaximize();
         return;
@@ -130,12 +139,16 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
 
     titleBarElement.addEventListener("mousedown", handleMouseDown);
     return () => titleBarElement.removeEventListener("mousedown", handleMouseDown);
-  }, [appWindow]);
+  }, [appWindow, handleToggleMaximize]);
 
   return (
-    <header className="flex h-9 shrink-0 items-center border-b border-border bg-surface/95 px-2">
+    <header
+      ref={titleBarRef}
+      data-tauri-drag-region
+      className="relative flex h-9 shrink-0 items-center border-b border-border bg-surface/95 px-2"
+    >
+      <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-1 z-20" />
       <div
-        ref={titleBarRef}
         data-tauri-drag-region
         className="flex min-w-0 flex-1 items-center gap-2 px-1 text-sm text-muted select-none"
       >
@@ -147,11 +160,11 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
         </span>
       </div>
 
-      <div className="ml-3 flex items-center gap-2">
+      <div data-window-control className="ml-3 flex items-center gap-2">
         <AiEntryButton active={showAiPanel} busy={isAiStreaming} onClick={onToggleAiPanel} />
       </div>
 
-      <div className="ml-2 flex items-center gap-1">
+      <div data-window-control className="ml-2 flex items-center gap-1">
         <WindowControlButton
           title="Minimize"
           onClick={() => safeWindowAction(() => appWindow.minimize(), "minimize")}

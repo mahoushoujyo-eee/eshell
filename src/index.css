@@ -71,6 +71,18 @@ body {
   box-sizing: border-box;
 }
 
+[data-tauri-drag-region] {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+[data-window-control],
+[data-window-control] *,
+[data-tauri-no-drag] {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
