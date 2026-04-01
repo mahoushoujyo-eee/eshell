@@ -1,24 +1,33 @@
 openapi: 3.0.3
 info:
   title: eShell Tauri RPC API
-  version: 0.1.0
+  version: 0.2.0
   description: |
-    前端通过 Tauri `invoke` 调用后端命令。为满足接口文档要求，本文档将命令映射为 RPC 风格 HTTP 路径。
+    OpenAPI-style docs for Tauri invoke commands.
+    These are logical RPC mappings for desktop integration, not public HTTP routes.
 servers:
   - url: tauri://localhost
 tags:
   - name: ssh
   - name: shell
+  - name: pty
   - name: sftp
   - name: status
   - name: scripts
   - name: ai
   - name: ops-agent
+x-tauri-events:
+  pty-output:
+    payloadSchema: { $ref: "#/components/schemas/PtyOutputEvent" }
+  sftp-transfer:
+    payloadSchema: { $ref: "#/components/schemas/SftpTransferEvent" }
+  ops-agent-stream:
+    payloadSchema: { $ref: "#/components/schemas/OpsAgentStreamEvent" }
 paths:
   /rpc/list_ssh_configs:
     post:
       tags: [ssh]
-      summary: 列出 SSH 配置
+      summary: List SSH configs
       responses:
         "200":
           description: OK
@@ -26,50 +35,38 @@ paths:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/SshConfig"
+                items: { $ref: "#/components/schemas/SshConfig" }
   /rpc/save_ssh_config:
     post:
       tags: [ssh]
-      summary: 新增或更新 SSH 配置
+      summary: Create or update SSH config
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/SshConfigInput"
+            schema: { $ref: "#/components/schemas/SshConfigRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/SshConfig"
+              schema: { $ref: "#/components/schemas/SshConfig" }
   /rpc/delete_ssh_config:
     post:
       tags: [ssh]
-      summary: 删除 SSH 配置
+      summary: Delete SSH config
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [id]
-              properties:
-                id:
-                  type: string
+            schema: { $ref: "#/components/schemas/IdRequest" }
       responses:
-        "200":
-          description: OK
+        "200": { description: OK (null) }
 
   /rpc/list_shell_sessions:
     post:
       tags: [shell]
-      summary: 列出当前 Shell 会话
+      summary: List active shell sessions
       responses:
         "200":
           description: OK
@@ -77,212 +74,232 @@ paths:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/ShellSession"
+                items: { $ref: "#/components/schemas/ShellSession" }
   /rpc/open_shell_session:
     post:
       tags: [shell]
-      summary: 打开新会话
+      summary: Open shell session
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  type: object
-                  required: [configId]
-                  properties:
-                    configId:
-                      type: string
+            schema: { $ref: "#/components/schemas/OpenShellRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/ShellSession"
+              schema: { $ref: "#/components/schemas/ShellSession" }
   /rpc/close_shell_session:
     post:
       tags: [shell]
-      summary: 关闭会话
+      summary: Close shell session
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  type: object
-                  required: [sessionId]
-                  properties:
-                    sessionId:
-                      type: string
+            schema: { $ref: "#/components/schemas/CloseShellRequest" }
       responses:
-        "200":
-          description: OK
+        "200": { description: OK (null) }
+  /rpc/pty_write_input:
+    post:
+      tags: [pty]
+      summary: Write PTY input
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PtyWriteRequest" }
+      responses:
+        "200": { description: OK (null) }
+  /rpc/pty_resize:
+    post:
+      tags: [pty]
+      summary: Resize PTY
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PtyResizeRequest" }
+      responses:
+        "200": { description: OK (null) }
   /rpc/execute_shell_command:
     post:
       tags: [shell]
-      summary: 执行命令
+      summary: Execute shell command
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/ExecuteCommandInput"
+            schema: { $ref: "#/components/schemas/ExecuteCommandRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/CommandExecutionResult"
+              schema: { $ref: "#/components/schemas/CommandExecutionResult" }
 
   /rpc/sftp_list_dir:
     post:
       tags: [sftp]
-      summary: SFTP 目录列表
+      summary: List SFTP directory
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/SftpListInput"
+            schema: { $ref: "#/components/schemas/SftpListRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/SftpListResponse"
+              schema: { $ref: "#/components/schemas/SftpListResponse" }
   /rpc/sftp_read_file:
     post:
       tags: [sftp]
-      summary: 读取远程文件
+      summary: Read SFTP file
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/SftpReadInput"
+            schema: { $ref: "#/components/schemas/SftpReadRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/SftpFileContent"
+              schema: { $ref: "#/components/schemas/SftpFileContent" }
   /rpc/sftp_write_file:
     post:
       tags: [sftp]
-      summary: 写入远程文件
+      summary: Write SFTP file
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/SftpWriteInput"
+            schema: { $ref: "#/components/schemas/SftpWriteRequest" }
       responses:
-        "200":
-          description: OK
+        "200": { description: OK (null) }
   /rpc/sftp_upload_file:
     post:
       tags: [sftp]
-      summary: 上传文件（base64）
+      summary: Upload file (legacy base64)
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/SftpUploadInput"
+            schema: { $ref: "#/components/schemas/SftpUploadRequest" }
       responses:
-        "200":
-          description: OK
-  /rpc/sftp_download_file:
+        "200": { description: OK (null) }
+  /rpc/sftp_upload_file_with_progress:
     post:
       tags: [sftp]
-      summary: 下载文件（base64）
+      summary: Upload file with progress events
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/SftpDownloadInput"
+            schema: { $ref: "#/components/schemas/SftpUploadWithProgressRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/SftpDownloadPayload"
+              schema: { $ref: "#/components/schemas/SftpTransferResult" }
+  /rpc/sftp_download_file:
+    post:
+      tags: [sftp]
+      summary: Download file (legacy base64 payload)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SftpDownloadRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SftpDownloadPayload" }
+  /rpc/sftp_download_file_to_local:
+    post:
+      tags: [sftp]
+      summary: Download file to local path with progress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SftpDownloadToLocalRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SftpTransferResult" }
+  /rpc/sftp_default_download_dir:
+    post:
+      tags: [sftp]
+      summary: Get default local download dir
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: string }
+  /rpc/sftp_cancel_transfer:
+    post:
+      tags: [sftp]
+      summary: Cancel transfer by transferId
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SftpCancelTransferRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: boolean }
 
   /rpc/fetch_server_status:
     post:
       tags: [status]
-      summary: 采集服务器状态
+      summary: Fetch live server status
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/FetchServerStatusInput"
+            schema: { $ref: "#/components/schemas/FetchServerStatusRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/ServerStatus"
+              schema: { $ref: "#/components/schemas/ServerStatus" }
   /rpc/get_cached_server_status:
     post:
       tags: [status]
-      summary: 获取缓存状态
+      summary: Get cached status by sessionId
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [sessionId]
-              properties:
-                sessionId:
-                  type: string
+            schema: { $ref: "#/components/schemas/SessionIdRequest" }
       responses:
         "200":
-          description: OK
+          description: OK (nullable ServerStatus)
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ServerStatus"
+                allOf:
+                  - $ref: "#/components/schemas/ServerStatus"
+                nullable: true
 
   /rpc/list_scripts:
     post:
       tags: [scripts]
-      summary: 列出脚本
+      summary: List scripts
       responses:
         "200":
           description: OK
@@ -290,117 +307,145 @@ paths:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/ScriptDefinition"
+                items: { $ref: "#/components/schemas/ScriptDefinition" }
   /rpc/save_script:
     post:
       tags: [scripts]
-      summary: 新增或更新脚本
+      summary: Create or update script
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/ScriptInput"
+            schema: { $ref: "#/components/schemas/ScriptRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/ScriptDefinition"
+              schema: { $ref: "#/components/schemas/ScriptDefinition" }
   /rpc/delete_script:
     post:
       tags: [scripts]
-      summary: 删除脚本
+      summary: Delete script
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [id]
-              properties:
-                id:
-                  type: string
+            schema: { $ref: "#/components/schemas/IdRequest" }
       responses:
-        "200":
-          description: OK
+        "200": { description: OK (null) }
   /rpc/run_script:
     post:
       tags: [scripts]
-      summary: 在会话中执行脚本
+      summary: Run script in session
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/RunScriptInput"
+            schema: { $ref: "#/components/schemas/RunScriptRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/RunScriptResult"
+              schema: { $ref: "#/components/schemas/RunScriptResult" }
 
   /rpc/get_ai_config:
     post:
       tags: [ai]
-      summary: 获取 AI 配置
+      summary: Get AI config (legacy)
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/AiConfig"
+              schema: { $ref: "#/components/schemas/AiConfig" }
   /rpc/save_ai_config:
     post:
       tags: [ai]
-      summary: 保存 AI 配置
+      summary: Save AI config (legacy)
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/AiConfigInput"
+            schema: { $ref: "#/components/schemas/AiConfigRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/AiConfig"
+              schema: { $ref: "#/components/schemas/AiConfig" }
+  /rpc/list_ai_profiles:
+    post:
+      tags: [ai]
+      summary: List AI profiles
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiProfilesState" }
+  /rpc/save_ai_profile:
+    post:
+      tags: [ai]
+      summary: Save AI profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AiProfileRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiProfilesState" }
+  /rpc/delete_ai_profile:
+    post:
+      tags: [ai]
+      summary: Delete AI profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IdRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiProfilesState" }
+  /rpc/set_active_ai_profile:
+    post:
+      tags: [ai]
+      summary: Set active AI profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetActiveAiProfileRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AiProfilesState" }
   /rpc/ai_ask:
     post:
       tags: [ai]
-      summary: AI 问答
+      summary: Ask AI (non-stream endpoint)
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/AiAskInput"
+            schema: { $ref: "#/components/schemas/AiAskRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/AiAnswer"
+              schema: { $ref: "#/components/schemas/AiAnswer" }
+
   /rpc/ops_agent_list_conversations:
     post:
       tags: [ops-agent]
@@ -412,8 +457,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/OpsAgentConversationSummary"
+                items: { $ref: "#/components/schemas/OpsAgentConversationSummary" }
   /rpc/ops_agent_create_conversation:
     post:
       tags: [ops-agent]
@@ -422,38 +466,28 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/OpsAgentCreateConversationInput"
+            schema: { $ref: "#/components/schemas/OpsAgentCreateConversationRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/OpsAgentConversation"
+              schema: { $ref: "#/components/schemas/OpsAgentConversation" }
   /rpc/ops_agent_get_conversation:
     post:
       tags: [ops-agent]
-      summary: Get Ops Agent conversation detail
+      summary: Get Ops Agent conversation
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/OpsAgentConversationRef"
+            schema: { $ref: "#/components/schemas/OpsAgentConversationRefRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/OpsAgentConversation"
+              schema: { $ref: "#/components/schemas/OpsAgentConversation" }
   /rpc/ops_agent_delete_conversation:
     post:
       tags: [ops-agent]
@@ -462,14 +496,9 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/OpsAgentConversationRef"
+            schema: { $ref: "#/components/schemas/OpsAgentConversationRefRequest" }
       responses:
-        "200":
-          description: OK
+        "200": { description: OK (null) }
   /rpc/ops_agent_set_active_conversation:
     post:
       tags: [ops-agent]
@@ -478,47 +507,33 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/OpsAgentConversationRef"
+            schema: { $ref: "#/components/schemas/OpsAgentConversationRefRequest" }
       responses:
-        "200":
-          description: OK
+        "200": { description: OK (null) }
   /rpc/ops_agent_chat_stream_start:
     post:
       tags: [ops-agent]
-      summary: Start one Ops Agent chat run
+      summary: Start Ops Agent stream
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/OpsAgentChatInput"
+            schema: { $ref: "#/components/schemas/OpsAgentChatRequest" }
       responses:
         "200":
-          description: OK
+          description: Accepted
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/OpsAgentChatAccepted"
+              schema: { $ref: "#/components/schemas/OpsAgentChatAccepted" }
   /rpc/ops_agent_list_pending_actions:
     post:
       tags: [ops-agent]
-      summary: List Ops Agent pending actions
+      summary: List pending actions
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/OpsAgentListPendingActionsInput"
+            schema: { $ref: "#/components/schemas/OpsAgentListPendingActionsRequest" }
       responses:
         "200":
           description: OK
@@ -526,31 +541,64 @@ paths:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/OpsAgentPendingAction"
+                items: { $ref: "#/components/schemas/OpsAgentPendingAction" }
   /rpc/ops_agent_resolve_action:
     post:
       tags: [ops-agent]
-      summary: Resolve one Ops Agent pending action
+      summary: Approve or reject pending action
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                input:
-                  $ref: "#/components/schemas/OpsAgentResolveActionInput"
+            schema: { $ref: "#/components/schemas/OpsAgentResolveActionRequest" }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/OpsAgentResolveActionResult"
+              schema: { $ref: "#/components/schemas/OpsAgentResolveActionResult" }
+  /rpc/ops_agent_cancel_run:
+    post:
+      tags: [ops-agent]
+      summary: Cancel stream run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OpsAgentCancelRunRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OpsAgentCancelRunResult" }
 
 components:
   schemas:
+    IdRequest:
+      type: object
+      required: [id]
+      properties: { id: { type: string } }
+    SessionIdRequest:
+      type: object
+      required: [sessionId]
+      properties: { sessionId: { type: string } }
+
+    SshConfigRequest:
+      type: object
+      required: [input]
+      properties:
+        input:
+          type: object
+          required: [name, host, port, username, password]
+          properties:
+            id: { type: string, nullable: true }
+            name: { type: string }
+            host: { type: string }
+            port: { type: integer }
+            username: { type: string }
+            password: { type: string }
+            description: { type: string, nullable: true }
     SshConfig:
       type: object
       properties:
@@ -563,85 +611,137 @@ components:
         description: { type: string }
         createdAt: { type: string }
         updatedAt: { type: string }
-    SshConfigInput:
+
+    OpenShellRequest:
       type: object
       properties:
-        id: { type: string, nullable: true }
-        name: { type: string }
-        host: { type: string }
-        port: { type: integer }
-        username: { type: string }
-        password: { type: string }
-        description: { type: string }
+        input:
+          type: object
+          required: [configId]
+          properties: { configId: { type: string } }
+    CloseShellRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId]
+          properties: { sessionId: { type: string } }
+    PtyWriteRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId, data]
+          properties:
+            sessionId: { type: string }
+            data: { type: string }
+    PtyResizeRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId, cols, rows]
+          properties:
+            sessionId: { type: string }
+            cols: { type: integer }
+            rows: { type: integer }
+    ExecuteCommandRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId, command]
+          properties:
+            sessionId: { type: string }
+            command: { type: string }
     ShellSession:
       type: object
-      properties:
-        id: { type: string }
-        configId: { type: string }
-        configName: { type: string }
-        currentDir: { type: string }
-        lastOutput: { type: string }
-        createdAt: { type: string }
-        updatedAt: { type: string }
-    ExecuteCommandInput:
-      type: object
-      properties:
-        sessionId: { type: string }
-        command: { type: string }
+      additionalProperties: true
+      description: Shell session DTO with ids, directory, output cache, timestamps.
     CommandExecutionResult:
       type: object
-      properties:
-        sessionId: { type: string }
-        command: { type: string }
-        stdout: { type: string }
-        stderr: { type: string }
-        exitCode: { type: integer }
-        currentDir: { type: string }
-        startedAt: { type: string }
-        finishedAt: { type: string }
-        durationMs: { type: integer }
-    SftpEntry:
+      additionalProperties: true
+
+    SftpListRequest:
       type: object
       properties:
-        name: { type: string }
-        path: { type: string }
-        entryType: { type: string, enum: [directory, file, symlink, other] }
-        size: { type: integer }
-        modifiedAt: { type: integer, nullable: true }
-    SftpListInput:
+        input:
+          type: object
+          required: [sessionId, path]
+          properties:
+            sessionId: { type: string }
+            path: { type: string }
+    SftpReadRequest:
       type: object
       properties:
-        sessionId: { type: string }
-        path: { type: string }
+        input:
+          type: object
+          required: [sessionId, path]
+          properties:
+            sessionId: { type: string }
+            path: { type: string }
+    SftpWriteRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId, path, content]
+          properties:
+            sessionId: { type: string }
+            path: { type: string }
+            content: { type: string }
+    SftpUploadRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId, remotePath, contentBase64]
+          properties:
+            sessionId: { type: string }
+            remotePath: { type: string }
+            contentBase64: { type: string }
+    SftpUploadWithProgressRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId, remotePath, contentBase64, transferId]
+          properties:
+            sessionId: { type: string }
+            remotePath: { type: string }
+            contentBase64: { type: string }
+            transferId: { type: string }
+            localName: { type: string, nullable: true }
+    SftpDownloadRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId, remotePath]
+          properties:
+            sessionId: { type: string }
+            remotePath: { type: string }
+    SftpDownloadToLocalRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId, remotePath, localDir, transferId]
+          properties:
+            sessionId: { type: string }
+            remotePath: { type: string }
+            localDir: { type: string }
+            transferId: { type: string }
+    SftpCancelTransferRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [transferId]
+          properties: { transferId: { type: string } }
     SftpListResponse:
       type: object
-      properties:
-        path: { type: string }
-        entries:
-          type: array
-          items: { $ref: "#/components/schemas/SftpEntry" }
-    SftpReadInput:
-      type: object
-      properties:
-        sessionId: { type: string }
-        path: { type: string }
-    SftpWriteInput:
-      type: object
-      properties:
-        sessionId: { type: string }
-        path: { type: string }
-        content: { type: string }
-    SftpUploadInput:
-      type: object
-      properties:
-        sessionId: { type: string }
-        remotePath: { type: string }
-        contentBase64: { type: string }
-    SftpDownloadInput:
-      type: object
-      properties:
-        sessionId: { type: string }
-        remotePath: { type: string }
+      additionalProperties: true
     SftpFileContent:
       type: object
       properties:
@@ -649,181 +749,186 @@ components:
         content: { type: string }
     SftpDownloadPayload:
       type: object
-      properties:
-        path: { type: string }
-        fileName: { type: string }
-        contentBase64: { type: string }
-        size: { type: integer }
-    FetchServerStatusInput:
+      additionalProperties: true
+    SftpTransferResult:
+      type: object
+      additionalProperties: true
+    SftpTransferEvent:
+      type: object
+      additionalProperties: true
+      description: stage is one of started/progress/completed/failed/cancelled.
+
+    FetchServerStatusRequest:
       type: object
       properties:
-        sessionId: { type: string }
-        selectedInterface: { type: string, nullable: true }
+        input:
+          type: object
+          required: [sessionId]
+          properties:
+            sessionId: { type: string }
+            selectedInterface: { type: string, nullable: true }
     ServerStatus:
       type: object
+      additionalProperties: true
+
+    ScriptRequest:
+      type: object
       properties:
-        cpuPercent: { type: number }
-        memory: { type: object }
-        networkInterfaces: { type: array, items: { type: object } }
-        selectedInterface: { type: string, nullable: true }
-        selectedInterfaceTraffic: { type: object, nullable: true }
-        topProcesses: { type: array, items: { type: object } }
-        disks: { type: array, items: { type: object } }
-        fetchedAt: { type: string }
+        input:
+          type: object
+          required: [name]
+          properties:
+            id: { type: string, nullable: true }
+            name: { type: string }
+            path: { type: string, nullable: true }
+            command: { type: string, nullable: true }
+            description: { type: string, nullable: true }
+    RunScriptRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId, scriptId]
+          properties:
+            sessionId: { type: string }
+            scriptId: { type: string }
     ScriptDefinition:
       type: object
-      properties:
-        id: { type: string }
-        name: { type: string }
-        path: { type: string }
-        command: { type: string }
-        description: { type: string }
-        createdAt: { type: string }
-        updatedAt: { type: string }
-    ScriptInput:
+      additionalProperties: true
+    RunScriptResult:
+      type: object
+      additionalProperties: true
+
+    AiConfigRequest:
       type: object
       properties:
-        id: { type: string, nullable: true }
-        name: { type: string }
-        path: { type: string, nullable: true }
-        command: { type: string, nullable: true }
-        description: { type: string, nullable: true }
-    RunScriptInput:
+        input:
+          type: object
+          required: [baseUrl, apiKey, model, systemPrompt, temperature, maxTokens]
+          properties:
+            baseUrl: { type: string }
+            apiKey: { type: string }
+            model: { type: string }
+            systemPrompt: { type: string }
+            temperature: { type: number }
+            maxTokens: { type: integer }
+    AiProfileRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [name, baseUrl, apiKey, model, systemPrompt, temperature, maxTokens]
+          properties:
+            id: { type: string, nullable: true }
+            name: { type: string }
+            baseUrl: { type: string }
+            apiKey: { type: string }
+            model: { type: string }
+            systemPrompt: { type: string }
+            temperature: { type: number }
+            maxTokens: { type: integer }
+    SetActiveAiProfileRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [id]
+          properties: { id: { type: string } }
+    AiAskRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [question, includeLastOutput]
+          properties:
+            sessionId: { type: string, nullable: true }
+            question: { type: string }
+            includeLastOutput: { type: boolean }
+    AiConfig:
+      type: object
+      additionalProperties: true
+    AiProfilesState:
+      type: object
+      additionalProperties: true
+    AiAnswer:
+      type: object
+      additionalProperties: true
+
+    OpsAgentCreateConversationRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          properties:
+            title: { type: string, nullable: true }
+            sessionId: { type: string, nullable: true }
+    OpsAgentConversationRefRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [conversationId]
+          properties: { conversationId: { type: string } }
+    OpsAgentChatRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [question]
+          properties:
+            conversationId: { type: string, nullable: true }
+            sessionId: { type: string, nullable: true }
+            question: { type: string }
+            shellContext: { type: object, nullable: true, additionalProperties: true }
+    OpsAgentListPendingActionsRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          properties:
+            sessionId: { type: string, nullable: true }
+            onlyPending: { type: boolean, nullable: true }
+    OpsAgentResolveActionRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [actionId, approve]
+          properties:
+            actionId: { type: string }
+            approve: { type: boolean }
+            sessionId: { type: string, nullable: true }
+    OpsAgentCancelRunRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [runId]
+          properties: { runId: { type: string } }
+    OpsAgentConversationSummary:
+      type: object
+      additionalProperties: true
+    OpsAgentConversation:
+      type: object
+      additionalProperties: true
+    OpsAgentChatAccepted:
+      type: object
+      additionalProperties: true
+    OpsAgentPendingAction:
+      type: object
+      additionalProperties: true
+    OpsAgentResolveActionResult:
+      type: object
+      additionalProperties: true
+    OpsAgentCancelRunResult:
+      type: object
+      additionalProperties: true
+    OpsAgentStreamEvent:
+      type: object
+      additionalProperties: true
+      description: stage is one of started/delta/tool_read/requires_approval/completed/error.
+    PtyOutputEvent:
       type: object
       properties:
         sessionId: { type: string }
-        scriptId: { type: string }
-    RunScriptResult:
-      type: object
-      properties:
-        scriptId: { type: string }
-        scriptName: { type: string }
-        execution: { $ref: "#/components/schemas/CommandExecutionResult" }
-    AiConfig:
-      type: object
-      properties:
-        baseUrl: { type: string }
-        apiKey: { type: string }
-        model: { type: string }
-        systemPrompt: { type: string }
-        temperature: { type: number }
-        maxTokens: { type: integer }
-        updatedAt: { type: string }
-    AiConfigInput:
-      type: object
-      properties:
-        baseUrl: { type: string }
-        apiKey: { type: string }
-        model: { type: string }
-        systemPrompt: { type: string }
-        temperature: { type: number }
-        maxTokens: { type: integer }
-    AiAskInput:
-      type: object
-      properties:
-        sessionId: { type: string, nullable: true }
-        question: { type: string }
-        includeLastOutput: { type: boolean }
-    AiAnswer:
-      type: object
-      properties:
-        answer: { type: string }
-        suggestedCommand: { type: string, nullable: true }
-    OpsAgentConversationRef:
-      type: object
-      properties:
-        conversationId: { type: string }
-    OpsAgentCreateConversationInput:
-      type: object
-      properties:
-        title: { type: string, nullable: true }
-        sessionId: { type: string, nullable: true }
-    OpsAgentShellContext:
-      type: object
-      properties:
-        sessionId: { type: string, nullable: true }
-        sessionName: { type: string }
-        content: { type: string }
-        preview: { type: string }
-        charCount: { type: integer }
-    OpsAgentMessage:
-      type: object
-      properties:
-        id: { type: string }
-        role: { type: string, enum: [system, user, assistant, tool] }
-        content: { type: string }
-        createdAt: { type: string }
-        toolKind: { type: string, nullable: true }
-        shellContext:
-          allOf:
-            - $ref: "#/components/schemas/OpsAgentShellContext"
-          nullable: true
-    OpsAgentConversation:
-      type: object
-      properties:
-        id: { type: string }
-        title: { type: string }
-        sessionId: { type: string, nullable: true }
-        messages:
-          type: array
-          items:
-            $ref: "#/components/schemas/OpsAgentMessage"
-        createdAt: { type: string }
-        updatedAt: { type: string }
-    OpsAgentConversationSummary:
-      type: object
-      properties:
-        id: { type: string }
-        title: { type: string }
-        sessionId: { type: string, nullable: true }
-        messageCount: { type: integer }
-        lastMessagePreview: { type: string, nullable: true }
-        createdAt: { type: string }
-        updatedAt: { type: string }
-    OpsAgentChatInput:
-      type: object
-      properties:
-        conversationId: { type: string, nullable: true }
-        sessionId: { type: string, nullable: true }
-        question: { type: string }
-        shellContext:
-          allOf:
-            - $ref: "#/components/schemas/OpsAgentShellContext"
-          nullable: true
-    OpsAgentChatAccepted:
-      type: object
-      properties:
-        runId: { type: string }
-        conversationId: { type: string }
-        startedAt: { type: string }
-    OpsAgentListPendingActionsInput:
-      type: object
-      properties:
-        sessionId: { type: string, nullable: true }
-        onlyPending: { type: boolean, nullable: true }
-    OpsAgentPendingAction:
-      type: object
-      properties:
-        id: { type: string }
-        toolKind: { type: string }
-        conversationId: { type: string }
-        sessionId: { type: string, nullable: true }
-        command: { type: string }
-        reason: { type: string }
-        status: { type: string, enum: [pending, rejected, executed, failed] }
-        createdAt: { type: string }
-        updatedAt: { type: string }
-        resolvedAt: { type: string, nullable: true }
-        executionOutput: { type: string, nullable: true }
-        executionExitCode: { type: integer, nullable: true }
-    OpsAgentResolveActionInput:
-      type: object
-      properties:
-        actionId: { type: string }
-        approve: { type: boolean }
-    OpsAgentResolveActionResult:
-      type: object
-      properties:
-        action:
-          $ref: "#/components/schemas/OpsAgentPendingAction"
-        note: { type: string }
+        chunk: { type: string }
