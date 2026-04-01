@@ -1,10 +1,10 @@
-use std::sync::Arc;
+﻿use std::sync::Arc;
 
 use crate::error::{AppError, AppResult};
 use crate::models::CommandExecutionResult;
 use crate::ops_agent::logging::append_debug_log;
 use crate::ops_agent::types::{OpsAgentActionStatus, OpsAgentRiskLevel, OpsAgentRole, OpsAgentToolKind};
-use crate::ssh_service;
+use crate::server_ops;
 
 use super::{
     format_execution_output, OpsAgentTool, OpsAgentToolDefinition, OpsAgentToolExecution,
@@ -451,7 +451,7 @@ async fn execute_remote_command(
     session_id: String,
     command: String,
 ) -> AppResult<CommandExecutionResult> {
-    tauri::async_runtime::spawn_blocking(move || ssh_service::execute_command(&state, &session_id, &command))
+    tauri::async_runtime::spawn_blocking(move || server_ops::execute_command(&state, &session_id, &command))
         .await
         .map_err(|error| AppError::Runtime(error.to_string()))?
 }
@@ -709,3 +709,4 @@ mod tests {
         );
     }
 }
+

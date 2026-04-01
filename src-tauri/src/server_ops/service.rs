@@ -21,7 +21,7 @@ use crate::models::{
     SshConfig,
 };
 use crate::state::{AppState, PtyCommand};
-use crate::status_parser::{
+use super::status_parser::{
     parse_cpu_percent, parse_disks, parse_memory, parse_network_interfaces, parse_top_processes,
 };
 

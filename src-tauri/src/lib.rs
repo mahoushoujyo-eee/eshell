@@ -3,9 +3,8 @@ mod commands;
 mod error;
 mod models;
 mod ops_agent;
-mod ssh_service;
+mod server_ops;
 mod state;
-mod status_parser;
 mod storage;
 
 use std::path::PathBuf;

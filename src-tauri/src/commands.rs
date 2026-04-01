@@ -1,4 +1,4 @@
-use std::sync::Arc;
+﻿use std::sync::Arc;
 
 use tauri::State;
 
@@ -20,7 +20,7 @@ use crate::ops_agent::types::{
     OpsAgentPendingAction, OpsAgentResolveActionInput, OpsAgentResolveActionResult,
     OpsAgentSetActiveConversationInput,
 };
-use crate::ssh_service;
+use crate::server_ops;
 use crate::state::AppState;
 
 /// Returns all stored SSH connection profiles.
@@ -67,7 +67,7 @@ pub async fn open_shell_session(
     input: OpenShellInput,
 ) -> Result<ShellSession, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || ssh_service::open_shell_session(app_state, app, &input.config_id)).await
+    run_blocking(move || server_ops::open_shell_session(app_state, app, &input.config_id)).await
 }
 
 /// Closes one shell session and drops the corresponding status cache.
@@ -76,7 +76,7 @@ pub fn close_shell_session(
     state: State<'_, Arc<AppState>>,
     input: CloseShellInput,
 ) -> Result<(), String> {
-    ssh_service::close_shell_session(&state, &input.session_id).map_err(to_command_error)
+    server_ops::close_shell_session(&state, &input.session_id).map_err(to_command_error)
 }
 
 /// Sends raw PTY input for interactive shell.
@@ -85,7 +85,7 @@ pub fn pty_write_input(
     state: State<'_, Arc<AppState>>,
     input: PtyWriteInput,
 ) -> Result<(), String> {
-    ssh_service::pty_write_input(&state, &input.session_id, &input.data).map_err(to_command_error)
+    server_ops::pty_write_input(&state, &input.session_id, &input.data).map_err(to_command_error)
 }
 
 /// Resizes PTY viewport to keep remote interactive applications aligned.
@@ -94,7 +94,7 @@ pub fn pty_resize(
     state: State<'_, Arc<AppState>>,
     input: PtyResizeInput,
 ) -> Result<(), String> {
-    ssh_service::pty_resize(&state, &input.session_id, input.cols, input.rows).map_err(to_command_error)
+    server_ops::pty_resize(&state, &input.session_id, input.cols, input.rows).map_err(to_command_error)
 }
 
 /// Executes a terminal command in the selected shell tab.
@@ -107,7 +107,7 @@ pub async fn execute_shell_command(
     input: ExecuteCommandInput,
 ) -> Result<CommandExecutionResult, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || ssh_service::execute_command(&app_state, &input.session_id, &input.command))
+    run_blocking(move || server_ops::execute_command(&app_state, &input.session_id, &input.command))
         .await
 }
 
@@ -118,7 +118,7 @@ pub async fn sftp_list_dir(
     input: SftpListInput,
 ) -> Result<SftpListResponse, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || ssh_service::sftp_list_dir(&app_state, input)).await
+    run_blocking(move || server_ops::sftp_list_dir(&app_state, input)).await
 }
 
 /// Reads remote text file content for editor view.
@@ -128,7 +128,7 @@ pub async fn sftp_read_file(
     input: SftpReadInput,
 ) -> Result<SftpFileContent, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || ssh_service::sftp_read_file(&app_state, input)).await
+    run_blocking(move || server_ops::sftp_read_file(&app_state, input)).await
 }
 
 /// Writes text editor content back to remote file through SFTP.
@@ -138,7 +138,7 @@ pub async fn sftp_write_file(
     input: SftpWriteInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || ssh_service::sftp_write_file(&app_state, input)).await
+    run_blocking(move || server_ops::sftp_write_file(&app_state, input)).await
 }
 
 /// Uploads local file bytes (base64 payload) to a remote path via SFTP.
@@ -148,7 +148,7 @@ pub async fn sftp_upload_file(
     input: SftpUploadInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || ssh_service::sftp_upload_file(&app_state, input)).await
+    run_blocking(move || server_ops::sftp_upload_file(&app_state, input)).await
 }
 
 /// Downloads remote file content via SFTP and returns base64 payload.
@@ -158,7 +158,7 @@ pub async fn sftp_download_file(
     input: SftpDownloadInput,
 ) -> Result<SftpDownloadPayload, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || ssh_service::sftp_download_file(&app_state, input)).await
+    run_blocking(move || server_ops::sftp_download_file(&app_state, input)).await
 }
 
 /// Returns the current server runtime metrics (CPU/memory/network/process/disk).
@@ -168,7 +168,7 @@ pub async fn fetch_server_status(
     input: FetchServerStatusInput,
 ) -> Result<crate::models::ServerStatus, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || ssh_service::fetch_server_status(&app_state, input)).await
+    run_blocking(move || server_ops::fetch_server_status(&app_state, input)).await
 }
 
 /// Returns cached metrics for instant UI render when switching tabs.
@@ -177,7 +177,7 @@ pub fn get_cached_server_status(
     state: State<'_, Arc<AppState>>,
     session_id: String,
 ) -> Result<Option<crate::models::ServerStatus>, String> {
-    Ok(ssh_service::get_cached_server_status(&state, &session_id))
+    Ok(server_ops::get_cached_server_status(&state, &session_id))
 }
 
 /// Lists all script definitions managed by user.
@@ -222,7 +222,7 @@ pub async fn run_script(
         } else {
             script.command.clone()
         };
-        let execution = ssh_service::execute_command(&app_state, &input.session_id, &command)?;
+        let execution = server_ops::execute_command(&app_state, &input.session_id, &command)?;
         Ok(RunScriptResult {
             script_id: script.id,
             script_name: script.name,
@@ -402,3 +402,4 @@ where
         .map_err(|error| to_command_error(AppError::Runtime(error.to_string())))?
         .map_err(to_command_error)
 }
+
