@@ -145,4 +145,5 @@ By default, runtime data is stored in `.eshell-data/` under the project root:
 - [Project Dev Guide](docs/PROJECT_DEV_GUIDE.md)
 - [OpenAPI-style RPC Spec](docs/openapi.yaml)
 - [SFTP Transfer Guide](docs/sftp_transfer.md)
+- [Release Notes 1.1.0](docs/releases/v1.1.0.md)
 - [Reference Projects](docs/refer_proj/README.md)
