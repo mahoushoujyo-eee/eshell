@@ -1,7 +1,8 @@
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tauri::AppHandle;
+use tokio::time::sleep;
 
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -18,6 +19,10 @@ use super::helpers::{
     truncate_for_log,
 };
 use super::{ProcessChatOutcome, OPS_AGENT_MAX_REACT_STEPS};
+
+const OPS_AGENT_AI_MAX_RETRIES: usize = 3;
+const OPS_AGENT_AI_RETRY_DELAY_SECS: u64 = 3;
+const OPS_AGENT_AI_RETRY_SLEEP_SLICE_MS: u64 = 200;
 
 pub(super) async fn process_chat_stream(
     state: Arc<AppState>,
@@ -64,68 +69,35 @@ pub(super) async fn process_chat_stream(
             return Ok(ProcessChatOutcome::Cancelled);
         }
 
-        append_debug_log(
+        let step_label = (step + 1).to_string();
+        let plan = match request_plan_with_retry(
             state.as_ref(),
-            "react.plan.request_start",
-            Some(run_id_for_log.as_str()),
-            Some(conversation_id.as_str()),
-            format!(
-                "step={} history_messages={} user_message_id={}",
-                step + 1,
-                working_history.len(),
-                current_user_message.id
-            ),
-        );
-        let plan_started_at = Instant::now();
-        let plan = openai::plan_reply(
+            &emitter,
+            &run_handle,
+            run_id_for_log.as_str(),
+            conversation_id.as_str(),
+            step_label.as_str(),
             &config,
             &working_history,
             &current_user_message,
             &session_context,
             &tool_hints,
         )
-        .await;
-        let plan_elapsed_ms = plan_started_at.elapsed().as_millis();
-        if run_handle.is_cancelled() {
-            append_debug_log(
-                state.as_ref(),
-                "react.plan.request_cancelled",
-                Some(run_id_for_log.as_str()),
-                Some(conversation_id.as_str()),
-                format!("step={} elapsed_ms={}", step + 1, plan_elapsed_ms),
-            );
-            return Ok(ProcessChatOutcome::Cancelled);
-        }
-        let plan = match plan {
-            Ok(plan) => {
-                append_debug_log(
-                    state.as_ref(),
-                    "react.plan.request_done",
-                    Some(run_id_for_log.as_str()),
-                    Some(conversation_id.as_str()),
-                    format!(
-                        "step={} elapsed_ms={} tool_candidates={}",
-                        step + 1,
-                        plan_elapsed_ms,
-                        tool_hints.len()
-                    ),
-                );
-                plan
+        .await
+        {
+            Ok(plan) => plan,
+            Err(error) if is_run_cancelled_error(&error) => {
+                return Ok(ProcessChatOutcome::Cancelled)
             }
-            Err(error) => {
-                append_debug_log(
-                    state.as_ref(),
-                    "react.plan.request_failed",
-                    Some(run_id_for_log.as_str()),
-                    Some(conversation_id.as_str()),
-                    format!(
-                        "step={} elapsed_ms={} error={error}",
-                        step + 1,
-                        plan_elapsed_ms
-                    ),
+            Err(error) if is_retryable_ai_error(&error) => {
+                return finalize_chat_failure(
+                    &state,
+                    &conversation_id,
+                    build_ai_retry_exhausted_message("规划", &error),
+                    &emitter,
                 );
-                return Err(error);
             }
+            Err(error) => return Err(error),
         };
         last_planner_reply = plan.reply.clone();
         append_debug_log(
@@ -143,68 +115,35 @@ pub(super) async fn process_chat_stream(
         );
 
         if plan.tool.kind.is_none() {
-            append_debug_log(
+            let assistant_answer = match stream_answer_with_retry(
                 state.as_ref(),
-                "react.answer.request_start",
-                Some(run_id_for_log.as_str()),
-                Some(conversation_id.as_str()),
-                format!("step={} mode=planner_none", step + 1),
-            );
-            let answer_started_at = Instant::now();
-            let assistant_answer = match stream_answer_with_fallback(
+                &emitter,
+                &run_handle,
+                run_id_for_log.as_str(),
+                conversation_id.as_str(),
+                step_label.as_str(),
+                "mode=planner_none",
                 &config,
                 &working_history,
                 &current_user_message,
                 &session_context,
                 Some(plan.reply.as_str()),
-                &emitter,
-                &run_handle,
             )
             .await
             {
-                Ok(answer) => {
-                    append_debug_log(
-                        state.as_ref(),
-                        "react.answer.request_done",
-                        Some(run_id_for_log.as_str()),
-                        Some(conversation_id.as_str()),
-                        format!(
-                            "step={} elapsed_ms={} answer_chars={}",
-                            step + 1,
-                            answer_started_at.elapsed().as_millis(),
-                            answer.chars().count()
-                        ),
-                    );
-                    answer
-                }
+                Ok(answer) => answer,
                 Err(error) if is_run_cancelled_error(&error) => {
-                    append_debug_log(
-                        state.as_ref(),
-                        "react.answer.request_cancelled",
-                        Some(run_id_for_log.as_str()),
-                        Some(conversation_id.as_str()),
-                        format!(
-                            "step={} elapsed_ms={}",
-                            step + 1,
-                            answer_started_at.elapsed().as_millis()
-                        ),
-                    );
-                    return Ok(ProcessChatOutcome::Cancelled);
+                    return Ok(ProcessChatOutcome::Cancelled)
                 }
-                Err(error) => {
-                    append_debug_log(
-                        state.as_ref(),
-                        "react.answer.request_failed",
-                        Some(run_id_for_log.as_str()),
-                        Some(conversation_id.as_str()),
-                        format!(
-                            "step={} elapsed_ms={} error={error}",
-                            step + 1,
-                            answer_started_at.elapsed().as_millis()
-                        ),
+                Err(error) if is_retryable_ai_error(&error) => {
+                    return finalize_chat_failure(
+                        &state,
+                        &conversation_id,
+                        build_ai_retry_exhausted_message("回复", &error),
+                        &emitter,
                     );
-                    return Err(error);
                 }
+                Err(error) => return Err(error),
             };
             return finalize_chat_completion(
                 &state,
@@ -373,65 +312,33 @@ pub(super) async fn process_chat_stream(
     let step_limit_hint =
         format!("I reached the autonomous tool step limit ({OPS_AGENT_MAX_REACT_STEPS}).");
     let planner_reply_on_limit = normalized_reply(last_planner_reply, &step_limit_hint);
-    append_debug_log(
+    let assistant_answer = match stream_answer_with_retry(
         state.as_ref(),
-        "react.answer.request_start",
-        Some(run_id_for_log.as_str()),
-        Some(conversation_id.as_str()),
-        "step=limit mode=step_limit".to_string(),
-    );
-    let answer_started_at = Instant::now();
-    let assistant_answer = match stream_answer_with_fallback(
+        &emitter,
+        &run_handle,
+        run_id_for_log.as_str(),
+        conversation_id.as_str(),
+        "limit",
+        "mode=step_limit",
         &config,
         &working_history,
         &current_user_message,
         &session_context,
         Some(planner_reply_on_limit.as_str()),
-        &emitter,
-        &run_handle,
     )
     .await
     {
-        Ok(answer) => {
-            append_debug_log(
-                state.as_ref(),
-                "react.answer.request_done",
-                Some(run_id_for_log.as_str()),
-                Some(conversation_id.as_str()),
-                format!(
-                    "step=limit elapsed_ms={} answer_chars={}",
-                    answer_started_at.elapsed().as_millis(),
-                    answer.chars().count()
-                ),
+        Ok(answer) => answer,
+        Err(error) if is_run_cancelled_error(&error) => return Ok(ProcessChatOutcome::Cancelled),
+        Err(error) if is_retryable_ai_error(&error) => {
+            return finalize_chat_failure(
+                &state,
+                &conversation_id,
+                build_ai_retry_exhausted_message("回复", &error),
+                &emitter,
             );
-            answer
         }
-        Err(error) if is_run_cancelled_error(&error) => {
-            append_debug_log(
-                state.as_ref(),
-                "react.answer.request_cancelled",
-                Some(run_id_for_log.as_str()),
-                Some(conversation_id.as_str()),
-                format!(
-                    "step=limit elapsed_ms={}",
-                    answer_started_at.elapsed().as_millis()
-                ),
-            );
-            return Ok(ProcessChatOutcome::Cancelled);
-        }
-        Err(error) => {
-            append_debug_log(
-                state.as_ref(),
-                "react.answer.request_failed",
-                Some(run_id_for_log.as_str()),
-                Some(conversation_id.as_str()),
-                format!(
-                    "step=limit elapsed_ms={} error={error}",
-                    answer_started_at.elapsed().as_millis()
-                ),
-            );
-            return Err(error);
-        }
+        Err(error) => return Err(error),
     };
 
     finalize_chat_completion(&state, &conversation_id, assistant_answer, None, &emitter)
@@ -452,6 +359,23 @@ fn finalize_chat_completion(
         None,
     )?;
     emitter.completed(assistant_answer, pending_action);
+    Ok(ProcessChatOutcome::Completed)
+}
+
+fn finalize_chat_failure(
+    state: &AppState,
+    conversation_id: &str,
+    assistant_message: String,
+    emitter: &OpsAgentEventEmitter,
+) -> AppResult<ProcessChatOutcome> {
+    state.ops_agent.append_message(
+        conversation_id,
+        OpsAgentRole::Assistant,
+        &assistant_message,
+        None,
+        None,
+    )?;
+    emitter.completed(assistant_message, None);
     Ok(ProcessChatOutcome::Completed)
 }
 
@@ -479,42 +403,320 @@ pub(super) fn split_history_for_current_message(
     Ok((history, current_message))
 }
 
-async fn stream_answer_with_fallback(
+async fn request_plan_with_retry(
+    state: &AppState,
+    emitter: &OpsAgentEventEmitter,
+    run_handle: &OpsAgentRunHandle,
+    run_id_for_log: &str,
+    conversation_id: &str,
+    step_label: &str,
+    config: &crate::models::AiConfig,
+    history: &[OpsAgentMessage],
+    current_message: &OpsAgentMessage,
+    session_context: &super::super::context::OpsAgentSessionContext,
+    tool_hints: &[super::super::context::OpsAgentToolPromptHint],
+) -> AppResult<super::super::types::PlannedAgentReply> {
+    execute_ai_request_with_retry(
+        state,
+        emitter,
+        run_handle,
+        run_id_for_log,
+        conversation_id,
+        "react.plan",
+        step_label,
+        None,
+        "规划",
+        || {
+            openai::plan_reply(
+                config,
+                history,
+                current_message,
+                session_context,
+                tool_hints,
+            )
+        },
+    )
+    .await
+}
+
+async fn stream_answer_with_retry(
+    state: &AppState,
+    emitter: &OpsAgentEventEmitter,
+    run_handle: &OpsAgentRunHandle,
+    run_id_for_log: &str,
+    conversation_id: &str,
+    step_label: &str,
+    mode_label: &str,
     config: &crate::models::AiConfig,
     history: &[OpsAgentMessage],
     current_message: &OpsAgentMessage,
     session_context: &super::super::context::OpsAgentSessionContext,
     planner_reply: Option<&str>,
-    emitter: &OpsAgentEventEmitter,
-    run_handle: &OpsAgentRunHandle,
 ) -> AppResult<String> {
-    match openai::stream_final_answer(
-        config,
-        history,
-        current_message,
-        session_context,
-        planner_reply,
-        |delta| {
-            ensure_run_not_cancelled(run_handle)?;
-            emitter.delta(delta.to_string());
-            Ok(())
+    execute_ai_request_with_retry(
+        state,
+        emitter,
+        run_handle,
+        run_id_for_log,
+        conversation_id,
+        "react.answer",
+        step_label,
+        Some(mode_label),
+        "回复",
+        || {
+            openai::stream_final_answer(
+                config,
+                history,
+                current_message,
+                session_context,
+                planner_reply,
+                |delta| {
+                    ensure_run_not_cancelled(run_handle)?;
+                    emitter.delta(delta.to_string());
+                    Ok(())
+                },
+            )
         },
     )
     .await
-    {
-        Ok(answer) => Ok(answer),
-        Err(error) => {
-            if is_run_cancelled_error(&error) {
-                return Err(error);
-            }
-            let fallback = normalized_reply(
-                planner_reply.unwrap_or_default().to_string(),
-                "Received. I will help with this operations task.",
-            );
-            if fallback.trim().is_empty() {
-                return Err(error);
-            }
-            Ok(emit_static_reply(fallback, emitter))
+}
+
+async fn execute_ai_request_with_retry<T, F, Fut>(
+    state: &AppState,
+    emitter: &OpsAgentEventEmitter,
+    run_handle: &OpsAgentRunHandle,
+    run_id_for_log: &str,
+    conversation_id: &str,
+    phase_log_prefix: &str,
+    step_label: &str,
+    mode_label: Option<&str>,
+    user_phase_label: &str,
+    mut operation: F,
+) -> AppResult<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = AppResult<T>>,
+{
+    for attempt in 0..=OPS_AGENT_AI_MAX_RETRIES {
+        ensure_run_not_cancelled(run_handle)?;
+
+        let request_start_level = format!("{phase_log_prefix}.request_start");
+        let request_started_at = Instant::now();
+        let mut context_bits = vec![
+            format!("step={step_label}"),
+            format!("attempt={}/{}", attempt + 1, OPS_AGENT_AI_MAX_RETRIES + 1),
+        ];
+        if let Some(mode_label) = mode_label {
+            context_bits.push(mode_label.to_string());
         }
+        append_debug_log(
+            state,
+            request_start_level.as_str(),
+            Some(run_id_for_log),
+            Some(conversation_id),
+            context_bits.join(" "),
+        );
+
+        match operation().await {
+            Ok(value) => {
+                let request_done_level = format!("{phase_log_prefix}.request_done");
+                let mut done_bits = vec![
+                    format!("step={step_label}"),
+                    format!("attempt={}/{}", attempt + 1, OPS_AGENT_AI_MAX_RETRIES + 1),
+                    format!("elapsed_ms={}", request_started_at.elapsed().as_millis()),
+                ];
+                if let Some(mode_label) = mode_label {
+                    done_bits.push(mode_label.to_string());
+                }
+                append_debug_log(
+                    state,
+                    request_done_level.as_str(),
+                    Some(run_id_for_log),
+                    Some(conversation_id),
+                    done_bits.join(" "),
+                );
+                return Ok(value);
+            }
+            Err(error) if is_run_cancelled_error(&error) => {
+                let request_cancelled_level = format!("{phase_log_prefix}.request_cancelled");
+                let mut cancelled_bits = vec![
+                    format!("step={step_label}"),
+                    format!("attempt={}/{}", attempt + 1, OPS_AGENT_AI_MAX_RETRIES + 1),
+                    format!("elapsed_ms={}", request_started_at.elapsed().as_millis()),
+                ];
+                if let Some(mode_label) = mode_label {
+                    cancelled_bits.push(mode_label.to_string());
+                }
+                append_debug_log(
+                    state,
+                    request_cancelled_level.as_str(),
+                    Some(run_id_for_log),
+                    Some(conversation_id),
+                    cancelled_bits.join(" "),
+                );
+                return Err(error);
+            }
+            Err(error) => {
+                let request_failed_level = format!("{phase_log_prefix}.request_failed");
+                let mut failed_bits = vec![
+                    format!("step={step_label}"),
+                    format!("attempt={}/{}", attempt + 1, OPS_AGENT_AI_MAX_RETRIES + 1),
+                    format!("elapsed_ms={}", request_started_at.elapsed().as_millis()),
+                    format!("error={error}"),
+                    format!("retryable={}", is_retryable_ai_error(&error)),
+                ];
+                if let Some(mode_label) = mode_label {
+                    failed_bits.push(mode_label.to_string());
+                }
+                append_debug_log(
+                    state,
+                    request_failed_level.as_str(),
+                    Some(run_id_for_log),
+                    Some(conversation_id),
+                    failed_bits.join(" "),
+                );
+
+                if !is_retryable_ai_error(&error) || attempt >= OPS_AGENT_AI_MAX_RETRIES {
+                    return Err(error);
+                }
+
+                let retry_level = format!("{phase_log_prefix}.retry_scheduled");
+                let mut retry_bits = vec![
+                    format!("step={step_label}"),
+                    format!("retry={}/{}", attempt + 1, OPS_AGENT_AI_MAX_RETRIES),
+                    format!("wait_secs={OPS_AGENT_AI_RETRY_DELAY_SECS}"),
+                ];
+                if let Some(mode_label) = mode_label {
+                    retry_bits.push(mode_label.to_string());
+                }
+                append_debug_log(
+                    state,
+                    retry_level.as_str(),
+                    Some(run_id_for_log),
+                    Some(conversation_id),
+                    retry_bits.join(" "),
+                );
+
+                emitter.delta(build_ai_retry_notice(user_phase_label, attempt + 1, &error));
+                wait_for_ai_retry_delay(run_handle).await?;
+            }
+        }
+    }
+
+    Err(AppError::Runtime(
+        "AI retry loop exited unexpectedly".to_string(),
+    ))
+}
+
+fn is_retryable_ai_error(error: &AppError) -> bool {
+    match error {
+        AppError::Reqwest(_) => true,
+        AppError::Runtime(message) => {
+            if let Some(status_code) = extract_status_code(message) {
+                return status_code == 408
+                    || status_code == 409
+                    || status_code == 425
+                    || status_code == 429
+                    || status_code >= 500;
+            }
+
+            let normalized = message.to_ascii_lowercase();
+            normalized.contains("timed out")
+                || normalized.contains("timeout")
+                || normalized.contains("connection reset")
+                || normalized.contains("connection closed")
+                || normalized.contains("error sending request")
+                || normalized.contains("temporarily unavailable")
+        }
+        _ => false,
+    }
+}
+
+fn extract_status_code(message: &str) -> Option<u16> {
+    let marker = "status=";
+    let start = message.find(marker)? + marker.len();
+    let digits = message[start..]
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse::<u16>().ok()
+}
+
+fn build_ai_retry_notice(user_phase_label: &str, retry_index: usize, error: &AppError) -> String {
+    format!(
+        "\n\n> 系统提示：AI {user_phase_label}请求失败，将在 {} 秒后自动重试（{retry_index}/{OPS_AGENT_AI_MAX_RETRIES}）。\n> 错误：{}\n\n",
+        OPS_AGENT_AI_RETRY_DELAY_SECS,
+        summarize_ai_error_for_user(error)
+    )
+}
+
+fn build_ai_retry_exhausted_message(user_phase_label: &str, error: &AppError) -> String {
+    format!(
+        "AI {user_phase_label}请求已自动重试 {OPS_AGENT_AI_MAX_RETRIES} 次，仍未成功，现已停止重试。\n\n最后一次错误：{}\n\n建议稍后重试，或切换 AI 配置后再试。",
+        summarize_ai_error_for_user(error)
+    )
+}
+
+fn summarize_ai_error_for_user(error: &AppError) -> String {
+    let collapsed = error
+        .to_string()
+        .replace('\n', " ")
+        .replace('\r', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    truncate_for_log(collapsed.as_str(), 260)
+}
+
+async fn wait_for_ai_retry_delay(run_handle: &OpsAgentRunHandle) -> AppResult<()> {
+    let total = Duration::from_secs(OPS_AGENT_AI_RETRY_DELAY_SECS);
+    let slice = Duration::from_millis(OPS_AGENT_AI_RETRY_SLEEP_SLICE_MS);
+    let mut elapsed = Duration::ZERO;
+
+    while elapsed < total {
+        ensure_run_not_cancelled(run_handle)?;
+        let next_slice = std::cmp::min(slice, total.saturating_sub(elapsed));
+        sleep(next_slice).await;
+        elapsed += next_slice;
+    }
+
+    ensure_run_not_cancelled(run_handle)
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::{extract_status_code, is_retryable_ai_error};
+    use crate::error::AppError;
+
+    #[test]
+    fn extracts_status_codes_from_runtime_error_text() {
+        assert_eq!(
+            extract_status_code("ops agent AI request failed: status=500 Internal Server Error"),
+            Some(500)
+        );
+        assert_eq!(
+            extract_status_code("status=429 Too Many Requests"),
+            Some(429)
+        );
+        assert_eq!(extract_status_code("no status here"), None);
+    }
+
+    #[test]
+    fn retries_server_side_and_transport_failures() {
+        assert!(is_retryable_ai_error(&AppError::Runtime(
+            "ops agent AI request failed: status=500 Internal Server Error".to_string(),
+        )));
+        assert!(is_retryable_ai_error(&AppError::Runtime(
+            "ops agent AI stream request failed: status=429 Too Many Requests".to_string(),
+        )));
+        assert!(!is_retryable_ai_error(&AppError::Runtime(
+            "ops agent AI request failed: status=400 Bad Request".to_string(),
+        )));
+        assert!(!is_retryable_ai_error(&AppError::Validation(
+            "apiKey cannot be empty".to_string(),
+        )));
     }
 }

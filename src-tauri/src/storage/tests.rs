@@ -45,28 +45,15 @@ fn eshell_ai_profiles_path() -> PathBuf {
 
 fn first_usable_profile_from_eshell_data() -> AiProfile {
     let path = eshell_ai_profiles_path();
-    let raw = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-        panic!(
-            "read {} failed: {error}",
-            path.as_path().display()
-        )
-    });
-    let state: AiProfilesState = serde_json::from_str(&raw).unwrap_or_else(|error| {
-        panic!(
-            "parse {} failed: {error}",
-            path.as_path().display()
-        )
-    });
+    let raw = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("read {} failed: {error}", path.as_path().display()));
+    let state: AiProfilesState = serde_json::from_str(&raw)
+        .unwrap_or_else(|error| panic!("parse {} failed: {error}", path.as_path().display()));
     state
         .profiles
         .into_iter()
         .find(is_usable_profile)
-        .unwrap_or_else(|| {
-            panic!(
-                "no usable ai profile found in {}",
-                path.as_path().display()
-            )
-        })
+        .unwrap_or_else(|| panic!("no usable ai profile found in {}", path.as_path().display()))
 }
 
 #[test]

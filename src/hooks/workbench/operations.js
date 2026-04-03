@@ -68,6 +68,8 @@ export function useWorkbenchOperations({
   setAiQuestion,
   setAiShellContext,
   setAiStream,
+  setAiConversationError,
+  clearAiConversationError,
   setDownloadDirectory,
   setError,
   reconnectingSessionsRef,
@@ -689,7 +691,7 @@ export function useWorkbenchOperations({
     }
     const localDir = (downloadDirectory || "").trim();
     if (!localDir) {
-      setError("Please set a local download directory first");
+      onError("Please set a local download directory first");
       return;
     }
 
@@ -758,7 +760,6 @@ export function useWorkbenchOperations({
     runBusy,
     runWithSessionReconnect,
     selectedEntry,
-    setError,
     setSftpTransfers,
   ]);
 
@@ -862,13 +863,13 @@ export function useWorkbenchOperations({
   const runScript = useCallback(
     async (scriptId) => {
       if (!activeSessionId) {
-        setError("Please connect an SSH session first");
+        onError("Please connect an SSH session first");
         return;
       }
 
       const script = scripts.find((item) => item.id === scriptId);
       if (!script) {
-        setError("Script not found");
+        onError("Script not found");
         return;
       }
 
@@ -876,7 +877,7 @@ export function useWorkbenchOperations({
       const scriptPath = (script.path || "").trim();
       const resolvedCommand = directCommand || (scriptPath ? `bash ${shellQuote(scriptPath)}` : "");
       if (!resolvedCommand) {
-        setError("Script has no runnable command or path");
+        onError("Script has no runnable command or path");
         return;
       }
 
@@ -997,6 +998,8 @@ export function useWorkbenchOperations({
       const created = await runBusy("Create AI conversation", () =>
         api.opsAgentCreateConversation(null, activeSessionId || null),
       );
+      clearAiConversationError(created.id);
+      clearAiConversationError(null);
       setActiveAiConversationId(created.id);
       setActiveAiConversation(created);
       setAiQuestion("");
@@ -1009,17 +1012,25 @@ export function useWorkbenchOperations({
     } catch (err) {
       onError(err);
     }
-  }, [activeSessionId, onError, reloadAiConversations, reloadAiPendingActions, runBusy]);
+  }, [
+    activeSessionId,
+    clearAiConversationError,
+    onError,
+    reloadAiConversations,
+    reloadAiPendingActions,
+    runBusy,
+  ]);
 
   const deleteAiConversation = useCallback(
     async (conversationId) => {
       if (!conversationId) {
-        return;
+        return false;
       }
       try {
         await runBusy("Delete AI conversation", () =>
           api.opsAgentDeleteConversation(conversationId),
         );
+        clearAiConversationError(conversationId);
         const conversations = await reloadAiConversations();
         const nextId = conversations[0]?.id || null;
         setActiveAiConversationId(nextId);
@@ -1028,11 +1039,13 @@ export function useWorkbenchOperations({
         } else {
           setActiveAiConversation(null);
         }
+        return true;
       } catch (err) {
         onError(err);
+        return false;
       }
     },
-    [loadAiConversation, onError, reloadAiConversations, runBusy],
+    [clearAiConversationError, loadAiConversation, onError, reloadAiConversations, runBusy],
   );
 
   const resolveAiPendingAction = useCallback(
@@ -1076,6 +1089,7 @@ export function useWorkbenchOperations({
       }
       const shellContext = aiShellContext || null;
       try {
+        clearAiConversationError(activeAiConversationId || null);
         setAiQuestion("");
         const accepted = await runBusy("AI response", () =>
           api.opsAgentChatStreamStart({
@@ -1085,6 +1099,7 @@ export function useWorkbenchOperations({
             shellContext,
           }),
         );
+        clearAiConversationError(accepted.conversationId || null);
         setAiShellContext(null);
         const nextStream = {
           runId: accepted.runId,
@@ -1101,7 +1116,7 @@ export function useWorkbenchOperations({
         ]);
       } catch (err) {
         setAiQuestion(question);
-        onError(err);
+        setAiConversationError(activeAiConversationId || null, err);
       }
     },
     [
@@ -1110,11 +1125,12 @@ export function useWorkbenchOperations({
       aiShellContext,
       aiQuestion,
       aiStream.runId,
+      clearAiConversationError,
       loadAiConversation,
-      onError,
       reloadAiConversations,
       reloadAiPendingActions,
       runBusy,
+      setAiConversationError,
     ],
   );
 

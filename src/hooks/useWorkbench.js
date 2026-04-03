@@ -15,6 +15,9 @@ import { useWorkbenchEffects } from "./workbench/effects";
 import { useWorkbenchOperations } from "./workbench/operations";
 
 export function useWorkbench() {
+  const MAX_UI_NOTICES = 4;
+  const DEFAULT_NOTICE_TTL_MS = 5200;
+
   const [theme, setTheme] = useState("light");
   const [wallpaper, setWallpaper] = useState(() => {
     if (typeof window === "undefined") {
@@ -33,6 +36,7 @@ export function useWorkbench() {
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [uiNotices, setUiNotices] = useState([]);
 
   const [sshConfigs, setSshConfigs] = useState([]);
   const [sshForm, setSshForm] = useState(EMPTY_SSH);
@@ -75,6 +79,8 @@ export function useWorkbench() {
   const [aiPendingActions, setAiPendingActions] = useState([]);
   const [aiStream, setAiStream] = useState(EMPTY_OPS_AGENT_STREAM);
   const [resolvingAiActionId, setResolvingAiActionId] = useState("");
+  const [aiConversationErrors, setAiConversationErrors] = useState({});
+  const [aiStandaloneError, setAiStandaloneError] = useState("");
 
   const saveTimerRef = useRef(null);
   const reconnectingSessionsRef = useRef(new Map());
@@ -98,6 +104,94 @@ export function useWorkbench() {
   );
   const currentStatus = activeSessionId ? statusBySession[activeSessionId] : null;
   const currentNic = activeSessionId ? nicBySession[activeSessionId] || null : null;
+
+  const dismissUiNotice = useCallback((noticeId) => {
+    if (!noticeId) {
+      return;
+    }
+    setUiNotices((prev) => prev.filter((item) => item.id !== noticeId));
+  }, []);
+
+  const pushUiNotice = useCallback(
+    (err, options = {}) => {
+      const rawMessage = toErrorMessage(err);
+      const message =
+        typeof rawMessage === "string"
+          ? rawMessage.trim()
+          : String(rawMessage || "").trim();
+      if (!message) {
+        return "";
+      }
+
+      const explicitTone = options.tone;
+      const tone =
+        explicitTone === "warning" || explicitTone === "info" || explicitTone === "danger"
+          ? explicitTone
+          : /^warning/i.test(message)
+            ? "warning"
+            : "danger";
+      const requestedTtl = Number(options.ttlMs);
+      const ttlMs =
+        Number.isFinite(requestedTtl) && requestedTtl > 0
+          ? requestedTtl
+          : DEFAULT_NOTICE_TTL_MS;
+      const noticeId =
+        globalThis.crypto?.randomUUID?.() ||
+        `notice-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      setUiNotices((prev) => {
+        const next = [{ id: noticeId, tone, message, ttlMs }, ...prev];
+        return next.slice(0, MAX_UI_NOTICES);
+      });
+      return noticeId;
+    },
+    [DEFAULT_NOTICE_TTL_MS, MAX_UI_NOTICES],
+  );
+
+  const setAiConversationError = useCallback((conversationId, err) => {
+    const rawMessage = toErrorMessage(err);
+    const message =
+      typeof rawMessage === "string"
+        ? rawMessage.trim()
+        : String(rawMessage || "").trim();
+    if (!message) {
+      return;
+    }
+
+    if (conversationId) {
+      setAiConversationErrors((prev) => ({
+        ...prev,
+        [conversationId]: message,
+      }));
+      return;
+    }
+
+    setAiStandaloneError(message);
+  }, []);
+
+  const clearAiConversationError = useCallback((conversationId = null) => {
+    if (conversationId) {
+      setAiConversationErrors((prev) => {
+        if (!(conversationId in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[conversationId];
+        return next;
+      });
+      return;
+    }
+    setAiStandaloneError("");
+  }, []);
+
+  const clearActiveAiConversationError = useCallback(() => {
+    if (activeAiConversationId) {
+      clearAiConversationError(activeAiConversationId);
+      return;
+    }
+    clearAiConversationError(null);
+  }, [activeAiConversationId, clearAiConversationError]);
+
   const runBusy = useCallback(async (text, action) => {
     setBusy(text);
     setError("");
@@ -109,9 +203,17 @@ export function useWorkbench() {
   }, []);
 
   const onError = useCallback((err) => {
-    const message = toErrorMessage(err);
+    const rawMessage = toErrorMessage(err);
+    const message =
+      typeof rawMessage === "string"
+        ? rawMessage.trim()
+        : String(rawMessage || "").trim();
+    if (!message) {
+      return;
+    }
     setError(message);
-  }, []);
+    pushUiNotice(message);
+  }, [pushUiNotice]);
 
   const {
     appendLog,
@@ -198,6 +300,8 @@ export function useWorkbench() {
     setAiQuestion,
     setAiShellContext,
     setAiStream,
+    setAiConversationError,
+    clearAiConversationError,
     setDownloadDirectory,
     setError,
     reconnectingSessionsRef,
@@ -222,6 +326,8 @@ export function useWorkbench() {
     activeSessionId,
     loadAiConversation,
     onError,
+    setAiConversationError,
+    clearAiConversationError,
     reloadAiConversations,
     reloadAiPendingActions,
     setAiStream,
@@ -253,6 +359,9 @@ export function useWorkbench() {
     aiStream.conversationId === activeAiConversationId ? aiStream.text : "";
   const isAiStreaming =
     Boolean(aiStream.runId) && aiStream.conversationId === activeAiConversationId;
+  const activeAiConversationError = activeAiConversationId
+    ? aiConversationErrors[activeAiConversationId] || ""
+    : aiStandaloneError;
 
   return {
     theme,
@@ -267,6 +376,8 @@ export function useWorkbench() {
     setShowAiPanel,
     busy,
     error,
+    uiNotices,
+    dismissUiNotice,
     sshConfigs,
     sshForm,
     setSshForm,
@@ -304,6 +415,8 @@ export function useWorkbench() {
     aiPendingActions,
     isAiStreaming,
     aiStreamingText,
+    activeAiConversationError,
+    clearActiveAiConversationError,
     resolvingAiActionId,
     saveSsh,
     connectServer,

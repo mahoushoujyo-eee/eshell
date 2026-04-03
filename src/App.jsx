@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import SplitPane from "./components/SplitPane";
 import TopToolbar from "./components/layout/TopToolbar";
+import UiNoticeStack from "./components/layout/UiNoticeStack";
 import WindowTitleBar from "./components/layout/WindowTitleBar";
 import AiAssistantPanel from "./components/panels/AiAssistantPanel";
 import FileEditorModal from "./components/panels/FileEditorModal";
@@ -68,6 +69,8 @@ function App() {
     setShowAiPanel,
     busy,
     error,
+    uiNotices,
+    dismissUiNotice,
     sshConfigs,
     sshForm,
     setSshForm,
@@ -104,6 +107,8 @@ function App() {
     aiPendingActions,
     isAiStreaming,
     aiStreamingText,
+    activeAiConversationError,
+    clearActiveAiConversationError,
     resolvingAiActionId,
     saveSsh,
     connectServer,
@@ -259,6 +264,8 @@ function App() {
       onClearShellContext={clearAiShellContext}
       isStreaming={isAiStreaming}
       streamingText={aiStreamingText}
+      conversationError={activeAiConversationError}
+      onClearConversationError={clearActiveAiConversationError}
       onAskAi={askAi}
       onCancelStreaming={cancelAiStreaming}
       onOpenAiConfig={() => setIsAiModalOpen(true)}
@@ -323,12 +330,13 @@ function App() {
   );
 
   return (
-    <div className="flex h-full w-full min-h-0 flex-col overflow-hidden text-text">
+    <div className="app-shell flex h-full w-full min-h-0 flex-col overflow-hidden text-text">
       <WindowTitleBar
         showAiPanel={showAiPanel}
         onToggleAiPanel={() => setShowAiPanel((prev) => !prev)}
         isAiStreaming={isAiStreaming}
       />
+      <UiNoticeStack notices={uiNotices} onDismiss={dismissUiNotice} />
 
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-panel">
         <TopToolbar

@@ -158,7 +158,9 @@ export default function TopToolbar({
   const hasError = Boolean(error && String(error).trim());
   const isWarning = hasError && /^warning/i.test(String(error).trim());
   const busyText = busy ? `Running: ${busy}` : "Idle";
-  const errorText = hasError ? String(error).trim() : "No errors";
+  const errorDetail = hasError ? String(error).trim() : "";
+  const errorText = hasError ? (isWarning ? "Background warning" : "Recent issue") : "No issues";
+  const errorTitle = hasError ? errorDetail : errorText;
 
   return (
     <aside
@@ -251,7 +253,7 @@ export default function TopToolbar({
                 collapsed={collapsed}
                 icon={hasError ? AlertTriangle : CircleCheck}
                 label={errorText}
-                title={errorText}
+                title={errorTitle}
                 tone={hasError ? (isWarning ? "warning" : "danger") : "success"}
               />
             </div>

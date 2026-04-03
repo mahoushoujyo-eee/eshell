@@ -48,9 +48,13 @@ body,
 #root {
   width: 100%;
   height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
+  position: fixed;
+  inset: 0;
   margin: 0;
   color: var(--es-text);
   background:
@@ -69,6 +73,18 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+body > #root {
+  isolation: isolate;
+}
+
+.app-shell {
+  overscroll-behavior: none;
+}
+
+.scroll-region {
+  overscroll-behavior: contain;
 }
 
 [data-tauri-drag-region] {
@@ -161,4 +177,5 @@ body {
 
 .terminal-host .xterm-viewport {
   scrollbar-color: color-mix(in srgb, var(--es-muted) 72%, transparent) transparent;
+  overscroll-behavior: contain;
 }

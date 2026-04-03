@@ -471,7 +471,10 @@ pub fn sftp_download_file_to_local(
         }
     };
 
-    let total_bytes = sftp.stat(Path::new(&remote_path)).ok().and_then(|stat| stat.size);
+    let total_bytes = sftp
+        .stat(Path::new(&remote_path))
+        .ok()
+        .and_then(|stat| stat.size);
     let mut local_file = match File::create(&local_path_buf) {
         Ok(file) => file,
         Err(error) => {

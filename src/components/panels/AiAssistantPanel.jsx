@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Bot,
   Check,
   ChevronDown,
@@ -19,6 +20,13 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import {
+  getOpsAgentAssistantReplyText,
+  getOpsAgentLatestAssistantReplyText,
+  getOpsAgentPreviewText,
+  groupOpsAgentMessages,
+  splitOpsAgentMessageContent,
+} from "../../lib/ops-agent-message-rendering";
 import { normalizeShellContextAttachment } from "../../lib/ops-agent-shell-context";
 
 const MARKDOWN_COMPONENTS = {
@@ -104,6 +112,23 @@ const formatTime = (value) => {
     return "";
   }
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+};
+
+const formatTurnTime = (messages) => {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return "";
+  }
+
+  const firstTime = formatTime(messages[0]?.createdAt);
+  const lastTime = formatTime(messages[messages.length - 1]?.createdAt);
+
+  if (!firstTime) {
+    return lastTime;
+  }
+  if (!lastTime || lastTime === firstTime) {
+    return firstTime;
+  }
+  return `${firstTime} - ${lastTime}`;
 };
 
 const roleLabel = (role) => {
@@ -282,6 +307,112 @@ function ToolMessageChip({ toolKind, expanded = false, onToggle }) {
   );
 }
 
+function ThinkMessageChip({ expanded = false, onToggle }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-2xl border border-border/75 bg-surface/72 px-2.5 py-1.5 text-left text-[11px] text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:border-accent/35 hover:bg-accent-soft/50 hover:text-text"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      title={expanded ? "Hide thinking details" : "Show thinking details"}
+    >
+      <span className="rounded-full bg-warm px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+        think
+      </span>
+      <span className="truncate">{expanded ? "Hide model reasoning" : "Show model reasoning"}</span>
+      {expanded ? (
+        <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      ) : (
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      )}
+    </button>
+  );
+}
+
+function DeleteConversationDialog({
+  open,
+  conversationTitle = "",
+  busy = false,
+  onCancel,
+  onConfirm,
+}) {
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && !busy) {
+        event.preventDefault();
+        onCancel?.();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [busy, onCancel, open]);
+
+  if (!open) {
+    return null;
+  }
+
+  const safeTitle = conversationTitle?.trim() || "Untitled conversation";
+
+  return (
+    <div
+      className="fixed inset-0 z-60 flex items-center justify-center bg-[rgba(26,20,14,0.28)] p-4 backdrop-blur-[2px]"
+      onClick={busy ? undefined : onCancel}
+    >
+      <div
+        className="w-full max-w-md rounded-[26px] border border-border/85 bg-panel/98 p-5 shadow-[0_28px_80px_rgba(34,26,16,0.22)] ring-1 ring-white/45"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-conversation-title"
+      >
+        <div className="flex items-start gap-3">
+          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-danger/20 bg-danger/10 text-danger">
+            <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div
+              id="delete-conversation-title"
+              className="text-[10px] font-semibold uppercase tracking-[0.22em] text-danger/75"
+            >
+              Confirm Delete
+            </div>
+            <h3 className="mt-1 text-lg font-semibold text-text">Delete this conversation?</h3>
+            <p className="mt-2 text-sm leading-6 text-muted">
+              <span className="font-medium text-text">{safeTitle}</span> and all of its messages will
+              be removed permanently.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-2xl border border-border/80 bg-surface px-4 py-2 text-sm text-muted transition-colors hover:bg-warm disabled:cursor-not-allowed disabled:opacity-55"
+            onClick={onCancel}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-2xl border border-danger/60 bg-danger px-4 py-2 text-sm font-medium text-white shadow-[0_12px_28px_rgba(194,72,50,0.22)] transition-colors hover:bg-[#b53f2b] disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
+            {busy ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AiAssistantPanel({
   aiProfiles,
   activeAiProfileId,
@@ -301,6 +432,8 @@ export default function AiAssistantPanel({
   onClearShellContext,
   isStreaming,
   streamingText,
+  conversationError = "",
+  onClearConversationError,
   onAskAi,
   onCancelStreaming,
   onOpenAiConfig,
@@ -311,8 +444,11 @@ export default function AiAssistantPanel({
   const isDock = variant === "dock";
   const hasManagedShell = isDrawer || isDock;
   const historyPanelWidth = hasManagedShell ? 184 : 208;
+  const conversationErrorText = String(conversationError || "").trim();
+  const hasConversationError = Boolean(conversationErrorText);
   const messages = activeConversation?.messages || [];
-  const hasContent = messages.length > 0 || (isStreaming && streamingText);
+  const messageGroups = groupOpsAgentMessages(messages);
+  const hasContent = messageGroups.length > 0 || (isStreaming && streamingText);
   const messageScrollRef = useRef(null);
   const [historyVisible, setHistoryVisible] = useState(() => {
     if (typeof window === "undefined") {
@@ -322,6 +458,9 @@ export default function AiAssistantPanel({
   });
   const [expandedShellMessageIds, setExpandedShellMessageIds] = useState(() => ({}));
   const [expandedToolMessageIds, setExpandedToolMessageIds] = useState(() => ({}));
+  const [expandedThinkKeys, setExpandedThinkKeys] = useState(() => ({}));
+  const [pendingDeleteConversation, setPendingDeleteConversation] = useState(null);
+  const [deleteConversationBusyId, setDeleteConversationBusyId] = useState("");
   const [copiedMessageKey, setCopiedMessageKey] = useState(null);
   const copyFeedbackTimerRef = useRef(null);
 
@@ -343,6 +482,9 @@ export default function AiAssistantPanel({
   useEffect(() => {
     setExpandedShellMessageIds({});
     setExpandedToolMessageIds({});
+    setExpandedThinkKeys({});
+    setPendingDeleteConversation(null);
+    setDeleteConversationBusyId("");
     setCopiedMessageKey(null);
   }, [activeConversationId]);
 
@@ -377,6 +519,13 @@ export default function AiAssistantPanel({
     }));
   };
 
+  const toggleThinkSection = (sectionKey) => {
+    setExpandedThinkKeys((current) => ({
+      ...current,
+      [sectionKey]: !current[sectionKey],
+    }));
+  };
+
   const handleCopyMessage = async (messageKey, content) => {
     try {
       const copied = await copyText(content);
@@ -396,6 +545,177 @@ export default function AiAssistantPanel({
       console.error("copy ai message failed", error);
     }
   };
+
+  const requestDeleteConversation = (conversation) => {
+    if (!conversation?.id) {
+      return;
+    }
+
+    setPendingDeleteConversation({
+      id: conversation.id,
+      title: conversation.title || "",
+    });
+  };
+
+  const closeDeleteConversationDialog = () => {
+    if (deleteConversationBusyId) {
+      return;
+    }
+    setPendingDeleteConversation(null);
+  };
+
+  const confirmDeleteConversation = async () => {
+    const conversationId = pendingDeleteConversation?.id;
+    if (!conversationId) {
+      return;
+    }
+
+    setDeleteConversationBusyId(conversationId);
+    try {
+      const deleted = await onDeleteConversation(conversationId);
+      if (deleted !== false) {
+        setPendingDeleteConversation(null);
+      }
+    } finally {
+      setDeleteConversationBusyId("");
+    }
+  };
+
+  const renderAssistantMessage = (message, sectionKeyPrefix, withDivider = false) => {
+    const sections = splitOpsAgentMessageContent(message.content);
+    const hasSections = sections.length > 0;
+
+    return (
+      <section
+        key={message.id || sectionKeyPrefix}
+        className={withDivider ? "mt-3 border-t border-border/60 pt-3" : ""}
+      >
+        {hasSections ? (
+          sections.map((section, sectionIndex) => {
+            const thinkKey = `${sectionKeyPrefix}:think:${sectionIndex}`;
+            const isThink = section.type === "think";
+            const thinkExpanded = Boolean(expandedThinkKeys[thinkKey]);
+
+            return (
+              <div key={`${sectionKeyPrefix}:${section.type}:${sectionIndex}`} className={sectionIndex > 0 ? "mt-3" : ""}>
+                {isThink ? (
+                  <div className="rounded-2xl border border-border/70 bg-surface/58">
+                    <div className="px-3 py-2">
+                      <ThinkMessageChip
+                        expanded={thinkExpanded}
+                        onToggle={() => toggleThinkSection(thinkKey)}
+                      />
+                    </div>
+                    {thinkExpanded ? (
+                      <div className="border-t border-border/60 px-3 py-3 text-[11px] text-muted">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkBreaks]}
+                          components={MARKDOWN_COMPONENTS}
+                        >
+                          {section.content}
+                        </ReactMarkdown>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
+                    {section.content}
+                  </ReactMarkdown>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          <pre className="whitespace-pre-wrap break-words font-mono text-[12px]">{message.content}</pre>
+        )}
+      </section>
+    );
+  };
+
+  const renderToolMessage = (message, withDivider = false) => {
+    const toolMessageExpanded = Boolean(expandedToolMessageIds[message.id]);
+
+    return (
+      <section key={message.id} className={withDivider ? "mt-3 border-t border-border/60 pt-3" : ""}>
+        <div className="flex items-start justify-between gap-2">
+          <ToolMessageChip
+            toolKind={message.toolKind}
+            expanded={toolMessageExpanded}
+            onToggle={() => toggleToolMessage(message.id)}
+          />
+          <span className="pt-1 text-[10px] uppercase tracking-[0.16em] text-[#8a5a00]/80">
+            {formatTime(message.createdAt)}
+          </span>
+        </div>
+        {toolMessageExpanded ? (
+          <pre className="mt-2 whitespace-pre-wrap break-words rounded-2xl border border-[#efc77a] bg-[#fff8e8] px-3 py-2 font-mono text-[12px] text-[#5f3e00]">
+            {message.content}
+          </pre>
+        ) : null}
+      </section>
+    );
+  };
+
+  const renderAgentTurn = (group) => {
+    const turnCopyText = getOpsAgentLatestAssistantReplyText(group.messages);
+
+    return (
+      <div key={group.id} className="flex justify-start">
+        <article
+          className={[
+            "max-w-[92%] border border-border/80 bg-panel/95 px-4 py-3 text-xs",
+            isDrawer ? "rounded-3xl shadow-[0_12px_30px_rgba(12,18,24,0.08)]" : "rounded-2xl shadow-none",
+          ].join(" ")}
+        >
+          <div className="mb-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-muted">
+            <span>Agent</span>
+            <span>{formatTurnTime(group.messages)}</span>
+          </div>
+          {group.messages.map((message, index) => {
+            if (message.role === "tool") {
+              return renderToolMessage(message, index > 0);
+            }
+            if (message.role === "assistant") {
+              return renderAssistantMessage(message, `${group.id}:${message.id || index}`, index > 0);
+            }
+
+            return (
+              <section key={message.id || `${group.id}:plain:${index}`} className={index > 0 ? "mt-3 border-t border-border/60 pt-3" : ""}>
+                <pre className="whitespace-pre-wrap break-words font-mono text-[12px]">{message.content}</pre>
+              </section>
+            );
+          })}
+          {turnCopyText ? (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                className={[
+                  messageActionButtonClass,
+                  copiedMessageKey === group.id
+                    ? "border-success/45 bg-success/10 text-success hover:border-success/45 hover:bg-success/10 hover:text-success"
+                    : "",
+                ].join(" ")}
+                onClick={() => handleCopyMessage(group.id, turnCopyText)}
+                title="Copy latest AI reply"
+              >
+                {copiedMessageKey === group.id ? (
+                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                {copiedMessageKey === group.id ? "Copied" : "Copy"}
+              </button>
+            </div>
+          ) : null}
+        </article>
+      </div>
+    );
+  };
+
+  const streamingSections = splitOpsAgentMessageContent(streamingText);
+  const streamingCopyText = getOpsAgentAssistantReplyText(streamingText);
+  const deleteDialogBusy =
+    Boolean(pendingDeleteConversation?.id) && deleteConversationBusyId === pendingDeleteConversation.id;
 
   return (
     <div
@@ -522,17 +842,13 @@ export default function AiAssistantPanel({
                       >
                         <div className="truncate text-xs font-medium">{item.title}</div>
                         <div className="mt-0.5 truncate text-[10px] text-muted">
-                          {item.lastMessagePreview || "No messages"}
+                          {getOpsAgentPreviewText(item.lastMessagePreview) || "No messages"}
                         </div>
                       </button>
                       <button
                         type="button"
                         className="rounded-xl border border-border/70 p-1 text-muted opacity-0 transition-opacity hover:border-danger/40 hover:text-danger group-hover:opacity-100"
-                        onClick={() => {
-                          if (window.confirm("Delete this conversation?")) {
-                            onDeleteConversation(item.id);
-                          }
-                        }}
+                        onClick={() => requestDeleteConversation(item)}
                         title="Delete conversation"
                       >
                         <Trash2 className="h-3 w-3" aria-hidden="true" />
@@ -636,6 +952,30 @@ export default function AiAssistantPanel({
               </div>
             </div>
           )}
+          {hasConversationError ? (
+            <div className="shrink-0 border-b border-danger/25 bg-[#ffe9e4] px-3 py-2 text-[#6e2b20]">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-danger/25 bg-white/55 text-danger">
+                  <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-danger/75">
+                    Chat Execution Error
+                  </div>
+                  <p className="mt-1 break-words text-xs leading-5">{conversationErrorText}</p>
+                </div>
+                {typeof onClearConversationError === "function" ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-xl border border-danger/30 bg-white/70 px-2 py-1 text-[11px] text-danger transition-colors hover:border-danger/45 hover:bg-white"
+                    onClick={onClearConversationError}
+                  >
+                    Dismiss
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           <div
             ref={messageScrollRef}
@@ -652,25 +992,21 @@ export default function AiAssistantPanel({
               </div>
             ) : (
               <div className="space-y-3">
-                {messages.map((message) => {
-                  const isUser = message.role === "user";
-                  const isTool = message.role === "tool";
-                  const isAssistant = message.role === "assistant";
+                {messageGroups.map((group) => {
+                  if (group.kind === "agent_turn") {
+                    return renderAgentTurn(group);
+                  }
+
+                  const message = group.message;
                   const shellContext = normalizeShellContextAttachment(message.shellContext);
                   const shellContextExpanded = Boolean(expandedShellMessageIds[message.id]);
-                  const toolMessageExpanded = Boolean(expandedToolMessageIds[message.id]);
 
                   return (
-                    <div key={message.id} className={["flex", isUser ? "justify-end" : "justify-start"].join(" ")}>
+                    <div key={group.id} className="flex justify-end">
                       <article
                         className={[
-                          "max-w-[92%] border px-4 py-3 text-xs",
+                          "max-w-[92%] border border-accent bg-accent px-4 py-3 text-xs text-white",
                           isDrawer ? "rounded-3xl shadow-[0_12px_30px_rgba(12,18,24,0.08)]" : "rounded-2xl shadow-none",
-                          isUser
-                            ? "border-accent bg-accent text-white"
-                            : isTool
-                              ? "border-[#efc77a] bg-[#fff8e8] text-[#5f3e00]"
-                              : "border-border/80 bg-panel/95 text-text",
                         ].join(" ")}
                       >
                         <div className="mb-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] opacity-80">
@@ -683,73 +1019,20 @@ export default function AiAssistantPanel({
                               shellContext={shellContext}
                               expanded={shellContextExpanded}
                               onToggle={() => toggleShellContextMessage(message.id)}
-                              inverted={isUser}
+                              inverted
                             />
                           </div>
                         ) : null}
                         {shellContext && shellContextExpanded ? (
-                          <div
-                            className={[
-                              "mb-2 rounded-2xl border px-3 py-2",
-                              isUser
-                                ? "border-white/18 bg-black/12 text-white/92"
-                                : "border-border/75 bg-surface/72 text-text",
-                            ].join(" ")}
-                          >
+                          <div className="mb-2 rounded-2xl border border-white/18 bg-black/12 px-3 py-2 text-white/92">
                             <pre className="whitespace-pre-wrap break-words font-mono text-[11px]">
                               {shellContext.content}
                             </pre>
                           </div>
                         ) : null}
-                        {isTool ? (
-                          <>
-                            <div className="mb-1">
-                              <ToolMessageChip
-                                toolKind={message.toolKind}
-                                expanded={toolMessageExpanded}
-                                onToggle={() => toggleToolMessage(message.id)}
-                              />
-                            </div>
-                            {toolMessageExpanded ? (
-                              <pre className="whitespace-pre-wrap break-words font-mono text-[12px]">
-                                {message.content}
-                              </pre>
-                            ) : null}
-                          </>
-                        ) : isAssistant ? (
-                          <>
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm, remarkBreaks]}
-                              components={MARKDOWN_COMPONENTS}
-                            >
-                              {message.content}
-                            </ReactMarkdown>
-                            <div className="mt-3 flex justify-end">
-                              <button
-                                type="button"
-                                className={[
-                                  messageActionButtonClass,
-                                  copiedMessageKey === message.id
-                                    ? "border-success/45 bg-success/10 text-success hover:border-success/45 hover:bg-success/10 hover:text-success"
-                                    : "",
-                                ].join(" ")}
-                                onClick={() => handleCopyMessage(message.id, message.content)}
-                                title="Copy AI reply"
-                              >
-                                {copiedMessageKey === message.id ? (
-                                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                                ) : (
-                                  <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-                                )}
-                                {copiedMessageKey === message.id ? "Copied" : "Copy"}
-                              </button>
-                            </div>
-                          </>
-                        ) : (
-                          <pre className="whitespace-pre-wrap break-words font-mono text-[12px]">
-                            {message.content}
-                          </pre>
-                        )}
+                        <pre className="whitespace-pre-wrap break-words font-mono text-[12px]">
+                          {message.content}
+                        </pre>
                       </article>
                     </div>
                   );
@@ -767,9 +1050,51 @@ export default function AiAssistantPanel({
                         <Loader2 className="h-3 w-3 animate-spin" />
                         Agent typing
                       </div>
-                      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
-                        {streamingText || "..."}
-                      </ReactMarkdown>
+                      {streamingSections.length > 0 ? (
+                        streamingSections.map((section, sectionIndex) => {
+                          const thinkKey = `__streaming__:think:${sectionIndex}`;
+                          const thinkExpanded = Boolean(expandedThinkKeys[thinkKey]);
+
+                          return (
+                            <div key={`__streaming__:${section.type}:${sectionIndex}`} className={sectionIndex > 0 ? "mt-3" : ""}>
+                              {section.type === "think" ? (
+                                <div className="rounded-2xl border border-border/70 bg-surface/58">
+                                  <div className="px-3 py-2">
+                                    <ThinkMessageChip
+                                      expanded={thinkExpanded}
+                                      onToggle={() => toggleThinkSection(thinkKey)}
+                                    />
+                                  </div>
+                                  {thinkExpanded ? (
+                                    <div className="border-t border-border/60 px-3 py-3 text-[11px] text-muted">
+                                      <ReactMarkdown
+                                        remarkPlugins={[remarkGfm, remarkBreaks]}
+                                        components={MARKDOWN_COMPONENTS}
+                                      >
+                                        {section.content}
+                                      </ReactMarkdown>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm, remarkBreaks]}
+                                  components={MARKDOWN_COMPONENTS}
+                                >
+                                  {section.content}
+                                </ReactMarkdown>
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkBreaks]}
+                          components={MARKDOWN_COMPONENTS}
+                        >
+                          {streamingText || "..."}
+                        </ReactMarkdown>
+                      )}
                       <div className="mt-3 flex justify-end">
                         <button
                           type="button"
@@ -779,8 +1104,8 @@ export default function AiAssistantPanel({
                               ? "border-success/45 bg-success/10 text-success hover:border-success/45 hover:bg-success/10 hover:text-success"
                               : "",
                           ].join(" ")}
-                          onClick={() => handleCopyMessage("__streaming__", streamingText)}
-                          disabled={!streamingText}
+                          onClick={() => handleCopyMessage("__streaming__", streamingCopyText)}
+                          disabled={!streamingCopyText}
                           title="Copy streaming reply"
                         >
                           {copiedMessageKey === "__streaming__" ? (
@@ -850,6 +1175,14 @@ export default function AiAssistantPanel({
           </form>
         </section>
       </div>
+
+      <DeleteConversationDialog
+        open={Boolean(pendingDeleteConversation)}
+        conversationTitle={pendingDeleteConversation?.title || ""}
+        busy={deleteDialogBusy}
+        onCancel={closeDeleteConversationDialog}
+        onConfirm={confirmDeleteConversation}
+      />
     </div>
   );
 }

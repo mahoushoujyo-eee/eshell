@@ -20,6 +20,8 @@ export function useWorkbenchEffects({
   activeSessionId,
   loadAiConversation,
   onError,
+  setAiConversationError,
+  clearAiConversationError,
   reloadAiConversations,
   reloadAiPendingActions,
   setAiStream,
@@ -143,8 +145,19 @@ export function useWorkbenchEffects({
         void Promise.all(tasks).catch(() => {});
       }
 
+      if (
+        normalizedEvent.conversationId &&
+        (normalizedEvent.stage === "started" || normalizedEvent.stage === "completed")
+      ) {
+        clearAiConversationError(normalizedEvent.conversationId);
+      }
+
       if (transition.errorMessage) {
-        onError(transition.errorMessage);
+        if (normalizedEvent.stage === "error" && normalizedEvent.conversationId) {
+          setAiConversationError(normalizedEvent.conversationId, transition.errorMessage);
+        } else {
+          onError(transition.errorMessage);
+        }
       }
     }).catch((error) => {
       if (!disposed) {
@@ -164,10 +177,12 @@ export function useWorkbenchEffects({
   }, [
     activeSessionId,
     aiStreamRef,
+    clearAiConversationError,
     loadAiConversation,
     onError,
     reloadAiConversations,
     reloadAiPendingActions,
+    setAiConversationError,
     setAiPendingActions,
     setAiStream,
     setActiveAiConversationId,
