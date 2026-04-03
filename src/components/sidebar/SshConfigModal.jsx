@@ -34,8 +34,10 @@ export default function SshConfigModal({
   }
 
   const submitSsh = async (event) => {
-    await onSaveSsh(event);
-    setMode("list");
+    const saved = await onSaveSsh(event);
+    if (saved) {
+      setMode("list");
+    }
   };
 
   const openCreateForm = () => {

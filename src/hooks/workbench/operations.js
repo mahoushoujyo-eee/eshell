@@ -461,8 +461,10 @@ export function useWorkbenchOperations({
         );
         setSshForm(EMPTY_SSH);
         setSshConfigs(await api.listSshConfigs());
+        return true;
       } catch (err) {
         onError(err);
+        return false;
       }
     },
     [onError, runBusy, sshForm],

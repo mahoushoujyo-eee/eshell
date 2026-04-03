@@ -1,18 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import SplitPane from "./components/SplitPane";
-import TopToolbar from "./components/layout/TopToolbar";
-import UiNoticeStack from "./components/layout/UiNoticeStack";
-import WindowTitleBar from "./components/layout/WindowTitleBar";
-import AiAssistantPanel from "./components/panels/AiAssistantPanel";
-import FileEditorModal from "./components/panels/FileEditorModal";
-import SftpPanel from "./components/panels/SftpPanel";
-import StatusPanel from "./components/panels/StatusPanel";
-import TerminalPanel from "./components/panels/TerminalPanel";
-import AiConfigModal from "./components/sidebar/AiConfigModal";
-import ScriptConfigModal from "./components/sidebar/ScriptConfigModal";
-import SshConfigModal from "./components/sidebar/SshConfigModal";
-import WallpaperModal from "./components/sidebar/WallpaperModal";
-import { getWallpaperLabel } from "./constants/workbench";
+import AppModals from "./components/app/AppModals";
+import AppWorkspace from "./components/app/AppWorkspace";
 import { useWorkbench } from "./hooks/useWorkbench";
 
 const DEFAULT_AI_PANEL_WIDTH = 460;
@@ -56,107 +44,22 @@ function App() {
   const [isAiPanelResizing, setIsAiPanelResizing] = useState(false);
   const workspaceRef = useRef(null);
 
-  const {
-    theme,
-    setTheme,
-    wallpaper,
-    setWallpaper,
-    showSftpPanel,
-    setShowSftpPanel,
-    showStatusPanel,
-    setShowStatusPanel,
-    showAiPanel,
-    setShowAiPanel,
-    busy,
-    error,
-    uiNotices,
-    dismissUiNotice,
-    sshConfigs,
-    sshForm,
-    setSshForm,
-    scripts,
-    scriptForm,
-    setScriptForm,
-    sessions,
-    activeSessionId,
-    setActiveSessionId,
-    activeSession,
-    commandInput,
-    setCommandInput,
-    downloadDirectory,
-    sftpTransfers,
-    currentPtyOutput,
-    currentPath,
-    currentStatus,
-    currentNic,
-    sftpEntries,
-    selectedEntry,
-    openFilePath,
-    dirtyFile,
-    openFileContent,
-    aiProfiles,
-    activeAiProfileId,
-    aiProfileForm,
-    setAiProfileForm,
-    aiQuestion,
-    setAiQuestion,
-    aiShellContext,
-    aiConversations,
-    activeAiConversationId,
-    activeAiConversation,
-    aiPendingActions,
-    isAiStreaming,
-    aiStreamingText,
-    activeAiConversationError,
-    clearActiveAiConversationError,
-    resolvingAiActionId,
-    saveSsh,
-    connectServer,
-    closeSession,
-    execCommand,
-    sendPtyInput,
-    resizePty,
-    uploadFile,
-    downloadFile,
-    cancelSftpTransfer,
-    saveScript,
-    runScript,
-    saveAiProfile,
-    selectAiProfile,
-    deleteAiProfile,
-    selectAiConversation,
-    createAiConversation,
-    deleteAiConversation,
-    resolveAiPendingAction,
-    askAi,
-    cancelAiStreaming,
-    attachAiShellContext,
-    clearAiShellContext,
-    requestSftpDir,
-    refreshSftp,
-    openEntry,
-    handleDeleteSsh,
-    handleDeleteScript,
-    handleNicChange,
-    handleOpenFileContentChange,
-    handleDownloadDirectoryChange,
-    formatBytes,
-  } = useWorkbench();
+  const workbench = useWorkbench();
 
   useEffect(() => {
-    if (!showAiPanel) {
+    if (!workbench.showAiPanel) {
       return undefined;
     }
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
-        setShowAiPanel(false);
+        workbench.setShowAiPanel(false);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showAiPanel, setShowAiPanel]);
+  }, [workbench.showAiPanel, workbench.setShowAiPanel]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -214,230 +117,39 @@ function App() {
     };
   }, [isAiPanelResizing]);
 
-  const sftpPanel = (
-    <SftpPanel
-      activeSessionId={activeSessionId}
-      currentPath={currentPath}
-      requestSftpDir={requestSftpDir}
-      refreshSftp={refreshSftp}
-      uploadFile={uploadFile}
-      downloadFile={downloadFile}
-      cancelTransfer={cancelSftpTransfer}
-      downloadDirectory={downloadDirectory}
-      onDownloadDirectoryChange={handleDownloadDirectoryChange}
-      transfers={sftpTransfers}
-      selectedEntry={selectedEntry}
-      sftpEntries={sftpEntries}
-      openEntry={openEntry}
-      onOpenFileEditor={() => setIsFileEditorOpen(true)}
-      formatBytes={formatBytes}
-    />
-  );
-
-  const statusPanel = (
-    <StatusPanel
-      activeSessionId={activeSessionId}
-      currentStatus={currentStatus}
-      currentNic={currentNic}
-      onNicChange={handleNicChange}
-      formatBytes={formatBytes}
-    />
-  );
-
-  const aiPanel = (
-    <AiAssistantPanel
-      aiProfiles={aiProfiles}
-      activeAiProfileId={activeAiProfileId}
-      onSelectAiProfile={selectAiProfile}
-      conversations={aiConversations}
-      activeConversationId={activeAiConversationId}
-      activeConversation={activeAiConversation}
-      onCreateConversation={createAiConversation}
-      onSelectConversation={selectAiConversation}
-      onDeleteConversation={deleteAiConversation}
-      pendingActions={aiPendingActions}
-      onResolvePendingAction={resolveAiPendingAction}
-      resolvingActionId={resolvingAiActionId}
-      aiQuestion={aiQuestion}
-      setAiQuestion={setAiQuestion}
-      shellContext={aiShellContext}
-      onClearShellContext={clearAiShellContext}
-      isStreaming={isAiStreaming}
-      streamingText={aiStreamingText}
-      conversationError={activeAiConversationError}
-      onClearConversationError={clearActiveAiConversationError}
-      onAskAi={askAi}
-      onCancelStreaming={cancelAiStreaming}
-      onOpenAiConfig={() => setIsAiModalOpen(true)}
-      onClose={() => setShowAiPanel(false)}
-      variant="dock"
-    />
-  );
-
-  const terminalPanel = (
-    <TerminalPanel
-      sessions={sessions}
-      activeSessionId={activeSessionId}
-      onSelectSession={setActiveSessionId}
-      onCloseSession={closeSession}
-      activeSession={activeSession}
-      commandInput={commandInput}
-      setCommandInput={setCommandInput}
-      onExecCommand={execCommand}
-      currentPtyOutput={currentPtyOutput}
-      onPtyInput={sendPtyInput}
-      onPtyResize={resizePty}
-      onAttachSelectionToAi={(selection) => {
-        attachAiShellContext(selection);
-        setShowAiPanel(true);
-      }}
-      wallpaper={wallpaper}
-    />
-  );
-
-  const rightPanelsContent = showStatusPanel ? statusPanel : null;
-
-  let bottomPanelsContent = null;
-  if (showSftpPanel && rightPanelsContent) {
-    bottomPanelsContent = (
-      <SplitPane
-        direction="horizontal"
-        initialRatio={0.58}
-        minPrimarySize={420}
-        minSecondarySize={280}
-        primary={sftpPanel}
-        secondary={rightPanelsContent}
-      />
-    );
-  } else if (showSftpPanel) {
-    bottomPanelsContent = sftpPanel;
-  } else if (rightPanelsContent) {
-    bottomPanelsContent = rightPanelsContent;
-  }
-
-  const hasBottomPanels = Boolean(bottomPanelsContent);
-  const mainWorkspaceContent = (
-    <SplitPane
-      direction="vertical"
-      initialRatio={0.5}
-      minPrimarySize={290}
-      minSecondarySize={280}
-      collapseSecondary={!hasBottomPanels}
-      collapsedSecondarySize={0}
-      primary={terminalPanel}
-      secondary={<section className="h-full">{bottomPanelsContent}</section>}
-    />
-  );
-
   return (
     <div className="app-shell flex h-full w-full min-h-0 flex-col overflow-hidden text-text">
-      <WindowTitleBar
-        showAiPanel={showAiPanel}
-        onToggleAiPanel={() => setShowAiPanel((prev) => !prev)}
-        isAiStreaming={isAiStreaming}
-      />
-      <UiNoticeStack notices={uiNotices} onDismiss={dismissUiNotice} />
-
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-panel">
-        <TopToolbar
-          theme={theme}
-          wallpaperLabel={getWallpaperLabel(wallpaper)}
-          showSftpPanel={showSftpPanel}
-          showStatusPanel={showStatusPanel}
-          collapsed={sidebarCollapsed}
-          onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
-          onOpenSshConfig={() => setIsSshModalOpen(true)}
-          onOpenScriptConfig={() => setIsScriptModalOpen(true)}
-          onOpenWallpaperPicker={() => setIsWallpaperModalOpen(true)}
-          onToggleSftpPanel={() => setShowSftpPanel((prev) => !prev)}
-          onToggleStatusPanel={() => setShowStatusPanel((prev) => !prev)}
-          onToggleTheme={() => setTheme((prev) => (prev === "light" ? "dark" : "light"))}
-          busy={busy}
-          error={error}
-        />
-
-        <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            {mainWorkspaceContent}
-          </div>
-
-          <button
-            type="button"
-            aria-label="Resize AI panel"
-            className={[
-              "relative shrink-0 bg-border/80 transition-colors",
-              showAiPanel
-                ? "w-1.5 cursor-col-resize hover:bg-accent/80"
-                : "pointer-events-none w-0 opacity-0",
-            ].join(" ")}
-            onMouseDown={() => setIsAiPanelResizing(true)}
-          />
-
-          <div
-            className={[
-              "min-h-0 shrink-0 overflow-hidden border-l border-border/80 bg-panel transition-[width,opacity] ease-out",
-              isAiPanelResizing ? "duration-0" : "duration-300",
-              showAiPanel ? "opacity-100" : "w-0 opacity-0",
-            ].join(" ")}
-            style={{ width: showAiPanel ? `${aiPanelWidth}px` : "0px" }}
-            aria-hidden={!showAiPanel}
-          >
-            <div className="h-full" style={{ width: `${aiPanelWidth}px` }}>
-              {aiPanel}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <SshConfigModal
-        open={isSshModalOpen}
-        onClose={() => setIsSshModalOpen(false)}
-        sshConfigs={sshConfigs}
-        sshForm={sshForm}
-        setSshForm={setSshForm}
-        onSaveSsh={saveSsh}
-        onConnectServer={connectServer}
-        onDeleteSsh={handleDeleteSsh}
+      <AppWorkspace
+        workbench={workbench}
+        ui={{
+          sidebarCollapsed,
+          onToggleSidebarCollapsed: () => setSidebarCollapsed((prev) => !prev),
+          onOpenSshConfig: () => setIsSshModalOpen(true),
+          onOpenScriptConfig: () => setIsScriptModalOpen(true),
+          onOpenWallpaperPicker: () => setIsWallpaperModalOpen(true),
+          onOpenAiConfig: () => setIsAiModalOpen(true),
+          workspaceRef,
+          aiPanelWidth,
+          isAiPanelResizing,
+          onStartAiPanelResize: () => setIsAiPanelResizing(true),
+          isFileEditorOpen,
+          onOpenFileEditor: () => setIsFileEditorOpen(true),
+          onCloseFileEditor: () => setIsFileEditorOpen(false),
+        }}
       />
 
-      <ScriptConfigModal
-        open={isScriptModalOpen}
-        onClose={() => setIsScriptModalOpen(false)}
-        scripts={scripts}
-        scriptForm={scriptForm}
-        setScriptForm={setScriptForm}
-        onSaveScript={saveScript}
-        onRunScript={runScript}
-        onDeleteScript={handleDeleteScript}
-      />
-
-      <AiConfigModal
-        open={isAiModalOpen}
-        onClose={() => setIsAiModalOpen(false)}
-        aiProfiles={aiProfiles}
-        activeAiProfileId={activeAiProfileId}
-        aiProfileForm={aiProfileForm}
-        setAiProfileForm={setAiProfileForm}
-        onSaveAiProfile={saveAiProfile}
-        onDeleteAiProfile={deleteAiProfile}
-        onSelectAiProfile={selectAiProfile}
-      />
-
-      <WallpaperModal
-        open={isWallpaperModalOpen}
-        onClose={() => setIsWallpaperModalOpen(false)}
-        wallpaper={wallpaper}
-        onChangeWallpaper={setWallpaper}
-      />
-
-      <FileEditorModal
-        open={isFileEditorOpen}
-        onClose={() => setIsFileEditorOpen(false)}
-        filePath={openFilePath}
-        fileContent={openFileContent}
-        onFileContentChange={handleOpenFileContentChange}
-        dirtyFile={dirtyFile}
-        theme={theme}
+      <AppModals
+        workbench={workbench}
+        modalState={{
+          isSshModalOpen,
+          onCloseSshModal: () => setIsSshModalOpen(false),
+          isScriptModalOpen,
+          onCloseScriptModal: () => setIsScriptModalOpen(false),
+          isAiModalOpen,
+          onCloseAiModal: () => setIsAiModalOpen(false),
+          isWallpaperModalOpen,
+          onCloseWallpaperModal: () => setIsWallpaperModalOpen(false),
+        }}
       />
     </div>
   );

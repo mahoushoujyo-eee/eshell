@@ -98,4 +98,51 @@ describe("groupOpsAgentMessages", () => {
       },
     ]);
   });
+
+  it("merges streaming content into the current agent turn", () => {
+    expect(
+      groupOpsAgentMessages(
+        [
+          { id: "u1", role: "user", content: "hello" },
+          { id: "t1", role: "tool", content: "tool output" },
+        ],
+        { isStreaming: true, streamingText: "working on it" },
+      ),
+    ).toEqual([
+      {
+        id: "u1",
+        kind: "user",
+        message: { id: "u1", role: "user", content: "hello" },
+      },
+      {
+        id: "turn-t1",
+        kind: "agent_turn",
+        messages: [{ id: "t1", role: "tool", content: "tool output" }],
+        isStreaming: true,
+        streamingText: "working on it",
+      },
+    ]);
+  });
+
+  it("creates a pending agent turn when streaming starts before any agent message", () => {
+    expect(
+      groupOpsAgentMessages([{ id: "u1", role: "user", content: "hello" }], {
+        isStreaming: true,
+        streamingText: "",
+      }),
+    ).toEqual([
+      {
+        id: "u1",
+        kind: "user",
+        message: { id: "u1", role: "user", content: "hello" },
+      },
+      {
+        id: "__streaming__",
+        kind: "agent_turn",
+        messages: [],
+        isStreaming: true,
+        streamingText: "",
+      },
+    ]);
+  });
 });

@@ -86,9 +86,19 @@ export const getOpsAgentLatestAssistantReplyText = (messages) => {
   return "";
 };
 
-export const groupOpsAgentMessages = (messages) => {
+export const groupOpsAgentMessages = (messages, options = {}) => {
   if (!Array.isArray(messages)) {
-    return [];
+    return options?.isStreaming
+      ? [
+          {
+            id: "__streaming__",
+            kind: "agent_turn",
+            messages: [],
+            isStreaming: true,
+            streamingText: toText(options?.streamingText),
+          },
+        ]
+      : [];
   }
 
   const groups = [];
@@ -123,5 +133,40 @@ export const groupOpsAgentMessages = (messages) => {
     currentAgentTurn.messages.push(message);
   });
 
-  return groups;
+  if (!options?.isStreaming) {
+    return groups;
+  }
+
+  const streamingText = toText(options?.streamingText);
+  for (let index = groups.length - 1; index >= 0; index -= 1) {
+    const group = groups[index];
+    if (!group || typeof group !== "object") {
+      continue;
+    }
+
+    if (group.kind === "agent_turn") {
+      const nextGroups = [...groups];
+      nextGroups[index] = {
+        ...group,
+        isStreaming: true,
+        streamingText,
+      };
+      return nextGroups;
+    }
+
+    if (group.kind === "user") {
+      break;
+    }
+  }
+
+  return [
+    ...groups,
+    {
+      id: "__streaming__",
+      kind: "agent_turn",
+      messages: [],
+      isStreaming: true,
+      streamingText,
+    },
+  ];
 };

@@ -1,10 +1,10 @@
-import { Bot, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { getTerminalWallpaperStyle, normalizeWallpaperSelection } from "../../constants/workbench";
 import { normalizeShellContextContent } from "../../lib/ops-agent-shell-context";
+import XtermSelectionAction from "./xterm/XtermSelectionAction";
 
 const inputFlushDelayMs = 18;
 const transparentTerminalBackground = "rgba(0, 0, 0, 0)";
@@ -220,21 +220,10 @@ export default function XtermConsole({
     <div className="min-h-0 flex-1 overflow-hidden p-2 pb-3">
       <div className="terminal-frame relative h-full w-full overflow-hidden border border-black/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
         {selectionText ? (
-          <button
-            type="button"
-            className="absolute top-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-accent/45 bg-panel/92 px-3 py-1.5 text-[11px] font-medium text-text shadow-[0_10px_26px_rgba(0,0,0,0.22)] backdrop-blur-md transition-colors hover:border-accent hover:bg-accent-soft"
+          <XtermSelectionAction
+            selectionLength={Array.from(selectionText).length}
             onClick={handleAttachSelection}
-            title="Add selected shell content to Ops Agent"
-          >
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white">
-              <Bot className="h-3 w-3" aria-hidden="true" />
-            </span>
-            <span>Add To Agent</span>
-            <span className="rounded-full bg-warm px-1.5 py-0.5 font-mono text-[10px] text-muted">
-              {Array.from(selectionText).length}
-            </span>
-            <Plus className="h-3 w-3 text-accent" aria-hidden="true" />
-          </button>
+          />
         ) : null}
         <div
           ref={hostRef}

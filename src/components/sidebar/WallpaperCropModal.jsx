@@ -1,54 +1,17 @@
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-
-const MAX_CUSTOM_WALLPAPER_DATA_URL_LENGTH = 2_900_000;
-const CROP_OUTPUT_WIDTH = 1920;
-const CROP_OUTPUT_HEIGHT = 1080;
-const CROP_PREVIEW_WIDTH = 960;
-const CROP_PREVIEW_HEIGHT = 540;
-
-const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-
-const getCoverMetrics = ({ image, targetWidth, targetHeight, zoom }) => {
-  const safeZoom = clamp(Number(zoom) || 1, 1, 3);
-  const baseScale = Math.max(targetWidth / image.naturalWidth, targetHeight / image.naturalHeight);
-  const scaledWidth = image.naturalWidth * baseScale * safeZoom;
-  const scaledHeight = image.naturalHeight * baseScale * safeZoom;
-
-  return {
-    scaledWidth,
-    scaledHeight,
-    maxOffsetX: Math.max(0, (scaledWidth - targetWidth) / 2),
-    maxOffsetY: Math.max(0, (scaledHeight - targetHeight) / 2),
-  };
-};
-
-const drawCroppedWallpaper = ({ ctx, image, targetWidth, targetHeight, zoom, panX, panY }) => {
-  const metrics = getCoverMetrics({ image, targetWidth, targetHeight, zoom });
-  const safePanX = clamp(Number(panX) || 0, -1, 1);
-  const safePanY = clamp(Number(panY) || 0, -1, 1);
-
-  const drawX = (targetWidth - metrics.scaledWidth) / 2 + safePanX * metrics.maxOffsetX;
-  const drawY = (targetHeight - metrics.scaledHeight) / 2 + safePanY * metrics.maxOffsetY;
-
-  ctx.clearRect(0, 0, targetWidth, targetHeight);
-  ctx.fillStyle = "#081214";
-  ctx.fillRect(0, 0, targetWidth, targetHeight);
-  ctx.drawImage(image, drawX, drawY, metrics.scaledWidth, metrics.scaledHeight);
-
-  return metrics;
-};
-
-const exportCanvasDataUrl = (canvas) => {
-  const qualities = [0.9, 0.82, 0.74];
-  for (const quality of qualities) {
-    const dataUrl = canvas.toDataURL("image/jpeg", quality);
-    if (dataUrl.length <= MAX_CUSTOM_WALLPAPER_DATA_URL_LENGTH) {
-      return dataUrl;
-    }
-  }
-  return canvas.toDataURL("image/jpeg", 0.66);
-};
+import WallpaperCropControls from "./wallpaper/WallpaperCropControls";
+import WallpaperCropPreview from "./wallpaper/WallpaperCropPreview";
+import {
+  clamp,
+  CROP_OUTPUT_HEIGHT,
+  CROP_OUTPUT_WIDTH,
+  CROP_PREVIEW_HEIGHT,
+  CROP_PREVIEW_WIDTH,
+  drawCroppedWallpaper,
+  exportCanvasDataUrl,
+  getCoverMetrics,
+} from "./wallpaper/wallpaperCropUtils";
 
 export default function WallpaperCropModal({ open, source, onCancel, onApply }) {
   const previewCanvasRef = useRef(null);
@@ -96,6 +59,24 @@ export default function WallpaperCropModal({ open, source, onCancel, onApply }) 
   const resetCropAdjustments = () => {
     setCropZoom(1);
     setCropPan({ x: 0, y: 0 });
+  };
+
+  const handleZoomChange = (event) => {
+    setCropZoom(clamp(Number(event.target.value), 1, 3));
+  };
+
+  const handleHorizontalChange = (event) => {
+    setCropPan((prev) => ({
+      ...prev,
+      x: clamp(Number(event.target.value) / 100, -1, 1),
+    }));
+  };
+
+  const handleVerticalChange = (event) => {
+    setCropPan((prev) => ({
+      ...prev,
+      y: clamp(Number(event.target.value) / 100, -1, 1),
+    }));
   };
 
   const handleCancel = () => {
@@ -220,106 +201,25 @@ export default function WallpaperCropModal({ open, source, onCancel, onApply }) 
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
-          <div className="overflow-hidden rounded-2xl border border-border/70 bg-black/35 p-2">
-            <canvas
-              ref={previewCanvasRef}
-              width={CROP_PREVIEW_WIDTH}
-              height={CROP_PREVIEW_HEIGHT}
-              className="h-auto w-full touch-none rounded-xl border border-border/70 bg-black/45"
-              onPointerDown={handlePreviewPointerDown}
-              onPointerMove={handlePreviewPointerMove}
-              onPointerUp={handlePreviewPointerRelease}
-              onPointerCancel={handlePreviewPointerRelease}
-            />
-            <div className="mt-2 text-[11px] text-muted">Drag the preview to move the crop area.</div>
-          </div>
+          <WallpaperCropPreview
+            previewCanvasRef={previewCanvasRef}
+            onPointerDown={handlePreviewPointerDown}
+            onPointerMove={handlePreviewPointerMove}
+            onPointerRelease={handlePreviewPointerRelease}
+          />
 
-          <div className="space-y-3 rounded-2xl border border-border/70 bg-surface/60 p-3">
-            <div>
-              <div className="mb-1 flex items-center justify-between text-xs text-muted">
-                <span>Zoom</span>
-                <span>{cropZoom.toFixed(2)}x</span>
-              </div>
-              <input
-                type="range"
-                min="1"
-                max="3"
-                step="0.01"
-                value={cropZoom}
-                onChange={(event) => setCropZoom(clamp(Number(event.target.value), 1, 3))}
-                className="w-full accent-accent"
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 flex items-center justify-between text-xs text-muted">
-                <span>Horizontal</span>
-                <span>{Math.round(cropPan.x * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min="-100"
-                max="100"
-                step="1"
-                value={Math.round(cropPan.x * 100)}
-                onChange={(event) =>
-                  setCropPan((prev) => ({
-                    ...prev,
-                    x: clamp(Number(event.target.value) / 100, -1, 1),
-                  }))
-                }
-                className="w-full accent-accent"
-              />
-            </div>
-
-            <div>
-              <div className="mb-1 flex items-center justify-between text-xs text-muted">
-                <span>Vertical</span>
-                <span>{Math.round(cropPan.y * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min="-100"
-                max="100"
-                step="1"
-                value={Math.round(cropPan.y * 100)}
-                onChange={(event) =>
-                  setCropPan((prev) => ({
-                    ...prev,
-                    y: clamp(Number(event.target.value) / 100, -1, 1),
-                  }))
-                }
-                className="w-full accent-accent"
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                type="button"
-                className="rounded-xl border border-border px-3 py-1.5 text-xs text-muted hover:bg-accent-soft"
-                onClick={resetCropAdjustments}
-              >
-                Reset
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-border px-3 py-1.5 text-xs text-muted hover:bg-accent-soft"
-                onClick={handleCancel}
-              >
-                Discard
-              </button>
-              <button
-                type="button"
-                disabled={applying}
-                className="rounded-xl border border-accent bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-                onClick={handleApply}
-              >
-                {applying ? "Applying..." : "Apply Wallpaper"}
-              </button>
-            </div>
-
-            {cropError ? <div className="text-xs text-danger">{cropError}</div> : null}
-          </div>
+          <WallpaperCropControls
+            cropZoom={cropZoom}
+            cropPan={cropPan}
+            onZoomChange={handleZoomChange}
+            onHorizontalChange={handleHorizontalChange}
+            onVerticalChange={handleVerticalChange}
+            onReset={resetCropAdjustments}
+            onCancel={handleCancel}
+            onApply={handleApply}
+            applying={applying}
+            cropError={cropError}
+          />
         </div>
       </div>
     </div>

@@ -144,7 +144,7 @@ const MEDIUM_RISK_PATTERNS: &[&str] = &[
 
 /// Unified shell tool:
 /// - Read-only commands execute immediately.
-/// - Blocked/mutating commands are converted to approval-required pending actions.
+/// - Commands that cannot be auto-executed are converted to approval-required pending actions.
 pub struct ShellTool;
 
 /// Reads shell context payload attached by frontend UI in the latest user message.
@@ -154,12 +154,12 @@ impl OpsAgentTool for ShellTool {
     fn definition(&self) -> OpsAgentToolDefinition {
         OpsAgentToolDefinition {
             kind: OpsAgentToolKind::shell(),
-            description: "Execute shell commands. Read-only diagnostics run immediately; mutating or blocked commands require approval."
+            description: "Execute shell commands. Read-only diagnostics run immediately; anything that cannot be auto-executed is queued for approval."
                 .to_string(),
             usage_notes: vec![
                 "Prefer read-only diagnostics first (ls, cat, grep, df, free, ps, top, uptime)."
                     .to_string(),
-                "If command is blocked by read-only policy, the tool will queue an approval action instead of failing."
+                "If automatic execution is blocked by policy or validation, the tool will queue an approval action instead of failing the chat."
                     .to_string(),
             ],
             requires_approval: false,
@@ -206,7 +206,7 @@ impl OpsAgentTool for ShellTool {
                     if should_request_approval_after_read_rejection(&error) {
                         let risk_level = classify_write_shell_risk(&raw_command);
                         let reason = format!(
-                            "Blocked by read-only policy: {error}. Waiting for explicit approval."
+                            "Automatic execution was blocked: {error}. Waiting for explicit approval."
                         );
                         let action = request.state.ops_agent.create_pending_action(
                             &conversation_id,
@@ -463,22 +463,96 @@ fn validate_read_shell_command(command: &str) -> AppResult<String> {
         ));
     }
 
-    if normalized.contains('>')
-        || normalized.contains(">>")
-        || normalized.contains('<')
-        || normalized.contains("`")
-        || normalized.contains("$(")
-    {
-        return Err(AppError::Validation(
-            "read_shell command contains unsupported shell redirection or substitution".to_string(),
-        ));
-    }
+    validate_read_shell_redirection_and_substitution(&normalized)?;
 
     for segment in normalized.split('|') {
         validate_read_shell_segment(segment.trim())?;
     }
 
     Ok(normalized)
+}
+
+fn validate_read_shell_redirection_and_substitution(command: &str) -> AppResult<()> {
+    if command.contains('<') || command.contains("`") || command.contains("$(") {
+        return Err(AppError::Validation(
+            "read_shell command contains unsupported shell redirection or substitution"
+                .to_string(),
+        ));
+    }
+
+    let tokens = command.split_whitespace().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < tokens.len() {
+        let token = tokens[index];
+        if !token.contains('>') {
+            index += 1;
+            continue;
+        }
+
+        // Allow common read-only diagnostics that silence noisy stderr/stdout
+        // without writing to remote files.
+        if is_safe_null_redirect_token(token) || is_safe_file_descriptor_duplication(token) {
+            index += 1;
+            continue;
+        }
+
+        if is_null_redirect_prefix(token) {
+            let Some(target) = tokens.get(index + 1) else {
+                return Err(AppError::Validation(
+                    "read_shell command contains unsupported shell redirection or substitution"
+                        .to_string(),
+                ));
+            };
+            if normalize_redirect_target(target) == "/dev/null" {
+                index += 2;
+                continue;
+            }
+        }
+
+        return Err(AppError::Validation(
+            "read_shell command contains unsupported shell redirection or substitution"
+                .to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn is_safe_null_redirect_token(token: &str) -> bool {
+    let normalized = token.to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        ">/dev/null"
+            | "1>/dev/null"
+            | "2>/dev/null"
+            | ">>/dev/null"
+            | "1>>/dev/null"
+            | "2>>/dev/null"
+            | "&>/dev/null"
+            | "&>>/dev/null"
+    )
+}
+
+fn is_safe_file_descriptor_duplication(token: &str) -> bool {
+    let normalized = token.to_ascii_lowercase();
+    matches!(normalized.as_str(), "2>&1" | "1>&2" | ">&1" | ">&2")
+}
+
+fn is_null_redirect_prefix(token: &str) -> bool {
+    matches!(token, ">" | "1>" | "2>" | ">>" | "1>>" | "2>>" | "&>" | "&>>")
+}
+
+fn normalize_redirect_target(token: &str) -> String {
+    let trimmed = token.trim();
+    if trimmed.len() >= 2 {
+        let bytes = trimmed.as_bytes();
+        let first = bytes[0];
+        let last = bytes[trimmed.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return trimmed[1..trimmed.len() - 1].to_ascii_lowercase();
+        }
+    }
+    trimmed.to_ascii_lowercase()
 }
 
 fn validate_read_shell_segment(segment: &str) -> AppResult<()> {
@@ -595,30 +669,7 @@ fn first_non_flag_token(tokens: &[String], start: usize) -> Option<&str> {
 }
 
 fn should_request_approval_after_read_rejection(error: &AppError) -> bool {
-    let AppError::Validation(message) = error else {
-        return false;
-    };
-
-    let normalized = message.to_ascii_lowercase();
-    if normalized.contains("redirection")
-        || normalized.contains("substitution")
-        || normalized.contains("empty pipeline segment")
-        || normalized.contains("missing a root command")
-        || normalized.contains("cannot be empty")
-    {
-        return false;
-    }
-
-    // Chained commands can still be valid user intent. Instead of failing the run,
-    // route them to explicit approval as write-shell style execution.
-    if normalized.contains("command chaining") {
-        return true;
-    }
-
-    normalized.contains("not in the allowlist")
-        || normalized.contains("rejected mutating root command")
-        || normalized.contains("only")
-        || normalized.contains("sed -i")
+    matches!(error, AppError::Validation(_))
 }
 
 fn classify_write_shell_risk(command: &str) -> OpsAgentRiskLevel {
@@ -669,6 +720,17 @@ mod tests {
     }
 
     #[test]
+    fn validate_read_shell_allows_dev_null_redirection() {
+        let command = validate_read_shell_command(r#"find / -name "hadoop" 2>/dev/null | wc -l"#)
+            .expect("validate read command");
+        assert_eq!(command, r#"find / -name "hadoop" 2>/dev/null | wc -l"#);
+
+        let spaced = validate_read_shell_command(r#"find / -name "hadoop" 2> /dev/null"#)
+            .expect("validate read command");
+        assert_eq!(spaced, r#"find / -name "hadoop" 2> /dev/null"#);
+    }
+
+    #[test]
     fn validate_read_shell_rejects_mutation_and_chaining() {
         let command = validate_read_shell_command("rm -rf /tmp/foo");
         assert!(command.is_err());
@@ -678,7 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn read_rejection_can_be_escalated_to_approval() {
+    fn read_rejection_is_always_escalated_to_approval() {
         let blocked = validate_read_shell_command("java -version").expect_err("blocked");
         assert!(should_request_approval_after_read_rejection(&blocked));
 
@@ -687,7 +749,10 @@ mod tests {
         assert!(should_request_approval_after_read_rejection(&chained));
 
         let invalid = validate_read_shell_command("ls > out.txt").expect_err("invalid");
-        assert!(!should_request_approval_after_read_rejection(&invalid));
+        assert!(should_request_approval_after_read_rejection(&invalid));
+
+        let malformed = validate_read_shell_command("ps aux | | wc -l").expect_err("malformed");
+        assert!(should_request_approval_after_read_rejection(&malformed));
     }
 
     #[test]
