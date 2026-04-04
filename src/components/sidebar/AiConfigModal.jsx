@@ -11,6 +11,7 @@ const EMPTY_AI_FORM = {
     "You are a Linux operations assistant. Return concise answers and include safe shell commands when needed.",
   temperature: 0.2,
   maxTokens: 800,
+  maxContextTokens: 100000,
 };
 
 export default function AiConfigModal({
@@ -206,6 +207,15 @@ export default function AiConfigModal({
                 placeholder="Max tokens"
                 value={aiProfileForm.maxTokens}
                 onChange={(event) => setAiProfileForm((prev) => ({ ...prev, maxTokens: event.target.value }))}
+              />
+
+              <input
+                className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+                placeholder="Max context tokens"
+                value={aiProfileForm.maxContextTokens}
+                onChange={(event) =>
+                  setAiProfileForm((prev) => ({ ...prev, maxContextTokens: event.target.value }))
+                }
               />
 
               <textarea

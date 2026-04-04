@@ -29,6 +29,7 @@ export default function SftpDeleteConfirmDialog({
   }
 
   const fileLabel = entry.name?.trim() || entry.path || "Selected file";
+  const isDirectory = entry.entryType === "directory";
 
   return (
     <div
@@ -53,10 +54,14 @@ export default function SftpDeleteConfirmDialog({
             >
               Confirm Delete
             </div>
-            <h3 className="mt-1 text-lg font-semibold text-text">Delete this remote file?</h3>
+            <h3 className="mt-1 text-lg font-semibold text-text">
+              {isDirectory ? "Delete this remote folder?" : "Delete this remote file?"}
+            </h3>
             <p className="mt-2 text-sm leading-6 text-muted">
-              <span className="font-medium text-text">{fileLabel}</span> will be removed from the remote
-              server immediately.
+              <span className="font-medium text-text">{fileLabel}</span>{" "}
+              {isDirectory
+                ? "and everything inside it will be removed from the remote server immediately."
+                : "will be removed from the remote server immediately."}
             </p>
           </div>
         </div>

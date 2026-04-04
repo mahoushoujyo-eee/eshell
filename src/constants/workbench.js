@@ -93,6 +93,7 @@ export const DEFAULT_AI = {
     "You are a Linux operations assistant. Return concise answers and include safe shell commands when needed.",
   temperature: 0.2,
   maxTokens: 800,
+  maxContextTokens: 100000,
 };
 
 export const getWallpaperPreset = (id) => WALLPAPER_PRESET_MAP.get(id) || WALLPAPER_PRESET_MAP.get(DEFAULT_WALLPAPER.id);

@@ -253,6 +253,28 @@ impl OpsAgentStore {
         Ok(message)
     }
 
+    pub fn replace_messages(
+        &self,
+        conversation_id: &str,
+        messages: Vec<OpsAgentMessage>,
+    ) -> AppResult<OpsAgentConversation> {
+        let mut guard = self.data.write().expect("ops agent lock poisoned");
+        let conversation = guard
+            .conversations
+            .iter_mut()
+            .find(|item| item.id == conversation_id)
+            .ok_or_else(|| AppError::NotFound(format!("ops agent conversation {conversation_id}")))?;
+
+        conversation.messages = messages;
+        conversation.updated_at = now_rfc3339();
+        let snapshot = conversation.clone();
+
+        guard.active_conversation_id = Some(conversation_id.to_string());
+        self.persist_conversation_locked(&snapshot)?;
+        self.persist_list_locked(&guard)?;
+        Ok(snapshot)
+    }
+
     pub fn list_pending_actions(
         &self,
         session_id: Option<&str>,

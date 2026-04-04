@@ -803,7 +803,7 @@ export function useWorkbenchOperations({
   const deleteSftpEntry = useCallback(
     async (entry = null) => {
       const targetEntry = entry || selectedEntry;
-      if (!activeSessionId || !targetEntry || targetEntry.entryType === "directory") {
+      if (!activeSessionId || !targetEntry) {
         return false;
       }
 
@@ -811,17 +811,22 @@ export function useWorkbenchOperations({
       try {
         await runBusy("Delete remote file", () =>
           runWithSessionReconnect(activeSessionId, (sessionId) =>
-            api.sftpDeleteEntry(sessionId, remotePath),
+            api.sftpDeleteEntry(sessionId, remotePath, targetEntry.entryType),
           ),
         );
 
-        if (openFilePath && normalizeRemotePath(openFilePath) === remotePath) {
+        if (
+          targetEntry.entryType !== "directory" &&
+          openFilePath &&
+          normalizeRemotePath(openFilePath) === remotePath
+        ) {
           setOpenFilePath("");
           setOpenFileContent("");
           setDirtyFile(false);
         }
 
         await refreshSftp(currentPath);
+        setSelectedEntry(null);
         pushUiNotice(`Deleted ${targetEntry.name || remotePath}`, {
           tone: "success",
           ttlMs: 4200,
@@ -845,6 +850,7 @@ export function useWorkbenchOperations({
       setDirtyFile,
       setOpenFileContent,
       setOpenFilePath,
+      setSelectedEntry,
     ],
   );
 
@@ -1133,6 +1139,43 @@ export function useWorkbenchOperations({
     [clearAiConversationError, loadAiConversation, onError, reloadAiConversations, runBusy],
   );
 
+  const compactAiConversation = useCallback(
+    async (conversationId = activeAiConversationId) => {
+      if (!conversationId) {
+        return false;
+      }
+
+      try {
+        const result = await runBusy("Compact conversation", () =>
+          api.opsAgentCompactConversation(conversationId),
+        );
+        if (result?.conversation) {
+          setActiveAiConversation(result.conversation);
+        } else {
+          await loadAiConversation(conversationId);
+        }
+        await reloadAiConversations();
+        pushUiNotice(result?.note || "Conversation compaction finished.", {
+          tone: result?.compacted ? "success" : "info",
+          ttlMs: 4200,
+        });
+        return Boolean(result?.compacted);
+      } catch (err) {
+        onError(err);
+        return false;
+      }
+    },
+    [
+      activeAiConversationId,
+      loadAiConversation,
+      onError,
+      pushUiNotice,
+      reloadAiConversations,
+      runBusy,
+      setActiveAiConversation,
+    ],
+  );
+
   const resolveAiPendingAction = useCallback(
     async (actionId, approve) => {
       if (!actionId) {
@@ -1327,6 +1370,7 @@ export function useWorkbenchOperations({
     selectAiConversation,
     createAiConversation,
     deleteAiConversation,
+    compactAiConversation,
     resolveAiPendingAction,
     askAi,
     cancelAiStreaming,

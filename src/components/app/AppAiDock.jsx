@@ -27,6 +27,7 @@ export default function AppAiDock({
     selectAiConversation,
     createAiConversation,
     deleteAiConversation,
+    compactAiConversation,
     resolveAiPendingAction,
     askAi,
     cancelAiStreaming,
@@ -68,6 +69,7 @@ export default function AppAiDock({
             onCreateConversation={createAiConversation}
             onSelectConversation={selectAiConversation}
             onDeleteConversation={deleteAiConversation}
+            onCompactConversation={compactAiConversation}
             pendingActions={aiPendingActions}
             onResolvePendingAction={resolveAiPendingAction}
             resolvingActionId={resolvingAiActionId}

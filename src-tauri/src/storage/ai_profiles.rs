@@ -30,6 +30,11 @@ impl Storage {
                 "maxTokens must be greater than 0".to_string(),
             ));
         }
+        if input.max_context_tokens == 0 {
+            return Err(AppError::Validation(
+                "maxContextTokens must be greater than 0".to_string(),
+            ));
+        }
 
         let mut guard = self.ai_profiles.write().expect("ai profiles lock poisoned");
         ensure_ai_profiles_state(&mut guard, &AiConfig::default());
@@ -52,6 +57,7 @@ impl Storage {
                     system_prompt: input.system_prompt.trim().to_string(),
                     temperature: input.temperature,
                     max_tokens: input.max_tokens,
+                    max_context_tokens: input.max_context_tokens,
                     created_at: existing.created_at.clone(),
                     updated_at: now,
                 };
@@ -68,6 +74,7 @@ impl Storage {
                     system_prompt: input.system_prompt.trim().to_string(),
                     temperature: input.temperature,
                     max_tokens: input.max_tokens,
+                    max_context_tokens: input.max_context_tokens,
                     created_at: now.clone(),
                     updated_at: now,
                 };
@@ -132,6 +139,11 @@ impl Storage {
                 "maxTokens must be greater than 0".to_string(),
             ));
         }
+        if input.max_context_tokens == 0 {
+            return Err(AppError::Validation(
+                "maxContextTokens must be greater than 0".to_string(),
+            ));
+        }
 
         let mut guard = self.ai_profiles.write().expect("ai profiles lock poisoned");
         ensure_ai_profiles_state(&mut guard, &AiConfig::default());
@@ -157,6 +169,7 @@ impl Storage {
             system_prompt: input.system_prompt.trim().to_string(),
             temperature: input.temperature,
             max_tokens: input.max_tokens,
+            max_context_tokens: input.max_context_tokens,
             created_at: existing.created_at.clone(),
             updated_at: now,
         };
@@ -250,6 +263,9 @@ fn normalize_profile(profile: &mut AiProfile) {
     if profile.max_tokens == 0 {
         profile.max_tokens = defaults.max_tokens;
     }
+    if profile.max_context_tokens == 0 {
+        profile.max_context_tokens = defaults.max_context_tokens;
+    }
     if profile.created_at.trim().is_empty() {
         profile.created_at = now_rfc3339();
     }
@@ -273,6 +289,7 @@ fn profile_from_config(config: &AiConfig, name: &str) -> AiProfile {
         system_prompt: config.system_prompt.clone(),
         temperature: config.temperature,
         max_tokens: config.max_tokens,
+        max_context_tokens: config.max_context_tokens,
         created_at: now.clone(),
         updated_at: now,
     }
@@ -286,6 +303,7 @@ fn config_from_profile(profile: &AiProfile) -> AiConfig {
         system_prompt: profile.system_prompt.clone(),
         temperature: profile.temperature,
         max_tokens: profile.max_tokens,
+        max_context_tokens: profile.max_context_tokens,
         updated_at: profile.updated_at.clone(),
     }
 }

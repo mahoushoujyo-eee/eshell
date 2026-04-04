@@ -6,6 +6,10 @@ pub fn now_rfc3339() -> String {
     Utc::now().to_rfc3339()
 }
 
+pub fn default_ai_max_context_tokens() -> u32 {
+    100_000
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SshConfig {
@@ -152,6 +156,7 @@ pub struct SftpDownloadToLocalInput {
 pub struct SftpDeleteInput {
     pub session_id: String,
     pub path: String,
+    pub entry_type: SftpEntryType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -304,6 +309,8 @@ pub struct AiConfig {
     pub system_prompt: String,
     pub temperature: f64,
     pub max_tokens: u32,
+    #[serde(default = "default_ai_max_context_tokens")]
+    pub max_context_tokens: u32,
     pub updated_at: String,
 }
 
@@ -316,6 +323,7 @@ impl Default for AiConfig {
             system_prompt: "You are a Linux operations assistant. Return concise answers and include safe shell commands when needed.".to_string(),
             temperature: 0.2,
             max_tokens: 800,
+            max_context_tokens: default_ai_max_context_tokens(),
             updated_at: now_rfc3339(),
         }
     }
@@ -330,6 +338,8 @@ pub struct AiConfigInput {
     pub system_prompt: String,
     pub temperature: f64,
     pub max_tokens: u32,
+    #[serde(default = "default_ai_max_context_tokens")]
+    pub max_context_tokens: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -343,6 +353,8 @@ pub struct AiProfile {
     pub system_prompt: String,
     pub temperature: f64,
     pub max_tokens: u32,
+    #[serde(default = "default_ai_max_context_tokens")]
+    pub max_context_tokens: u32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -358,6 +370,8 @@ pub struct AiProfileInput {
     pub system_prompt: String,
     pub temperature: f64,
     pub max_tokens: u32,
+    #[serde(default = "default_ai_max_context_tokens")]
+    pub max_context_tokens: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

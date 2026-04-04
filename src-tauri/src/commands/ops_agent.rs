@@ -6,7 +6,8 @@ use crate::error::to_command_error;
 use crate::ops_agent::service as ops_agent_service;
 use crate::ops_agent::types::{
     OpsAgentCancelRunInput, OpsAgentCancelRunResult, OpsAgentChatAccepted, OpsAgentChatInput,
-    OpsAgentConversation, OpsAgentConversationSummary, OpsAgentCreateConversationInput,
+    OpsAgentCompactConversationInput, OpsAgentCompactConversationResult, OpsAgentConversation,
+    OpsAgentConversationSummary, OpsAgentCreateConversationInput,
     OpsAgentDeleteConversationInput, OpsAgentGetConversationInput, OpsAgentListPendingActionsInput,
     OpsAgentPendingAction, OpsAgentResolveActionInput, OpsAgentResolveActionResult,
     OpsAgentSetActiveConversationInput,
@@ -60,6 +61,18 @@ pub fn ops_agent_set_active_conversation(
     input: OpsAgentSetActiveConversationInput,
 ) -> Result<(), String> {
     ops_agent_service::set_active_conversation(&state, &input.conversation_id)
+        .map_err(to_command_error)
+}
+
+/// Compacts one OpsAgent conversation history to reclaim context window.
+#[tauri::command]
+pub async fn ops_agent_compact_conversation(
+    state: State<'_, Arc<AppState>>,
+    input: OpsAgentCompactConversationInput,
+) -> Result<OpsAgentCompactConversationResult, String> {
+    let app_state = Arc::clone(state.inner());
+    ops_agent_service::compact_conversation(app_state, input)
+        .await
         .map_err(to_command_error)
 }
 

@@ -123,6 +123,33 @@ where
     stream_chat_completion(config, messages, on_delta).await
 }
 
+pub async fn compact_history_summary(
+    config: &AiConfig,
+    transcript: &str,
+    target_max_tokens: u32,
+) -> AppResult<String> {
+    validate_ai_config(config)?;
+
+    let summary_config = AiConfig {
+        max_tokens: target_max_tokens.max(256),
+        ..config.clone()
+    };
+    let messages = vec![
+        WireChatMessage {
+            role: "system".to_string(),
+            content: "You compress prior ops troubleshooting conversations so the session can continue inside a limited context window.\nSummarize only durable information that should survive compaction:\n- user goals and constraints\n- important environment facts, hosts, file paths, and config values\n- diagnoses, findings, and failed or successful actions\n- pending approvals, open questions, and next steps\nKeep it concise and structured in markdown bullets. Do not repeat low-signal chatter or verbatim logs.".to_string(),
+        },
+        WireChatMessage {
+            role: "user".to_string(),
+            content: format!(
+                "Compress the following earlier conversation history into a compact summary for future turns:\n\n{transcript}"
+            ),
+        },
+    ];
+
+    request_chat_completion(&summary_config, messages).await
+}
+
 #[allow(dead_code)]
 pub async fn stream_tool_summary<F>(
     config: &AiConfig,

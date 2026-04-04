@@ -345,6 +345,7 @@ mod tests {
                 system_prompt: "You are a Linux operations assistant. Return concise answers and include safe shell commands when needed.".to_string(),
                 temperature: 0.2,
                 max_tokens: 100000,
+                max_context_tokens: 100000,
             })
             .expect("save profile");
         let profile_id = saved

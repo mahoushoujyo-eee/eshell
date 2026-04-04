@@ -19,7 +19,10 @@ export function AssistantMessageSection({
   return (
     <section
       key={message.id || sectionKeyPrefix}
-      className={withDivider ? "mt-3 border-t border-border/60 pt-3" : ""}
+      className={[
+        "min-w-0 break-words [overflow-wrap:anywhere]",
+        withDivider ? "mt-3 border-t border-border/60 pt-3" : "",
+      ].join(" ")}
     >
       {sections.length > 0 ? (
         sections.map((section, sectionIndex) => {
@@ -96,7 +99,10 @@ export function StreamingMessageSection({
   return (
     <section
       key={`${sectionKeyPrefix}:streaming`}
-      className={withDivider ? "mt-3 border-t border-border/60 pt-3" : ""}
+      className={[
+        "min-w-0 break-words [overflow-wrap:anywhere]",
+        withDivider ? "mt-3 border-t border-border/60 pt-3" : "",
+      ].join(" ")}
     >
       <div className="mb-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-muted">
         <Loader2 className="h-3 w-3 animate-spin" />

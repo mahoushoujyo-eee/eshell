@@ -12,6 +12,10 @@ export const normalizeAiConfig = (config) => ({
   systemPrompt: config?.systemPrompt || DEFAULT_AI.systemPrompt,
   temperature: parseNumber(config?.temperature, DEFAULT_AI.temperature),
   maxTokens: Math.max(1, Math.round(parseNumber(config?.maxTokens, DEFAULT_AI.maxTokens))),
+  maxContextTokens: Math.max(
+    1,
+    Math.round(parseNumber(config?.maxContextTokens, DEFAULT_AI.maxContextTokens)),
+  ),
 });
 
 const normalizeAiProfile = (profile) => ({
@@ -44,6 +48,7 @@ export const toAiProfileInput = (profile) => ({
   systemPrompt: profile.systemPrompt,
   temperature: Number(profile.temperature),
   maxTokens: Number(profile.maxTokens),
+  maxContextTokens: Number(profile.maxContextTokens),
 });
 
 export const DEFAULT_AI_PROFILE_FORM = {

@@ -22,6 +22,7 @@ fn is_usable_profile(profile: &AiProfile) -> bool {
         && !profile.model.trim().is_empty()
         && (0.0..=2.0).contains(&profile.temperature)
         && profile.max_tokens > 0
+        && profile.max_context_tokens > 0
 }
 
 fn eshell_ai_profiles_path() -> PathBuf {
@@ -136,6 +137,7 @@ fn ai_profile_crud_works() {
             system_prompt: profile_seed.system_prompt.clone(),
             temperature: profile_seed.temperature,
             max_tokens: profile_seed.max_tokens,
+            max_context_tokens: profile_seed.max_context_tokens,
         })
         .expect("save profile");
 
@@ -176,6 +178,7 @@ fn save_ai_config_updates_active_profile() {
             system_prompt: profile_seed.system_prompt.clone(),
             temperature: profile_seed.temperature,
             max_tokens: profile_seed.max_tokens,
+            max_context_tokens: profile_seed.max_context_tokens,
         })
         .expect("save config");
 
@@ -201,6 +204,7 @@ fn get_ai_config_prefers_requested_active_profile() {
     let requested_system_prompt = profile_seed.system_prompt.clone();
     let requested_temperature = profile_seed.temperature;
     let requested_max_tokens = profile_seed.max_tokens;
+    let requested_max_context_tokens = profile_seed.max_context_tokens;
 
     let root = temp_dir("ai-profile-priority");
     std::fs::create_dir_all(&root).expect("create temp root");
@@ -216,6 +220,7 @@ fn get_ai_config_prefers_requested_active_profile() {
                 "systemPrompt": "backup prompt",
                 "temperature": 0.7,
                 "maxTokens": 1024,
+                "maxContextTokens": 64000,
                 "createdAt": "2026-03-20T09:46:30.522552100+00:00",
                 "updatedAt": "2026-03-20T09:46:30.522552100+00:00"
             },
@@ -228,6 +233,7 @@ fn get_ai_config_prefers_requested_active_profile() {
                 "systemPrompt": requested_system_prompt,
                 "temperature": requested_temperature,
                 "maxTokens": requested_max_tokens,
+                "maxContextTokens": requested_max_context_tokens,
                 "createdAt": "2026-03-20T09:46:30.522552100+00:00",
                 "updatedAt": "2026-03-20T09:46:30.522552100+00:00"
             }
@@ -252,6 +258,44 @@ fn get_ai_config_prefers_requested_active_profile() {
     assert_eq!(config.base_url, expected_base_url);
     assert_eq!(config.model, profile_seed.model);
     assert_eq!(config.max_tokens, profile_seed.max_tokens);
+    assert_eq!(config.max_context_tokens, profile_seed.max_context_tokens);
     assert_eq!(config.temperature, profile_seed.temperature);
     assert_eq!(config.system_prompt, profile_seed.system_prompt);
+}
+
+#[test]
+fn legacy_ai_profiles_without_max_context_tokens_get_default_value() {
+    let root = temp_dir("ai-profile-legacy-context");
+    std::fs::create_dir_all(&root).expect("create temp root");
+
+    let payload = serde_json::json!({
+        "profiles": [
+            {
+                "id": "legacy-profile",
+                "name": "Legacy",
+                "baseUrl": "https://api.openai.com/v1",
+                "apiKey": "legacy-key",
+                "model": "gpt-4o-mini",
+                "systemPrompt": "legacy prompt",
+                "temperature": 0.2,
+                "maxTokens": 800,
+                "createdAt": "2026-03-20T09:46:30.522552100+00:00",
+                "updatedAt": "2026-03-20T09:46:30.522552100+00:00"
+            }
+        ],
+        "activeProfileId": "legacy-profile"
+    });
+
+    std::fs::write(
+        root.join("ai_profiles.json"),
+        serde_json::to_string_pretty(&payload).expect("serialize payload"),
+    )
+    .expect("write ai_profiles");
+
+    let storage = Storage::new(root).expect("create storage");
+    let config = storage.get_ai_config();
+    assert_eq!(config.max_context_tokens, 100_000);
+
+    let profiles = storage.list_ai_profiles();
+    assert_eq!(profiles.profiles[0].max_context_tokens, 100_000);
 }

@@ -7,6 +7,7 @@ use tokio::time::sleep;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
+use super::super::compact;
 use super::super::context::load_session_context;
 use super::super::events::OpsAgentEventEmitter;
 use super::super::logging::append_debug_log;
@@ -53,6 +54,25 @@ pub(super) async fn process_chat_stream(
     }
 
     let config = state.storage.get_ai_config();
+    if let Some(compaction) = compact::auto_compact_conversation_if_needed(
+        state.as_ref(),
+        &conversation_id,
+        session_id.as_deref(),
+        &config,
+    )
+    .await?
+    {
+        append_debug_log(
+            state.as_ref(),
+            "react.auto_compact",
+            Some(run_id_for_log.as_str()),
+            Some(conversation_id.as_str()),
+            format!(
+                "estimated_before={} estimated_after={}",
+                compaction.estimated_tokens_before, compaction.estimated_tokens_after
+            ),
+        );
+    }
     let conversation = state.ops_agent.get_conversation(&conversation_id)?;
     let (history, current_user_message) =
         split_history_for_current_message(conversation.messages, &current_user_message_id)?;

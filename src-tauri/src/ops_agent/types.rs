@@ -197,6 +197,22 @@ pub struct OpsAgentChatInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OpsAgentCompactConversationInput {
+    pub conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentCompactConversationResult {
+    pub conversation: OpsAgentConversation,
+    pub compacted: bool,
+    pub note: String,
+    pub estimated_tokens_before: usize,
+    pub estimated_tokens_after: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpsAgentChatAccepted {
     pub run_id: String,
     pub conversation_id: String,

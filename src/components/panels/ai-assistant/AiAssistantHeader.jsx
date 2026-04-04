@@ -1,4 +1,4 @@
-import { Bot, ChevronLeft, ChevronRight, Plus, Settings2, X } from "lucide-react";
+import { Archive, Bot, ChevronLeft, ChevronRight, Loader2, Plus, Settings2, X } from "lucide-react";
 import { HeaderActionButton } from "./AiAssistantControls";
 
 export default function AiAssistantHeader({
@@ -7,6 +7,9 @@ export default function AiAssistantHeader({
   historyVisible,
   onToggleHistory,
   onCreateConversation,
+  onCompactConversation,
+  compactBusy = false,
+  canCompact = false,
   onOpenAiConfig,
   onClose,
 }) {
@@ -54,6 +57,19 @@ export default function AiAssistantHeader({
         <HeaderActionButton title="New conversation" onClick={onCreateConversation}>
           <Plus className="h-4 w-4" aria-hidden="true" />
         </HeaderActionButton>
+        {onCompactConversation ? (
+          <HeaderActionButton
+            title={compactBusy ? "Compacting conversation" : "Compact conversation"}
+            onClick={compactBusy ? undefined : onCompactConversation}
+            disabled={!canCompact || compactBusy}
+          >
+            {compactBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Archive className="h-4 w-4" aria-hidden="true" />
+            )}
+          </HeaderActionButton>
+        ) : null}
         {onOpenAiConfig ? (
           <HeaderActionButton title="AI config" onClick={onOpenAiConfig}>
             <Settings2 className="h-4 w-4" aria-hidden="true" />

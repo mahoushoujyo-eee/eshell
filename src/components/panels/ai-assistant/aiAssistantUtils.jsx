@@ -2,20 +2,20 @@ export const MARKDOWN_COMPONENTS = {
   h1: (props) => <h1 className="mb-2 text-base font-semibold" {...props} />,
   h2: (props) => <h2 className="mb-2 text-sm font-semibold" {...props} />,
   h3: (props) => <h3 className="mb-1 text-sm font-medium" {...props} />,
-  p: (props) => <p className="mb-2 leading-6 last:mb-0" {...props} />,
-  ul: (props) => <ul className="mb-2 list-disc pl-4 last:mb-0" {...props} />,
-  ol: (props) => <ol className="mb-2 list-decimal pl-4 last:mb-0" {...props} />,
-  li: (props) => <li className="mb-1" {...props} />,
+  p: (props) => <p className="mb-2 break-words leading-6 [overflow-wrap:anywhere] last:mb-0" {...props} />,
+  ul: (props) => <ul className="mb-2 list-disc break-words pl-4 [overflow-wrap:anywhere] last:mb-0" {...props} />,
+  ol: (props) => <ol className="mb-2 list-decimal break-words pl-4 [overflow-wrap:anywhere] last:mb-0" {...props} />,
+  li: (props) => <li className="mb-1 break-words [overflow-wrap:anywhere]" {...props} />,
   a: (props) => (
     <a
-      className="text-accent underline underline-offset-2 hover:opacity-80"
+      className="break-all text-accent underline underline-offset-2 [overflow-wrap:anywhere] hover:opacity-80"
       target="_blank"
       rel="noreferrer"
       {...props}
     />
   ),
   blockquote: (props) => (
-    <blockquote className="my-2 border-l-2 border-border pl-3 text-muted" {...props} />
+    <blockquote className="my-2 border-l-2 border-border pl-3 break-words text-muted [overflow-wrap:anywhere]" {...props} />
   ),
   table: (props) => (
     <div className="my-2 overflow-auto">
@@ -23,22 +23,30 @@ export const MARKDOWN_COMPONENTS = {
     </div>
   ),
   th: (props) => (
-    <th className="border border-border/70 bg-panel px-2 py-1 font-medium" {...props} />
+    <th className="border border-border/70 bg-panel px-2 py-1 break-words font-medium [overflow-wrap:anywhere]" {...props} />
   ),
-  td: (props) => <td className="border border-border/70 px-2 py-1 align-top" {...props} />,
+  td: (props) => <td className="border border-border/70 px-2 py-1 align-top break-words [overflow-wrap:anywhere]" {...props} />,
   pre: (props) => (
     <pre
-      className="my-2 overflow-auto rounded-xl border border-border/80 bg-panel/95 p-2 font-mono text-[11px]"
+      className="my-2 max-w-full overflow-auto rounded-xl border border-border/80 bg-panel/95 p-2 font-mono text-[11px]"
       {...props}
     />
   ),
   code: ({ inline, className, children, ...props }) =>
     inline ? (
-      <code className="rounded bg-warm px-1 py-0.5 font-mono text-[11px]" {...props}>
+      <code
+        className="rounded bg-warm px-1 py-0.5 font-mono text-[11px] break-all whitespace-pre-wrap [overflow-wrap:anywhere]"
+        {...props}
+      >
         {children}
       </code>
     ) : (
-      <code className={["font-mono text-[11px]", className].filter(Boolean).join(" ")} {...props}>
+      <code
+        className={["font-mono text-[11px] break-words [overflow-wrap:anywhere]", className]
+          .filter(Boolean)
+          .join(" ")}
+        {...props}
+      >
         {children}
       </code>
     ),

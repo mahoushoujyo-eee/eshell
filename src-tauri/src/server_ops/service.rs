@@ -262,7 +262,16 @@ pub fn sftp_delete_entry(state: &AppState, input: SftpDeleteInput) -> AppResult<
     let ssh = connect(&config)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
-    sftp.unlink(Path::new(&remote_path))?;
+    if remote_path == "/" {
+        return Err(AppError::Validation(
+            "refusing to delete the remote root directory".to_string(),
+        ));
+    }
+
+    match input.entry_type {
+        SftpEntryType::Directory => delete_remote_dir_recursive(&sftp, &remote_path)?,
+        _ => sftp.unlink(Path::new(&remote_path))?,
+    }
     Ok(())
 }
 
@@ -855,6 +864,29 @@ fn extract_entry_name(raw_path: &str) -> Option<String> {
         .rsplit('/')
         .find(|segment| !segment.is_empty())
         .map(ToString::to_string)
+}
+
+fn delete_remote_dir_recursive(sftp: &ssh2::Sftp, path: &str) -> AppResult<()> {
+    let normalized_path = normalize_remote_path(path);
+    let entries = sftp.readdir(Path::new(&normalized_path))?;
+
+    for (entry_path, stat) in entries {
+        let Some(name) = extract_entry_name(&entry_path.to_string_lossy()) else {
+            continue;
+        };
+        if name == "." || name == ".." {
+            continue;
+        }
+
+        let child_path = join_remote_path(&normalized_path, &name);
+        match stat_to_entry_type(&stat) {
+            SftpEntryType::Directory => delete_remote_dir_recursive(sftp, &child_path)?,
+            _ => sftp.unlink(Path::new(&child_path))?,
+        }
+    }
+
+    sftp.rmdir(Path::new(&normalized_path))?;
+    Ok(())
 }
 
 fn parse_cd_target(command: &str) -> Option<Option<String>> {

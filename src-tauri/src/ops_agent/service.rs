@@ -1,4 +1,5 @@
 mod chat;
+mod compact;
 mod helpers;
 mod react_loop;
 mod resolve;
@@ -8,6 +9,7 @@ pub use chat::{
     cancel_chat_run, create_conversation, delete_conversation, get_conversation,
     list_conversations, list_pending_actions, set_active_conversation, start_chat_stream,
 };
+pub use compact::compact_conversation;
 pub use resolve::resolve_pending_action;
 
 pub(super) const OPS_AGENT_RUN_CANCELLED: &str = "__ops_agent_run_cancelled__";

@@ -30,7 +30,7 @@ export default function AiAgentTurn({
     <div className="flex justify-start">
       <article
         className={[
-          "max-w-[92%] border border-border/80 bg-panel/95 px-4 py-3 text-xs",
+          "min-w-0 max-w-[92%] overflow-x-hidden border border-border/80 bg-panel/95 px-4 py-3 text-xs",
           isDrawer
             ? "rounded-3xl shadow-[0_12px_30px_rgba(12,18,24,0.08)]"
             : "rounded-2xl shadow-none",

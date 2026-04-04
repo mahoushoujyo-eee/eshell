@@ -64,6 +64,7 @@ pub fn run() {
             commands::ops_agent::ops_agent_get_conversation,
             commands::ops_agent::ops_agent_delete_conversation,
             commands::ops_agent::ops_agent_set_active_conversation,
+            commands::ops_agent::ops_agent_compact_conversation,
             commands::ops_agent::ops_agent_chat_stream_start,
             commands::ops_agent::ops_agent_list_pending_actions,
             commands::ops_agent::ops_agent_resolve_action,

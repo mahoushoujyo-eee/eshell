@@ -135,7 +135,7 @@ export default function SftpPanel({
     event.preventDefault();
     event.stopPropagation();
 
-    if (!entry || entry.entryType === "directory") {
+    if (!entry) {
       setContextMenu(null);
       return;
     }
@@ -166,7 +166,7 @@ export default function SftpPanel({
   };
 
   const requestDeleteEntry = (entry) => {
-    if (!entry || entry.entryType === "directory") {
+    if (!entry) {
       return;
     }
     closeEntryContextMenu();

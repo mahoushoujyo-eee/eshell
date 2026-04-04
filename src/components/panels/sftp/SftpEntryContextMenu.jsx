@@ -77,7 +77,8 @@ export default function SftpEntryContextMenu({
     return null;
   }
 
-  const fileLabel = entry.name?.trim() || entry.path || "Selected file";
+  const fileLabel = entry.name?.trim() || entry.path || "Selected item";
+  const isDirectory = entry.entryType === "directory";
 
   return (
     <div
@@ -88,7 +89,9 @@ export default function SftpEntryContextMenu({
       aria-label={`Actions for ${fileLabel}`}
     >
       <div className="border-b border-border/70 px-2 pb-2">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted/80">File Actions</div>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted/80">
+          {isDirectory ? "Folder Actions" : "File Actions"}
+        </div>
         <div className="mt-1 truncate text-sm font-medium text-text" title={entry.path}>
           {fileLabel}
         </div>
@@ -102,17 +105,19 @@ export default function SftpEntryContextMenu({
           role="menuitem"
         >
           <FilePenLine className="h-4 w-4 text-accent" aria-hidden="true" />
-          Open
+          {isDirectory ? "Open Folder" : "Open"}
         </button>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-accent-soft/70"
-          onClick={() => onDownload?.(entry)}
-          role="menuitem"
-        >
-          <Download className="h-4 w-4 text-accent" aria-hidden="true" />
-          Download
-        </button>
+        {!isDirectory ? (
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-accent-soft/70"
+            onClick={() => onDownload?.(entry)}
+            role="menuitem"
+          >
+            <Download className="h-4 w-4 text-accent" aria-hidden="true" />
+            Download
+          </button>
+        ) : null}
         <button
           type="button"
           className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm text-danger transition-colors hover:bg-danger/10"

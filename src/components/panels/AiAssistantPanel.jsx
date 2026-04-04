@@ -18,6 +18,7 @@ export default function AiAssistantPanel({
   onCreateConversation,
   onSelectConversation,
   onDeleteConversation,
+  onCompactConversation,
   pendingActions,
   onResolvePendingAction,
   resolvingActionId,
@@ -49,6 +50,7 @@ export default function AiAssistantPanel({
   });
   const [pendingDeleteConversation, setPendingDeleteConversation] = useState(null);
   const [deleteConversationBusyId, setDeleteConversationBusyId] = useState("");
+  const [compactConversationBusyId, setCompactConversationBusyId] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -60,6 +62,7 @@ export default function AiAssistantPanel({
   useEffect(() => {
     setPendingDeleteConversation(null);
     setDeleteConversationBusyId("");
+    setCompactConversationBusyId("");
   }, [activeConversationId]);
 
   const requestDeleteConversation = (conversation) => {
@@ -100,6 +103,19 @@ export default function AiAssistantPanel({
   const deleteDialogBusy =
     Boolean(pendingDeleteConversation?.id) && deleteConversationBusyId === pendingDeleteConversation.id;
 
+  const handleCompactConversation = async () => {
+    if (!activeConversationId || !onCompactConversation) {
+      return;
+    }
+
+    setCompactConversationBusyId(activeConversationId);
+    try {
+      await onCompactConversation(activeConversationId);
+    } finally {
+      setCompactConversationBusyId("");
+    }
+  };
+
   return (
     <div
       className={[
@@ -115,6 +131,9 @@ export default function AiAssistantPanel({
         historyVisible={historyVisible}
         onToggleHistory={() => setHistoryVisible((current) => !current)}
         onCreateConversation={onCreateConversation}
+        onCompactConversation={handleCompactConversation}
+        compactBusy={Boolean(activeConversationId) && compactConversationBusyId === activeConversationId}
+        canCompact={Boolean(activeConversationId) && !isStreaming}
         onOpenAiConfig={onOpenAiConfig}
         onClose={onClose}
       />
