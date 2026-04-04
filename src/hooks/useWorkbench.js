@@ -125,14 +125,17 @@ export function useWorkbench() {
 
       const explicitTone = options.tone;
       const tone =
-        explicitTone === "warning" || explicitTone === "info" || explicitTone === "danger"
+        explicitTone === "warning" ||
+        explicitTone === "info" ||
+        explicitTone === "success" ||
+        explicitTone === "danger"
           ? explicitTone
           : /^warning/i.test(message)
             ? "warning"
             : "danger";
       const requestedTtl = Number(options.ttlMs);
       const ttlMs =
-        Number.isFinite(requestedTtl) && requestedTtl > 0
+        Number.isFinite(requestedTtl) && requestedTtl >= 0
           ? requestedTtl
           : DEFAULT_NOTICE_TTL_MS;
       const noticeId =
@@ -232,8 +235,10 @@ export function useWorkbench() {
     requestSftpDir,
     refreshSftp,
     openEntry,
+    selectSftpEntry,
     uploadFile,
     downloadFile,
+    deleteSftpEntry,
     cancelSftpTransfer,
     refreshStatus,
     saveScript,
@@ -257,6 +262,7 @@ export function useWorkbench() {
     attachAiShellContext,
     clearAiShellContext,
   } = useWorkbenchOperations({
+    sshConfigs,
     sessions,
     activeSessionId,
     commandInput,
@@ -281,6 +287,7 @@ export function useWorkbench() {
     setSftpEntries,
     setSftpTransfers,
     setSelectedEntry,
+    openFilePath,
     setOpenFilePath,
     setOpenFileContent,
     setDirtyFile,
@@ -311,6 +318,8 @@ export function useWorkbench() {
     ptyInputSenderRef,
     onErrorRef,
     runWithSessionReconnectRef,
+    pushUiNotice,
+    dismissUiNotice,
     runBusy,
     onError,
   });
@@ -426,6 +435,7 @@ export function useWorkbench() {
     resizePty,
     uploadFile,
     downloadFile,
+    deleteSftpEntry,
     cancelSftpTransfer,
     saveScript,
     runScript,
@@ -443,6 +453,8 @@ export function useWorkbench() {
     requestSftpDir,
     refreshSftp,
     openEntry,
+    selectSftpEntry,
+    deleteSftpEntry,
     handleDeleteSsh,
     handleDeleteScript,
     handleNicChange,

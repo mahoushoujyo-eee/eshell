@@ -25,6 +25,7 @@ const isTransferCancelledError = (err) =>
   toErrorMessage(err).toLowerCase().includes("transfer cancelled by user");
 
 export function useWorkbenchOperations({
+  sshConfigs,
   sessions,
   activeSessionId,
   commandInput,
@@ -49,6 +50,7 @@ export function useWorkbenchOperations({
   setSftpEntries,
   setSftpTransfers,
   setSelectedEntry,
+  openFilePath,
   setOpenFilePath,
   setOpenFileContent,
   setDirtyFile,
@@ -79,6 +81,8 @@ export function useWorkbenchOperations({
   ptyInputSenderRef,
   onErrorRef,
   runWithSessionReconnectRef,
+  pushUiNotice,
+  dismissUiNotice,
   runBusy,
   onError,
 }) {
@@ -472,8 +476,16 @@ export function useWorkbenchOperations({
 
   const connectServer = useCallback(
     async (configId) => {
+      const targetConfig = sshConfigs.find((item) => item.id === configId) || null;
+      const targetLabel = targetConfig?.name || targetConfig?.host || "server";
+      const pendingNoticeId = pushUiNotice(`Connecting to ${targetLabel}...`, {
+        tone: "info",
+        ttlMs: 0,
+      });
+
       try {
         const session = await runBusy("Open SSH session", () => api.openShellSession(configId));
+        dismissUiNotice(pendingNoticeId);
         await reloadSessions();
         setActiveSessionId(session.id);
         setSftpPath((prev) => ({
@@ -482,11 +494,29 @@ export function useWorkbenchOperations({
         }));
         setPtyOutputBySession((prev) => ({ ...prev, [session.id]: "" }));
         appendLog(session.id, "SYSTEM", `Connected ${session.configName} (${session.currentDir})`);
+        pushUiNotice(`Connected to ${session.configName} (${session.currentDir})`, {
+          tone: "success",
+          ttlMs: 4200,
+        });
+        return true;
       } catch (err) {
-        onError(err);
+        dismissUiNotice(pendingNoticeId);
+        const reason = toErrorMessage(err);
+        const message = `Failed to connect to ${targetLabel}: ${reason}`;
+        setError(message);
+        pushUiNotice(message, { tone: "danger" });
+        return false;
       }
     },
-    [appendLog, onError, reloadSessions, runBusy],
+    [
+      appendLog,
+      dismissUiNotice,
+      pushUiNotice,
+      reloadSessions,
+      runBusy,
+      setError,
+      sshConfigs,
+    ],
   );
 
   const closeSession = useCallback(
@@ -617,6 +647,10 @@ export function useWorkbenchOperations({
     [activeSessionId, onError, refreshSftp, runBusy, runWithSessionReconnect],
   );
 
+  const selectSftpEntry = useCallback((entry) => {
+    setSelectedEntry(entry || null);
+  }, [setSelectedEntry]);
+
   const uploadFile = useCallback(
     async (event) => {
       const file = event.target.files?.[0];
@@ -687,8 +721,9 @@ export function useWorkbenchOperations({
     ],
   );
 
-  const downloadFile = useCallback(async () => {
-    if (!activeSessionId || !selectedEntry || selectedEntry.entryType === "directory") {
+  const downloadFile = useCallback(async (entry = null) => {
+    const targetEntry = entry || selectedEntry;
+    if (!activeSessionId || !targetEntry || targetEntry.entryType === "directory") {
       return;
     }
     const localDir = (downloadDirectory || "").trim();
@@ -699,15 +734,15 @@ export function useWorkbenchOperations({
 
     const transferId =
       globalThis.crypto?.randomUUID?.() || `download-${Date.now()}-${Math.random()}`;
-    const remotePath = normalizeRemotePath(selectedEntry.path);
+    const remotePath = normalizeRemotePath(targetEntry.path);
     const seed = createSftpTransferSeed({
       transferId,
       sessionId: activeSessionId,
       direction: "download",
       remotePath,
       localPath: localDir,
-      fileName: selectedEntry.name || "download.bin",
-      totalBytes: selectedEntry.size || null,
+      fileName: targetEntry.name || "download.bin",
+      totalBytes: targetEntry.size || null,
     });
     if (seed) {
       setSftpTransfers((prev) => upsertSftpTransfer(prev, seed));
@@ -727,9 +762,9 @@ export function useWorkbenchOperations({
           stage: "completed",
           remotePath: result.remotePath || remotePath,
           localPath: result.localPath || localDir,
-          fileName: result.fileName || selectedEntry.name || "download.bin",
-          transferredBytes: result.size || selectedEntry.size || 0,
-          totalBytes: result.size || selectedEntry.size || null,
+          fileName: result.fileName || targetEntry.name || "download.bin",
+          transferredBytes: result.size || targetEntry.size || 0,
+          totalBytes: result.size || targetEntry.size || null,
           percent: 100,
           message: "",
         }),
@@ -744,9 +779,9 @@ export function useWorkbenchOperations({
           stage: cancelled ? "cancelled" : "failed",
           remotePath,
           localPath: localDir,
-          fileName: selectedEntry.name || "download.bin",
+          fileName: targetEntry.name || "download.bin",
           transferredBytes: 0,
-          totalBytes: selectedEntry.size || null,
+          totalBytes: targetEntry.size || null,
           percent: 0,
           message: cancelled ? "Transfer cancelled" : toErrorMessage(err),
         }),
@@ -764,6 +799,54 @@ export function useWorkbenchOperations({
     selectedEntry,
     setSftpTransfers,
   ]);
+
+  const deleteSftpEntry = useCallback(
+    async (entry = null) => {
+      const targetEntry = entry || selectedEntry;
+      if (!activeSessionId || !targetEntry || targetEntry.entryType === "directory") {
+        return false;
+      }
+
+      const remotePath = normalizeRemotePath(targetEntry.path);
+      try {
+        await runBusy("Delete remote file", () =>
+          runWithSessionReconnect(activeSessionId, (sessionId) =>
+            api.sftpDeleteEntry(sessionId, remotePath),
+          ),
+        );
+
+        if (openFilePath && normalizeRemotePath(openFilePath) === remotePath) {
+          setOpenFilePath("");
+          setOpenFileContent("");
+          setDirtyFile(false);
+        }
+
+        await refreshSftp(currentPath);
+        pushUiNotice(`Deleted ${targetEntry.name || remotePath}`, {
+          tone: "success",
+          ttlMs: 4200,
+        });
+        return true;
+      } catch (err) {
+        onError(err);
+        return false;
+      }
+    },
+    [
+      activeSessionId,
+      currentPath,
+      onError,
+      openFilePath,
+      pushUiNotice,
+      refreshSftp,
+      runBusy,
+      runWithSessionReconnect,
+      selectedEntry,
+      setDirtyFile,
+      setOpenFileContent,
+      setOpenFilePath,
+    ],
+  );
 
   const cancelSftpTransfer = useCallback(
     async (transferId) => {
@@ -1228,8 +1311,10 @@ export function useWorkbenchOperations({
     requestSftpDir,
     refreshSftp,
     openEntry,
+    selectSftpEntry,
     uploadFile,
     downloadFile,
+    deleteSftpEntry,
     cancelSftpTransfer,
     refreshStatus,
     saveScript,

@@ -1,4 +1,4 @@
-﻿import { ArrowLeft, Link2, Pencil, Plus, Save, Server, Trash2, X } from "lucide-react";
+import { ArrowLeft, Link2, LoaderCircle, Pencil, Plus, Save, Server, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const EMPTY_SSH_FORM = {
@@ -22,10 +22,12 @@ export default function SshConfigModal({
   onDeleteSsh,
 }) {
   const [mode, setMode] = useState("list");
+  const [connectingId, setConnectingId] = useState("");
 
   useEffect(() => {
     if (open) {
       setMode("list");
+      setConnectingId("");
     }
   }, [open]);
 
@@ -50,8 +52,29 @@ export default function SshConfigModal({
     setMode("form");
   };
 
+  const handleConnect = async (configId) => {
+    if (!configId || connectingId) {
+      return;
+    }
+
+    setConnectingId(configId);
+    try {
+      const connected = await onConnectServer(configId);
+      if (connected) {
+        onClose();
+      }
+    } finally {
+      setConnectingId("");
+    }
+  };
+
+  const isConnecting = Boolean(connectingId);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+      onClick={isConnecting ? undefined : onClose}
+    >
       <div
         className="w-full max-w-xl rounded-2xl border border-border/80 bg-panel p-4 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
@@ -66,8 +89,9 @@ export default function SshConfigModal({
           </div>
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted hover:bg-accent-soft"
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted hover:bg-accent-soft disabled:opacity-60"
             onClick={onClose}
+            disabled={isConnecting}
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
             Close
@@ -80,8 +104,9 @@ export default function SshConfigModal({
               <span className="text-sm text-muted">Configured: {sshConfigs.length}</span>
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white"
+                className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white disabled:cursor-wait disabled:opacity-70"
                 onClick={openCreateForm}
+                disabled={isConnecting}
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                 New Server
@@ -102,27 +127,31 @@ export default function SshConfigModal({
                     <div className="mt-2 flex gap-1">
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-white"
-                        onClick={async () => {
-                          await onConnectServer(item.id);
-                          onClose();
-                        }}
+                        className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-white disabled:cursor-wait disabled:opacity-70"
+                        onClick={() => handleConnect(item.id)}
+                        disabled={isConnecting}
                       >
-                        <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        Connect
+                        {connectingId === item.id ? (
+                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        )}
+                        {connectingId === item.id ? "Connecting..." : "Connect"}
                       </button>
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1"
+                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 disabled:opacity-60"
                         onClick={() => openEditForm(item)}
+                        disabled={isConnecting}
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                         Edit
                       </button>
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 rounded border border-danger/40 px-2 py-1 text-danger"
+                        className="inline-flex items-center gap-1 rounded border border-danger/40 px-2 py-1 text-danger disabled:opacity-60"
                         onClick={() => onDeleteSsh(item.id)}
+                        disabled={isConnecting}
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         Delete
@@ -139,8 +168,9 @@ export default function SshConfigModal({
               <span className="text-sm text-muted">{sshForm.id ? "Edit server" : "New server"}</span>
               <button
                 type="button"
-                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs"
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs disabled:opacity-60"
                 onClick={() => setMode("list")}
+                disabled={isConnecting}
               >
                 <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
                 Back

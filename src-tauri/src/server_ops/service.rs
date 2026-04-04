@@ -21,7 +21,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{
     now_rfc3339, CommandExecutionResult, FetchServerStatusInput, MemoryStatus,
     NetworkInterfaceStatus, PtyOutputEvent, SftpDownloadInput, SftpDownloadPayload,
-    SftpDownloadToLocalInput, SftpEntry, SftpEntryType, SftpFileContent, SftpListInput,
+    SftpDeleteInput, SftpDownloadToLocalInput, SftpEntry, SftpEntryType, SftpFileContent, SftpListInput,
     SftpListResponse, SftpReadInput, SftpTransferEvent, SftpTransferResult, SftpUploadInput,
     SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshConfig,
 };
@@ -252,6 +252,17 @@ pub fn sftp_upload_file(state: &AppState, input: SftpUploadInput) -> AppResult<(
     let mut file = sftp.create(Path::new(&remote_path))?;
     let bytes = BASE64_STANDARD.decode(input.content_base64.as_bytes())?;
     file.write_all(&bytes)?;
+    Ok(())
+}
+
+/// Deletes one remote file or symlink through SFTP.
+pub fn sftp_delete_entry(state: &AppState, input: SftpDeleteInput) -> AppResult<()> {
+    let session = state.get_session(&input.session_id)?;
+    let config = state.storage.find_ssh_config(&session.config_id)?;
+    let ssh = connect(&config)?;
+    let sftp = ssh.sftp()?;
+    let remote_path = normalize_remote_path(&input.path);
+    sftp.unlink(Path::new(&remote_path))?;
     Ok(())
 }
 

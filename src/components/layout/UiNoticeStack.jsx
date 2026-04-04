@@ -1,7 +1,16 @@
-import { AlertTriangle, Info, TriangleAlert, X } from "lucide-react";
+import { AlertTriangle, CircleCheck, Info, TriangleAlert, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 const noticeToneClass = (tone) => {
+  if (tone === "success") {
+    return {
+      frame:
+        "border-[#6fcb95] bg-[#e9fff1] text-[#184c28] shadow-[0_18px_48px_rgba(36,136,74,0.18)]",
+      icon: "text-[#238245]",
+      button:
+        "border-[#75c896]/60 bg-white/80 text-[#238245] hover:border-[#5db883] hover:bg-white",
+    };
+  }
   if (tone === "warning") {
     return {
       frame:
@@ -30,6 +39,9 @@ const noticeToneClass = (tone) => {
 };
 
 const NoticeIcon = ({ tone }) => {
+  if (tone === "success") {
+    return <CircleCheck className="h-4 w-4" aria-hidden="true" />;
+  }
   if (tone === "warning") {
     return <TriangleAlert className="h-4 w-4" aria-hidden="true" />;
   }
@@ -41,6 +53,13 @@ const NoticeIcon = ({ tone }) => {
 
 export default function UiNoticeStack({ notices, onDismiss }) {
   const timersRef = useRef(new Map());
+
+  const titleByTone = {
+    success: "Operation Complete",
+    info: "Operation Update",
+    warning: "Operation Warning",
+    danger: "Operation Error",
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -113,7 +132,7 @@ export default function UiNoticeStack({ notices, onDismiss }) {
                 "pointer-events-auto rounded-2xl border px-3 py-2.5 backdrop-blur-[2px]",
                 toneClass.frame,
               ].join(" ")}
-              role="alert"
+              role={tone === "danger" || tone === "warning" ? "alert" : "status"}
             >
               <div className="flex items-start gap-2">
                 <span
@@ -126,7 +145,7 @@ export default function UiNoticeStack({ notices, onDismiss }) {
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-80">
-                    {tone === "warning" ? "Operation Warning" : "Operation Error"}
+                    {titleByTone[tone] || titleByTone.danger}
                   </div>
                   <p className="mt-1 break-words text-sm leading-5">{text}</p>
                 </div>

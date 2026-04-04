@@ -149,6 +149,13 @@ pub struct SftpDownloadToLocalInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SftpDeleteInput {
+    pub session_id: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SftpCancelTransferInput {
     pub transfer_id: String,
 }

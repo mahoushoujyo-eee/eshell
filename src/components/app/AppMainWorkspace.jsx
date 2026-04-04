@@ -31,12 +31,14 @@ export default function AppMainWorkspace({
     resizePty,
     uploadFile,
     downloadFile,
+    deleteSftpEntry,
     cancelSftpTransfer,
     attachAiShellContext,
     setShowAiPanel,
     requestSftpDir,
     refreshSftp,
     openEntry,
+    selectSftpEntry,
     handleNicChange,
     handleDownloadDirectoryChange,
     formatBytes,
@@ -71,6 +73,7 @@ export default function AppMainWorkspace({
       refreshSftp={refreshSftp}
       uploadFile={uploadFile}
       downloadFile={downloadFile}
+      deleteSftpEntry={deleteSftpEntry}
       cancelTransfer={cancelSftpTransfer}
       downloadDirectory={downloadDirectory}
       onDownloadDirectoryChange={handleDownloadDirectoryChange}
@@ -78,6 +81,7 @@ export default function AppMainWorkspace({
       selectedEntry={selectedEntry}
       sftpEntries={sftpEntries}
       openEntry={openEntry}
+      selectSftpEntry={selectSftpEntry}
       onOpenFileEditor={onOpenFileEditor}
       formatBytes={formatBytes}
     />

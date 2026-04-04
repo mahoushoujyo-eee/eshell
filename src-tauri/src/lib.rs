@@ -41,6 +41,7 @@ pub fn run() {
             server_ops::commands::sftp_read_file,
             server_ops::commands::sftp_write_file,
             server_ops::commands::sftp_upload_file,
+            server_ops::commands::sftp_delete_entry,
             server_ops::commands::sftp_upload_file_with_progress,
             server_ops::commands::sftp_download_file,
             server_ops::commands::sftp_download_file_to_local,

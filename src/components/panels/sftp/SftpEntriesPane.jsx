@@ -17,14 +17,19 @@ export default function SftpEntriesPane({
   currentPath,
   sftpEntries,
   selectedEntry,
+  selectSftpEntry,
   openSftpEntry,
+  openEntryContextMenu,
   formatBytes,
 }) {
   return (
-    <div className="h-full overflow-hidden text-xs">
-      <div className="border-b border-border bg-surface/40 px-2 py-1 text-muted">Path: {currentPath}</div>
+    <div className="flex h-full flex-col overflow-hidden text-xs">
+      <div className="border-b border-border bg-surface/40 px-2 py-1">
+        <div className="text-muted">Path: {currentPath}</div>
+        <div className="mt-0.5 text-[10px] text-muted/80">Single-click selects. Double-click opens. Right-click for actions.</div>
+      </div>
 
-      <div className="h-[calc(100%-1.75rem)] overflow-auto bg-surface/20">
+      <div className="min-h-0 flex-1 overflow-auto bg-surface/20">
         {sftpEntries.map((entry) => (
           <button
             key={entry.path}
@@ -33,7 +38,10 @@ export default function SftpEntriesPane({
               "flex w-full items-center justify-between border-b border-border/60 px-2 py-1.5 text-left transition-colors hover:bg-accent-soft/60",
               selectedEntry?.path === entry.path ? "bg-accent-soft/70" : "",
             ].join(" ")}
-            onClick={() => openSftpEntry(entry)}
+            onClick={() => selectSftpEntry?.(entry)}
+            onDoubleClick={() => void openSftpEntry(entry)}
+            onContextMenu={(event) => openEntryContextMenu?.(entry, event)}
+            title={`${entry.path}\nDouble-click to open`}
           >
             <span className="flex min-w-0 items-center gap-1.5">
               {renderEntryIcon(entry.entryType)}

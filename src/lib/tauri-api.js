@@ -23,6 +23,8 @@ export const api = {
     invoke("sftp_read_file", { input: { sessionId, path } }),
   sftpWriteFile: (sessionId, path, content) =>
     invoke("sftp_write_file", { input: { sessionId, path, content } }),
+  sftpDeleteEntry: (sessionId, path) =>
+    invoke("sftp_delete_entry", { input: { sessionId, path } }),
   sftpUploadFile: (sessionId, remotePath, contentBase64) =>
     invoke("sftp_upload_file", {
       input: { sessionId, remotePath, contentBase64 },

@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import SplitPane from "../SplitPane";
 import { normalizeRemotePath } from "../../utils/path";
+import SftpDeleteConfirmDialog from "./sftp/SftpDeleteConfirmDialog";
 import SftpEntriesPane from "./sftp/SftpEntriesPane";
+import SftpEntryContextMenu from "./sftp/SftpEntryContextMenu";
+import SftpTextOpenConfirmDialog from "./sftp/SftpTextOpenConfirmDialog";
 import SftpToolbar from "./sftp/SftpToolbar";
 import SftpTransferQueue from "./sftp/SftpTransferQueue";
 import SftpTreePane from "./sftp/SftpTreePane";
+import { getSftpTextOpenGuard } from "./sftp/sftpOpenGuard";
 import { getDirectoryNodes } from "./sftp/sftpPanelUtils";
 
 export default function SftpPanel({
@@ -14,6 +18,7 @@ export default function SftpPanel({
   refreshSftp,
   uploadFile,
   downloadFile,
+  deleteSftpEntry,
   cancelTransfer,
   downloadDirectory,
   onDownloadDirectoryChange,
@@ -21,6 +26,7 @@ export default function SftpPanel({
   selectedEntry,
   sftpEntries,
   openEntry,
+  selectSftpEntry,
   onOpenFileEditor,
   formatBytes,
 }) {
@@ -29,6 +35,11 @@ export default function SftpPanel({
   const [loadingPaths, setLoadingPaths] = useState({});
   const [selectedTreePath, setSelectedTreePath] = useState("/");
   const [showTransferPanel, setShowTransferPanel] = useState(false);
+  const [pendingTextOpen, setPendingTextOpen] = useState(null);
+  const [confirmOpenBusy, setConfirmOpenBusy] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [pendingDeleteEntry, setPendingDeleteEntry] = useState(null);
+  const [confirmDeleteBusy, setConfirmDeleteBusy] = useState(false);
 
   const cacheNodeChildren = useCallback((targetPath, entries) => {
     const normalized = normalizeRemotePath(targetPath);
@@ -84,10 +95,97 @@ export default function SftpPanel({
     setSelectedTreePath(normalizeRemotePath(currentPath || "/"));
   }, [activeSessionId, currentPath]);
 
-  const openSftpEntry = async (entry) => {
+  useEffect(() => {
+    setPendingTextOpen(null);
+    setConfirmOpenBusy(false);
+    setContextMenu(null);
+    setPendingDeleteEntry(null);
+    setConfirmDeleteBusy(false);
+  }, [activeSessionId]);
+
+  const performOpenSftpEntry = async (entry) => {
     const result = await openEntry(entry);
     if (result?.opened) {
       onOpenFileEditor?.();
+    }
+  };
+
+  const openSftpEntry = async (entry) => {
+    if (!entry) {
+      return;
+    }
+
+    selectSftpEntry?.(entry);
+
+    if (entry.entryType === "directory") {
+      await performOpenSftpEntry(entry);
+      return;
+    }
+
+    const guard = getSftpTextOpenGuard(entry);
+    if (guard) {
+      setPendingTextOpen({ entry, guard });
+      return;
+    }
+
+    await performOpenSftpEntry(entry);
+  };
+
+  const openEntryContextMenu = (entry, event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!entry || entry.entryType === "directory") {
+      setContextMenu(null);
+      return;
+    }
+    selectSftpEntry?.(entry);
+    setContextMenu({
+      entry,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  };
+
+  const closeEntryContextMenu = () => {
+    setContextMenu(null);
+  };
+
+  const confirmTextOpen = async () => {
+    if (!pendingTextOpen?.entry) {
+      return;
+    }
+
+    setConfirmOpenBusy(true);
+    try {
+      await performOpenSftpEntry(pendingTextOpen.entry);
+      setPendingTextOpen(null);
+    } finally {
+      setConfirmOpenBusy(false);
+    }
+  };
+
+  const requestDeleteEntry = (entry) => {
+    if (!entry || entry.entryType === "directory") {
+      return;
+    }
+    closeEntryContextMenu();
+    setPendingDeleteEntry(entry);
+  };
+
+  const confirmDeleteEntry = async () => {
+    if (!pendingDeleteEntry) {
+      return;
+    }
+
+    setConfirmDeleteBusy(true);
+    try {
+      const deleted = await deleteSftpEntry(pendingDeleteEntry);
+      if (deleted) {
+        setPendingDeleteEntry(null);
+      }
+    } finally {
+      setConfirmDeleteBusy(false);
     }
   };
 
@@ -181,7 +279,9 @@ export default function SftpPanel({
               currentPath={currentPath}
               sftpEntries={sftpEntries}
               selectedEntry={selectedEntry}
+              selectSftpEntry={selectSftpEntry}
               openSftpEntry={openSftpEntry}
+              openEntryContextMenu={openEntryContextMenu}
               formatBytes={formatBytes}
             />
           }
@@ -196,6 +296,50 @@ export default function SftpPanel({
         cancelTransfer={cancelTransfer}
         formatBytes={formatBytes}
         onClose={() => setShowTransferPanel(false)}
+      />
+
+      <SftpEntryContextMenu
+        open={Boolean(contextMenu)}
+        position={contextMenu}
+        entry={contextMenu?.entry || null}
+        onClose={closeEntryContextMenu}
+        onOpen={async (entry) => {
+          closeEntryContextMenu();
+          await openSftpEntry(entry);
+        }}
+        onDownload={async (entry) => {
+          closeEntryContextMenu();
+          await downloadFile(entry);
+        }}
+        onDelete={requestDeleteEntry}
+      />
+
+      <SftpTextOpenConfirmDialog
+        open={Boolean(pendingTextOpen)}
+        entry={pendingTextOpen?.entry || null}
+        guard={pendingTextOpen?.guard || null}
+        busy={confirmOpenBusy}
+        formatBytes={formatBytes}
+        onCancel={() => {
+          if (confirmOpenBusy) {
+            return;
+          }
+          setPendingTextOpen(null);
+        }}
+        onConfirm={confirmTextOpen}
+      />
+
+      <SftpDeleteConfirmDialog
+        open={Boolean(pendingDeleteEntry)}
+        entry={pendingDeleteEntry}
+        busy={confirmDeleteBusy}
+        onCancel={() => {
+          if (confirmDeleteBusy) {
+            return;
+          }
+          setPendingDeleteEntry(null);
+        }}
+        onConfirm={confirmDeleteEntry}
       />
     </div>
   );

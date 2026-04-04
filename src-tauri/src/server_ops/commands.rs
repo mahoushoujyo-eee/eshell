@@ -6,6 +6,7 @@ use crate::error::{to_command_error, AppError, AppResult};
 use crate::models::{
     CloseShellInput, CommandExecutionResult, ExecuteCommandInput, FetchServerStatusInput,
     OpenShellInput, PtyResizeInput, PtyWriteInput, RunScriptInput, RunScriptResult,
+    SftpDeleteInput,
     SftpCancelTransferInput, SftpDownloadInput, SftpDownloadPayload, SftpDownloadToLocalInput,
     SftpFileContent, SftpListInput, SftpListResponse, SftpReadInput, SftpTransferResult,
     SftpUploadInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession,
@@ -108,6 +109,16 @@ pub async fn sftp_upload_file(
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
     run_blocking(move || super::sftp_upload_file(&app_state, input)).await
+}
+
+/// Deletes one remote file or symlink via SFTP.
+#[tauri::command]
+pub async fn sftp_delete_entry(
+    state: State<'_, Arc<AppState>>,
+    input: SftpDeleteInput,
+) -> Result<(), String> {
+    let app_state = Arc::clone(state.inner());
+    run_blocking(move || super::sftp_delete_entry(&app_state, input)).await
 }
 
 /// Uploads local file bytes (base64 payload) and emits transfer progress events.
