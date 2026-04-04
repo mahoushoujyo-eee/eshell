@@ -32,6 +32,8 @@ Implemented:
 - status monitoring panel
 - script management and execution
 - Ops Agent chat and pending-action approval
+- Ops Agent manual and automatic conversation compaction
+- Ops Agent run cancellation and post-approval resume flow
 
 Not in scope yet:
 - encrypted credential storage
@@ -49,12 +51,14 @@ Important files:
 - `ai_profiles.json`
 - `ops_agent_conversation_list.json`
 - `ops_agent_conversations/*.json`
+- `ops_agent_debug.log`
 
 Runtime-only state examples:
 - active shell sessions
 - PTY channels
 - transfer cancellation flags
 - status cache
+- ops agent run registry and cancellation markers
 
 ## SFTP Transfer Model
 
@@ -64,3 +68,14 @@ Current transfer model is chunk-based and event-driven:
 - user can cancel a running transfer from the transfer overlay
 
 See [SFTP Transfer Guide](./sftp_transfer.md).
+
+## Ops Agent Execution Model
+
+Current Ops Agent behavior is event-driven and conversation-centric:
+- chat runs stream over `ops-agent-stream`
+- only one active run is allowed per conversation
+- risky shell actions become pending approvals instead of immediate failures
+- approval resolution can resume the interrupted tool loop automatically
+- long conversations may be compacted to stay inside `maxContextTokens`
+
+See [Ops Agent Guide](./ops_agent.md).

@@ -21,6 +21,9 @@ When adding or changing commands:
 3. Update `tauri-api.js`
 4. Update docs (`openapi.yaml` + feature docs)
 
+For Ops Agent changes, also update:
+- `docs/ops_agent.md`
+
 ## 3. Workbench Frontend Pattern
 
 `useWorkbench` is the composition root, with logic split into:
@@ -80,3 +83,4 @@ For any feature-level change:
 - update `README.md` user-facing behavior
 - update `docs/openapi.yaml` command contract
 - update feature docs under `docs/` as needed
+- if the change affects Ops Agent flows, update `docs/ops_agent.md`

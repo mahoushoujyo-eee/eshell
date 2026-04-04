@@ -22,8 +22,10 @@ script execution, and Ops Agent workflows in one application.
 - Script center (save + execute in active session)
 - Ops Agent:
   - conversation management
+  - manual and automatic conversation compaction
   - streaming answer updates
   - pending action approval flow
+  - automatic resume after action resolution
   - shell context attachment from terminal selection
 
 ## Recent SFTP Upgrade (2026-04)
@@ -137,12 +139,14 @@ By default, runtime data is stored in `.eshell-data/` under the project root:
   ai_profiles.json
   ops_agent_conversation_list.json
   ops_agent_conversations/
+  ops_agent_debug.log
 ```
 
 ## Documentation Index
 
 - [Project Description](docs/project_description.md)
 - [Project Dev Guide](docs/PROJECT_DEV_GUIDE.md)
+- [Ops Agent Guide](docs/ops_agent.md)
 - [OpenAPI-style RPC Spec](docs/openapi.yaml)
 - [SFTP Transfer Guide](docs/sftp_transfer.md)
 - [Release Notes 1.1.0](docs/releases/v1.1.0.md)
