@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronRight, Folder, FolderOpen, Loader2 } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 
 function TreeRow({
   node,
@@ -10,6 +11,7 @@ function TreeRow({
   onSelect,
   children,
 }) {
+  const { t } = useI18n();
   return (
     <div>
       <div
@@ -22,7 +24,11 @@ function TreeRow({
         <button
           type="button"
           className="inline-flex h-7 w-7 items-center justify-center text-muted transition-colors hover:text-text"
-          aria-label={expanded ? `Collapse ${node.name}` : `Expand ${node.name}`}
+          aria-label={
+            expanded
+              ? t("Collapse {name}", { name: node.name })
+              : t("Expand {name}", { name: node.name })
+          }
           onClick={(event) => {
             event.stopPropagation();
             void onToggle(node.path);
@@ -67,6 +73,8 @@ export default function SftpTreePane({
   onSelectDirectory,
   onReloadRoot,
 }) {
+  const { t } = useI18n();
+
   const renderTreeRows = (parentPath, depth = 0) => {
     const children = treeNodesByPath[parentPath] || [];
 
@@ -97,7 +105,7 @@ export default function SftpTreePane({
       }}
     >
       {!activeSessionId ? (
-        <div className="px-2 py-1 text-muted">Connect SSH first</div>
+        <div className="px-2 py-1 text-muted">{t("Connect SSH first")}</div>
       ) : (
         <>
           <TreeRow

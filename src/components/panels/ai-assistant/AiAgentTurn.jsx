@@ -1,4 +1,5 @@
 import { Check, Copy } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 import {
   getOpsAgentAssistantReplyText,
   getOpsAgentLatestAssistantReplyText,
@@ -22,6 +23,7 @@ export default function AiAgentTurn({
   onToggleThinkSection,
   onToggleToolMessage,
 }) {
+  const { t } = useI18n();
   const turnCopyText = group.isStreaming
     ? getOpsAgentAssistantReplyText(group.streamingText) ||
       getOpsAgentLatestAssistantReplyText(group.messages)
@@ -39,7 +41,7 @@ export default function AiAgentTurn({
         ].join(" ")}
       >
         <div className="mb-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-muted">
-          <span>Agent</span>
+          <span>{t("Agent")}</span>
           {turnTime ? <span>{turnTime}</span> : null}
         </div>
         {group.messages.map((message, index) => {
@@ -111,14 +113,14 @@ export default function AiAgentTurn({
                   : "",
               ].join(" ")}
               onClick={() => onCopyMessage(group.id, turnCopyText)}
-              title="Copy latest AI reply"
+              title={t("Copy latest AI reply")}
             >
               {copiedMessageKey === group.id ? (
                 <Check className="h-3.5 w-3.5" aria-hidden="true" />
               ) : (
                 <Copy className="h-3.5 w-3.5" aria-hidden="true" />
               )}
-              {copiedMessageKey === group.id ? "Copied" : "Copy"}
+              {copiedMessageKey === group.id ? t("Copied") : t("Copy")}
             </button>
           </div>
         ) : null}

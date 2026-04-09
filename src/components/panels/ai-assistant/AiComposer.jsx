@@ -1,4 +1,5 @@
 import { Bot, Send, X } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 import { ShellContextChip } from "./AiAssistantControls";
 
 export default function AiComposer({
@@ -15,6 +16,8 @@ export default function AiComposer({
   hasManagedShell,
   onClose,
 }) {
+  const { t } = useI18n();
+
   const handleInputKeyDown = (event) => {
     if (event.key !== "Enter" || event.shiftKey) {
       return;
@@ -44,14 +47,16 @@ export default function AiComposer({
         value={aiQuestion}
         onChange={(event) => setAiQuestion(event.target.value)}
         onKeyDown={handleInputKeyDown}
-        placeholder="Ask the ops agent about diagnostics, root cause, or safe commands..."
+        placeholder={t("Ask the ops agent about diagnostics, root cause, or safe commands...")}
       />
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="truncate text-[11px] text-muted">
           {activeConversationId
-            ? `Conversation: ${activeConversation?.title || activeConversationId}`
-            : "No active conversation"}
-          {hasManagedShell && onClose ? " / Esc to close" : ""}
+            ? t("Conversation: {title}", {
+                title: activeConversation?.title || activeConversationId,
+              })
+            : t("No active conversation")}
+          {hasManagedShell && onClose ? t(" / Esc to close") : ""}
         </span>
         <button
           type={isStreaming ? "button" : "submit"}
@@ -66,7 +71,7 @@ export default function AiComposer({
           ].join(" ")}
         >
           {isStreaming ? <X className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
-          {isStreaming ? "Stop" : "Send"}
+          {isStreaming ? t("Stop") : t("Send")}
         </button>
       </div>
     </form>

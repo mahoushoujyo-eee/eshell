@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "../../lib/i18n";
 import WallpaperCropControls from "./wallpaper/WallpaperCropControls";
 import WallpaperCropPreview from "./wallpaper/WallpaperCropPreview";
 import {
@@ -14,6 +15,7 @@ import {
 } from "./wallpaper/wallpaperCropUtils";
 
 export default function WallpaperCropModal({ open, source, onCancel, onApply }) {
+  const { t } = useI18n();
   const previewCanvasRef = useRef(null);
   const dragStateRef = useRef(null);
   const [cropZoom, setCropZoom] = useState(1);
@@ -97,7 +99,7 @@ export default function WallpaperCropModal({ open, source, onCancel, onApply }) 
       const ctx = canvas.getContext("2d");
 
       if (!ctx) {
-        throw new Error("Failed to render crop preview.");
+        throw new Error(t("Failed to render crop preview."));
       }
 
       drawCroppedWallpaper({
@@ -112,7 +114,7 @@ export default function WallpaperCropModal({ open, source, onCancel, onApply }) 
 
       await Promise.resolve(onApply?.(exportCanvasDataUrl(canvas)));
     } catch (error) {
-      setCropError(error instanceof Error ? error.message : "Failed to apply cropped wallpaper.");
+      setCropError(error instanceof Error ? error.message : t("Failed to apply cropped wallpaper."));
       setApplying(false);
       return;
     }
@@ -185,9 +187,14 @@ export default function WallpaperCropModal({ open, source, onCancel, onApply }) 
       >
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold">Crop And Scale</div>
+            <div className="text-sm font-semibold">{t("Crop And Scale")}</div>
             <div className="text-xs text-muted">
-              Source {source.image.naturalWidth} x {source.image.naturalHeight} | Export {CROP_OUTPUT_WIDTH} x {CROP_OUTPUT_HEIGHT}
+              {t("Source {width} x {height} | Export {outWidth} x {outHeight}", {
+                width: source.image.naturalWidth,
+                height: source.image.naturalHeight,
+                outWidth: CROP_OUTPUT_WIDTH,
+                outHeight: CROP_OUTPUT_HEIGHT,
+              })}
             </div>
           </div>
           <button
@@ -196,7 +203,7 @@ export default function WallpaperCropModal({ open, source, onCancel, onApply }) 
             onClick={handleCancel}
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
-            Cancel
+            {t("Cancel")}
           </button>
         </div>
 

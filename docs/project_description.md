@@ -29,11 +29,13 @@ Implemented:
 - local download directory configuration
 - transfer queue with progress updates
 - upload/download cancel support
-- status monitoring panel
+- status monitoring panel with disk / process view switching
 - script management and execution
 - Ops Agent chat and pending-action approval
 - Ops Agent manual and automatic conversation compaction
 - Ops Agent run cancellation and post-approval resume flow
+- English / Simplified Chinese UI switching with persisted locale preference
+- richer Ops Agent debug logging for request, stream, and compaction diagnostics
 
 Not in scope yet:
 - encrypted credential storage
@@ -60,6 +62,16 @@ Runtime-only state examples:
 - status cache
 - ops agent run registry and cancellation markers
 
+## Frontend Localization
+
+Current frontend copy is localized through `src/lib/i18n.js`.
+
+Behavior:
+- app boot chooses locale from `localStorage` (`eshell:locale`) when available
+- otherwise locale falls back to the browser language
+- current supported locales are `en-US` and `zh-CN`
+- user-facing labels, modal copy, notices, and busy states should route through the shared translator
+
 ## SFTP Transfer Model
 
 Current transfer model is chunk-based and event-driven:
@@ -77,5 +89,16 @@ Current Ops Agent behavior is event-driven and conversation-centric:
 - risky shell actions become pending approvals instead of immediate failures
 - approval resolution can resume the interrupted tool loop automatically
 - long conversations may be compacted to stay inside `maxContextTokens`
+- backend debug logs now capture request assembly, provider I/O summaries, stream deltas, and compaction decisions
 
 See [Ops Agent Guide](./ops_agent.md).
+
+## Status Monitoring Notes
+
+The status panel now prioritizes readability over raw density:
+- top summary keeps CPU, memory, and network visible at all times
+- lower detail area switches between `Processes` and `Disks`
+- process memory is shown in `MB`
+- overall memory remains `used / total` in `GB`
+
+See [Server Status Guide](./server_status.md).

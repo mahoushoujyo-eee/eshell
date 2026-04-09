@@ -229,7 +229,7 @@ pub struct NetworkInterfaceStatus {
 pub struct ProcessStatus {
     pub pid: i32,
     pub cpu_percent: f64,
-    pub memory_percent: f64,
+    pub memory_mb: f64,
     pub command: String,
 }
 

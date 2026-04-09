@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
 import { useEffect } from "react";
+import { useI18n } from "../../../lib/i18n";
 
 export default function SftpDeleteConfirmDialog({
   open,
@@ -8,6 +9,8 @@ export default function SftpDeleteConfirmDialog({
   onCancel,
   onConfirm,
 }) {
+  const { t } = useI18n();
+
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -28,7 +31,7 @@ export default function SftpDeleteConfirmDialog({
     return null;
   }
 
-  const fileLabel = entry.name?.trim() || entry.path || "Selected file";
+  const fileLabel = entry.name?.trim() || entry.path || t("Selected file");
   const isDirectory = entry.entryType === "directory";
 
   return (
@@ -50,24 +53,24 @@ export default function SftpDeleteConfirmDialog({
           <div className="min-w-0 flex-1">
             <div
               id="sftp-delete-confirm-title"
-              className="text-[10px] font-semibold uppercase tracking-[0.22em] text-danger/75"
-            >
-              Confirm Delete
+            className="text-[10px] font-semibold uppercase tracking-[0.22em] text-danger/75"
+          >
+              {t("Confirm Delete")}
             </div>
             <h3 className="mt-1 text-lg font-semibold text-text">
-              {isDirectory ? "Delete this remote folder?" : "Delete this remote file?"}
+              {isDirectory ? t("Delete this remote folder?") : t("Delete this remote file?")}
             </h3>
             <p className="mt-2 text-sm leading-6 text-muted">
               <span className="font-medium text-text">{fileLabel}</span>{" "}
               {isDirectory
-                ? "and everything inside it will be removed from the remote server immediately."
-                : "will be removed from the remote server immediately."}
+                ? t("and everything inside it will be removed from the remote server immediately.")
+                : t("will be removed from the remote server immediately.")}
             </p>
           </div>
         </div>
 
         <div className="mt-4 rounded-2xl border border-border/70 bg-surface/75 p-3 text-xs text-muted">
-          <div className="font-medium text-text">Path</div>
+          <div className="font-medium text-text">{t("Path")}</div>
           <div className="mt-1 break-all">{entry.path}</div>
         </div>
 
@@ -78,7 +81,7 @@ export default function SftpDeleteConfirmDialog({
             onClick={onCancel}
             disabled={busy}
           >
-            Cancel
+            {t("Cancel")}
           </button>
           <button
             type="button"
@@ -91,7 +94,7 @@ export default function SftpDeleteConfirmDialog({
             ) : (
               <Trash2 className="h-4 w-4" aria-hidden="true" />
             )}
-            {busy ? "Deleting..." : "Delete"}
+            {busy ? t("Deleting...") : t("Delete")}
           </button>
         </div>
       </div>

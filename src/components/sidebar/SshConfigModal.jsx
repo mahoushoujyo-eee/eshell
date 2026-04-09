@@ -1,5 +1,6 @@
 import { ArrowLeft, Link2, LoaderCircle, Pencil, Plus, Save, Server, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useI18n } from "../../lib/i18n";
 
 const EMPTY_SSH_FORM = {
   id: null,
@@ -21,6 +22,7 @@ export default function SshConfigModal({
   onConnectServer,
   onDeleteSsh,
 }) {
+  const { t } = useI18n();
   const [mode, setMode] = useState("list");
   const [connectingId, setConnectingId] = useState("");
 
@@ -83,9 +85,9 @@ export default function SshConfigModal({
           <div>
             <h3 className="inline-flex items-center gap-2 text-base font-semibold">
               <Server className="h-4 w-4 text-accent" aria-hidden="true" />
-              SSH Servers
+              {t("SSH Servers")}
             </h3>
-            <p className="text-xs text-muted">Manage server profiles and connect quickly.</p>
+            <p className="text-xs text-muted">{t("Manage server profiles and connect quickly.")}</p>
           </div>
           <button
             type="button"
@@ -94,14 +96,16 @@ export default function SshConfigModal({
             disabled={isConnecting}
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
-            Close
+            {t("Close")}
           </button>
         </div>
 
         {mode === "list" ? (
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">Configured: {sshConfigs.length}</span>
+              <span className="text-sm text-muted">
+                {t("Configured: {count}", { count: sshConfigs.length })}
+              </span>
               <button
                 type="button"
                 className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white disabled:cursor-wait disabled:opacity-70"
@@ -109,13 +113,13 @@ export default function SshConfigModal({
                 disabled={isConnecting}
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                New Server
+                {t("New Server")}
               </button>
             </div>
             <div className="max-h-96 space-y-2 overflow-auto pr-1">
               {sshConfigs.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border/80 bg-surface p-4 text-center text-sm text-muted">
-                  No server profiles yet.
+                  {t("No server profiles yet.")}
                 </div>
               ) : (
                 sshConfigs.map((item) => (
@@ -136,7 +140,7 @@ export default function SshConfigModal({
                         ) : (
                           <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
                         )}
-                        {connectingId === item.id ? "Connecting..." : "Connect"}
+                        {connectingId === item.id ? t("Connecting...") : t("Connect")}
                       </button>
                       <button
                         type="button"
@@ -145,7 +149,7 @@ export default function SshConfigModal({
                         disabled={isConnecting}
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                        Edit
+                        {t("Edit")}
                       </button>
                       <button
                         type="button"
@@ -154,7 +158,7 @@ export default function SshConfigModal({
                         disabled={isConnecting}
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        Delete
+                        {t("Delete")}
                       </button>
                     </div>
                   </div>
@@ -165,7 +169,9 @@ export default function SshConfigModal({
         ) : (
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">{sshForm.id ? "Edit server" : "New server"}</span>
+              <span className="text-sm text-muted">
+                {sshForm.id ? t("Edit server") : t("New server")}
+              </span>
               <button
                 type="button"
                 className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs disabled:opacity-60"
@@ -173,20 +179,20 @@ export default function SshConfigModal({
                 disabled={isConnecting}
               >
                 <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                Back
+                {t("Back")}
               </button>
             </div>
             <form className="space-y-2" onSubmit={submitSsh}>
               <div className="grid grid-cols-2 gap-2">
                 <input
                   className="rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder="Name"
+                  placeholder={t("Name")}
                   value={sshForm.name}
                   onChange={(event) => setSshForm((prev) => ({ ...prev, name: event.target.value }))}
                 />
                 <input
                   className="rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder="Host"
+                  placeholder={t("Host")}
                   value={sshForm.host}
                   onChange={(event) => setSshForm((prev) => ({ ...prev, host: event.target.value }))}
                 />
@@ -194,13 +200,13 @@ export default function SshConfigModal({
               <div className="grid grid-cols-2 gap-2">
                 <input
                   className="rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder="Port"
+                  placeholder={t("Port")}
                   value={sshForm.port}
                   onChange={(event) => setSshForm((prev) => ({ ...prev, port: event.target.value }))}
                 />
                 <input
                   className="rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder="Username"
+                  placeholder={t("Username")}
                   value={sshForm.username}
                   onChange={(event) => setSshForm((prev) => ({ ...prev, username: event.target.value }))}
                 />
@@ -208,14 +214,14 @@ export default function SshConfigModal({
               <input
                 type="password"
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="Password"
+                placeholder={t("Password")}
                 value={sshForm.password}
                 onChange={(event) => setSshForm((prev) => ({ ...prev, password: event.target.value }))}
               />
               <div className="flex justify-end">
                 <button type="submit" className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white">
                   <Save className="h-3.5 w-3.5" aria-hidden="true" />
-                  {sshForm.id ? "Update Server" : "Create Server"}
+                  {sshForm.id ? t("Update Server") : t("Create Server")}
                 </button>
               </div>
             </form>

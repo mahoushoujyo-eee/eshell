@@ -91,7 +91,7 @@ pub fn parse_network_interfaces(output: &str) -> Vec<NetworkInterfaceStatus> {
     rows
 }
 
-/// Parses top process rows from `ps -eo pid,pcpu,pmem,comm --sort=-pcpu`.
+/// Parses top process rows from `ps -eo pid,pcpu,rss,comm --sort=-pcpu`.
 pub fn parse_top_processes(output: &str) -> Vec<ProcessStatus> {
     output
         .lines()
@@ -105,7 +105,10 @@ pub fn parse_top_processes(output: &str) -> Vec<ProcessStatus> {
             Some(ProcessStatus {
                 pid: cols[0].parse::<i32>().ok()?,
                 cpu_percent: cols[1].parse::<f64>().ok().map(round2)?,
-                memory_percent: cols[2].parse::<f64>().ok().map(round2)?,
+                memory_mb: cols[2]
+                    .parse::<f64>()
+                    .ok()
+                    .map(|value_kb| round2(value_kb / 1024.0))?,
                 command: cols[3..].join(" "),
             })
         })
@@ -277,14 +280,16 @@ eth0: 9876543 9999 0 0 0 0 0 0 1234567 8888 0 0 0 0 0 0
     #[test]
     fn parse_top_processes_works() {
         let raw = r#"
-PID %CPU %MEM COMMAND
-123 12.5 4.1 java
-234 5.0 1.2 nginx
+PID %CPU RSS COMMAND
+123 12.5 41984 java
+234 5.0 2048 nginx
 "#;
         let rows = parse_top_processes(raw);
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].pid, 123);
         assert_eq!(rows[0].cpu_percent, 12.5);
+        assert_eq!(rows[0].memory_mb, 41.0);
+        assert_eq!(rows[1].memory_mb, 2.0);
     }
 
     #[test]

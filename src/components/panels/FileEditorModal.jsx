@@ -18,6 +18,7 @@ import sql from "react-syntax-highlighter/dist/esm/languages/prism/sql";
 import toml from "react-syntax-highlighter/dist/esm/languages/prism/toml";
 import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
 import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
+import { useI18n } from "../../lib/i18n";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 SyntaxHighlighter.registerLanguage("bash", bash);
@@ -90,6 +91,7 @@ export default function FileEditorModal({
   dirtyFile,
   theme,
 }) {
+  const { t } = useI18n();
   const [mode, setMode] = useState("edit");
 
   useEffect(() => {
@@ -170,10 +172,10 @@ export default function FileEditorModal({
           <div className="min-w-0">
             <h3 className="inline-flex items-center gap-2 truncate text-base font-semibold">
               <FileText className="h-4 w-4 text-accent" aria-hidden="true" />
-              File Editor
+              {t("File Editor")}
             </h3>
             <p className="truncate text-xs text-muted">
-              {filePath} {dirtyFile ? "(Unsaved)" : "(Synced)"}
+              {filePath} {dirtyFile ? t("(Unsaved)") : t("(Synced)")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -188,7 +190,7 @@ export default function FileEditorModal({
               onClick={() => setMode("edit")}
             >
               <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-              Edit
+              {t("Edit")}
             </button>
             <button
               type="button"
@@ -201,7 +203,7 @@ export default function FileEditorModal({
               onClick={() => setMode("preview")}
             >
               <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-              Preview
+              {t("Preview")}
             </button>
             <button
               type="button"
@@ -209,7 +211,7 @@ export default function FileEditorModal({
               onClick={onClose}
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
-              Close
+              {t("Close")}
             </button>
           </div>
         </div>

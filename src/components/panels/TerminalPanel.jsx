@@ -1,4 +1,5 @@
 import { FolderOpen, Play, Terminal, X } from "lucide-react";
+import { useI18n } from "../../lib/i18n";
 import XtermConsole from "./XtermConsole";
 
 export default function TerminalPanel({
@@ -16,6 +17,8 @@ export default function TerminalPanel({
   onAttachSelectionToAi,
   wallpaper,
 }) {
+  const { t } = useI18n();
+
   return (
     <section className="h-full border-b border-border bg-panel">
       <div className="flex h-full min-h-0 flex-col">
@@ -43,7 +46,7 @@ export default function TerminalPanel({
                   type="button"
                   className="rounded p-0.5 text-current/80 transition-colors hover:bg-black/10 hover:text-current"
                   onClick={() => onCloseSession(session.id)}
-                  aria-label={`Close session ${session.configName}`}
+                  aria-label={t("Close session {name}", { name: session.configName })}
                 >
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -52,7 +55,7 @@ export default function TerminalPanel({
             {sessions.length === 0 && (
               <div className="inline-flex items-center gap-2 px-2 py-1 text-xs text-muted">
                 <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
-                No active sessions
+                {t("No active sessions")}
               </div>
             )}
           </div>
@@ -70,7 +73,7 @@ export default function TerminalPanel({
             <Terminal className="pointer-events-none absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
             <input
               className="w-full border border-border bg-surface px-8 py-2 text-sm"
-              placeholder={activeSession ? "Run command" : "Connect a session first"}
+              placeholder={activeSession ? t("Run command") : t("Connect a session first")}
               value={commandInput}
               disabled={!activeSession}
               onChange={(event) => setCommandInput(event.target.value)}
@@ -82,13 +85,13 @@ export default function TerminalPanel({
             className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
           >
             <Play className="h-4 w-4" aria-hidden="true" />
-            Run
+            {t("Run")}
           </button>
         </form>
 
         <XtermConsole
           activeSessionId={activeSession?.id || null}
-          activeSessionName={activeSession?.configName || "Shell"}
+          activeSessionName={activeSession?.configName || t("Shell")}
           output={currentPtyOutput}
           onInput={onPtyInput}
           onResize={onPtyResize}

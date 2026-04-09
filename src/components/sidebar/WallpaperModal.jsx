@@ -14,8 +14,10 @@ import {
   MAX_CUSTOM_WALLPAPER_BYTES,
   readFileAsDataUrl,
 } from "./wallpaper/wallpaperUtils";
+import { useI18n } from "../../lib/i18n";
 
 export default function WallpaperModal({ open, onClose, wallpaper, onChangeWallpaper }) {
+  const { t } = useI18n();
   const fileInputRef = useRef(null);
   const [uploadError, setUploadError] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -59,12 +61,12 @@ export default function WallpaperModal({ open, onClose, wallpaper, onChangeWallp
     }
 
     if (!file.type.startsWith("image/")) {
-      setUploadError("Only image files are supported.");
+      setUploadError(t("Only image files are supported."));
       return;
     }
 
     if (file.size > MAX_CUSTOM_WALLPAPER_BYTES) {
-      setUploadError("Use an image smaller than 1.5MB.");
+      setUploadError(t("Use an image smaller than 1.5MB."));
       return;
     }
 
@@ -80,7 +82,7 @@ export default function WallpaperModal({ open, onClose, wallpaper, onChangeWallp
         image,
       });
     } catch (error) {
-      setUploadError(error instanceof Error ? error.message : "Failed to import wallpaper.");
+      setUploadError(error instanceof Error ? error.message : t("Failed to import wallpaper."));
     } finally {
       setUploading(false);
     }
@@ -111,11 +113,11 @@ export default function WallpaperModal({ open, onClose, wallpaper, onChangeWallp
           <div className="mb-4 flex items-center justify-between gap-4">
             <div>
               <h3 className="inline-flex items-center gap-2 text-base font-semibold">
-                <ImageIcon className="h-4 w-4 text-accent" aria-hidden="true" />
-                Terminal Wallpaper
+              <ImageIcon className="h-4 w-4 text-accent" aria-hidden="true" />
+                {t("Terminal Wallpaper")}
               </h3>
               <p className="text-xs text-muted">
-                Pick a preset or upload your own background for the PTY terminal.
+                {t("Pick a preset or upload your own background for the PTY terminal.")}
               </p>
             </div>
 
@@ -125,7 +127,7 @@ export default function WallpaperModal({ open, onClose, wallpaper, onChangeWallp
               onClick={handleClose}
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
-              Close
+              {t("Close")}
             </button>
           </div>
 
@@ -137,13 +139,15 @@ export default function WallpaperModal({ open, onClose, wallpaper, onChangeWallp
           />
 
           <div className="mb-4">
-            <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted">Presets</div>
+            <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+              {t("Presets")}
+            </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {WALLPAPER_PRESETS.map((preset) => (
                 <WallpaperPresetCard
                   key={preset.id}
                   active={normalized.type === "preset" && normalized.id === preset.id}
-                  title={preset.name}
+                  title={t(preset.name)}
                   style={getWallpaperPreviewStyle({ type: "preset", id: preset.id })}
                   onClick={() => choosePreset(preset.id)}
                 />

@@ -1,5 +1,6 @@
-﻿import { ArrowLeft, FileText, Pencil, Play, Plus, Save, Trash2, X } from "lucide-react";
+import { ArrowLeft, FileText, Pencil, Play, Plus, Save, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useI18n } from "../../lib/i18n";
 
 const EMPTY_SCRIPT_FORM = {
   id: null,
@@ -19,6 +20,7 @@ export default function ScriptConfigModal({
   onRunScript,
   onDeleteScript,
 }) {
+  const { t } = useI18n();
   const [mode, setMode] = useState("list");
 
   useEffect(() => {
@@ -56,9 +58,11 @@ export default function ScriptConfigModal({
           <div>
             <h3 className="inline-flex items-center gap-2 text-base font-semibold">
               <FileText className="h-4 w-4 text-accent" aria-hidden="true" />
-              Scripts
+              {t("Scripts")}
             </h3>
-            <p className="text-xs text-muted">Manage scripts and execute them in the active SSH session.</p>
+            <p className="text-xs text-muted">
+              {t("Manage scripts and execute them in the active SSH session.")}
+            </p>
           </div>
           <button
             type="button"
@@ -66,27 +70,29 @@ export default function ScriptConfigModal({
             onClick={onClose}
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
-            Close
+            {t("Close")}
           </button>
         </div>
 
         {mode === "list" ? (
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">Configured: {scripts.length}</span>
+              <span className="text-sm text-muted">
+                {t("Configured: {count}", { count: scripts.length })}
+              </span>
               <button
                 type="button"
                 className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white"
                 onClick={openCreateForm}
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                New Script
+                {t("New Script")}
               </button>
             </div>
             <div className="max-h-96 space-y-2 overflow-auto pr-1">
               {scripts.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border/80 bg-surface p-4 text-center text-sm text-muted">
-                  No scripts yet.
+                  {t("No scripts yet.")}
                 </div>
               ) : (
                 scripts.map((item) => (
@@ -100,7 +106,7 @@ export default function ScriptConfigModal({
                         onClick={() => onRunScript(item.id)}
                       >
                         <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                        Run
+                        {t("Run")}
                       </button>
                       <button
                         type="button"
@@ -108,7 +114,7 @@ export default function ScriptConfigModal({
                         onClick={() => openEditForm(item)}
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                        Edit
+                        {t("Edit")}
                       </button>
                       <button
                         type="button"
@@ -116,7 +122,7 @@ export default function ScriptConfigModal({
                         onClick={() => onDeleteScript(item.id)}
                       >
                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        Delete
+                        {t("Delete")}
                       </button>
                     </div>
                   </div>
@@ -127,39 +133,44 @@ export default function ScriptConfigModal({
         ) : (
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">{scriptForm.id ? "Edit script" : "New script"}</span>
+              <span className="text-sm text-muted">
+                {scriptForm.id ? t("Edit script") : t("New script")}
+              </span>
               <button
                 type="button"
                 className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs"
                 onClick={() => setMode("list")}
               >
                 <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                Back
+                {t("Back")}
               </button>
             </div>
             <form className="space-y-2" onSubmit={submitScript}>
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="Script name"
+                placeholder={t("Script name")}
                 value={scriptForm.name}
                 onChange={(event) => setScriptForm((prev) => ({ ...prev, name: event.target.value }))}
               />
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="Script path"
+                placeholder={t("Script path")}
                 value={scriptForm.path}
                 onChange={(event) => setScriptForm((prev) => ({ ...prev, path: event.target.value }))}
               />
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="Run command"
+                placeholder={t("Run command")}
                 value={scriptForm.command}
                 onChange={(event) => setScriptForm((prev) => ({ ...prev, command: event.target.value }))}
               />
               <div className="flex justify-end">
-                <button type="submit" className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white">
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white"
+                >
                   <Save className="h-3.5 w-3.5" aria-hidden="true" />
-                  {scriptForm.id ? "Update Script" : "Create Script"}
+                  {scriptForm.id ? t("Update Script") : t("Create Script")}
                 </button>
               </div>
             </form>

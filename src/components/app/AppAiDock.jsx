@@ -1,4 +1,5 @@
 import AiAssistantPanel from "../panels/AiAssistantPanel";
+import { useI18n } from "../../lib/i18n";
 
 export default function AppAiDock({
   workbench,
@@ -8,6 +9,7 @@ export default function AppAiDock({
   onStartAiPanelResize,
   onOpenAiConfig,
 }) {
+  const { t } = useI18n();
   const {
     aiProfiles,
     activeAiProfileId,
@@ -40,7 +42,7 @@ export default function AppAiDock({
     <>
       <button
         type="button"
-        aria-label="Resize AI panel"
+        aria-label={t("Resize AI panel")}
         className={[
           "relative shrink-0 bg-border/80 transition-colors",
           showAiPanel

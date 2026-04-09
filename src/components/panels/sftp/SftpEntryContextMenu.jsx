@@ -1,5 +1,6 @@
 import { Download, FilePenLine, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
+import { useI18n } from "../../../lib/i18n";
 
 const MENU_WIDTH = 204;
 const MENU_HEIGHT = 156;
@@ -14,6 +15,7 @@ export default function SftpEntryContextMenu({
   onDownload,
   onDelete,
 }) {
+  const { t } = useI18n();
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -77,7 +79,7 @@ export default function SftpEntryContextMenu({
     return null;
   }
 
-  const fileLabel = entry.name?.trim() || entry.path || "Selected item";
+  const fileLabel = entry.name?.trim() || entry.path || t("Selected file");
   const isDirectory = entry.entryType === "directory";
 
   return (
@@ -86,11 +88,11 @@ export default function SftpEntryContextMenu({
       className="fixed z-50 w-[204px] rounded-[22px] border border-border/85 bg-panel/98 p-2 shadow-[0_22px_60px_rgba(34,26,16,0.22)] ring-1 ring-white/45 backdrop-blur-[6px]"
       style={style}
       role="menu"
-      aria-label={`Actions for ${fileLabel}`}
+      aria-label={t("Actions for {name}", { name: fileLabel })}
     >
       <div className="border-b border-border/70 px-2 pb-2">
         <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted/80">
-          {isDirectory ? "Folder Actions" : "File Actions"}
+          {isDirectory ? t("Folder Actions") : t("File Actions")}
         </div>
         <div className="mt-1 truncate text-sm font-medium text-text" title={entry.path}>
           {fileLabel}
@@ -105,7 +107,7 @@ export default function SftpEntryContextMenu({
           role="menuitem"
         >
           <FilePenLine className="h-4 w-4 text-accent" aria-hidden="true" />
-          {isDirectory ? "Open Folder" : "Open"}
+          {isDirectory ? t("Open Folder") : t("Open")}
         </button>
         {!isDirectory ? (
           <button
@@ -115,7 +117,7 @@ export default function SftpEntryContextMenu({
             role="menuitem"
           >
             <Download className="h-4 w-4 text-accent" aria-hidden="true" />
-            Download
+            {t("Download")}
           </button>
         ) : null}
         <button
@@ -125,7 +127,7 @@ export default function SftpEntryContextMenu({
           role="menuitem"
         >
           <Trash2 className="h-4 w-4" aria-hidden="true" />
-          Delete
+          {t("Delete")}
         </button>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { AlertTriangle, FileQuestion, Loader2 } from "lucide-react";
 import { useEffect } from "react";
+import { useI18n } from "../../../lib/i18n";
 
 export default function SftpTextOpenConfirmDialog({
   open,
@@ -10,6 +11,8 @@ export default function SftpTextOpenConfirmDialog({
   onCancel,
   onConfirm,
 }) {
+  const { t } = useI18n();
+
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -30,7 +33,7 @@ export default function SftpTextOpenConfirmDialog({
     return null;
   }
 
-  const fileLabel = entry.name?.trim() || entry.path || "Selected file";
+  const fileLabel = entry.name?.trim() || entry.path || t("Selected file");
   const sizeLabel =
     typeof formatBytes === "function" ? formatBytes(guard.size || entry.size || 0) : `${guard.size || 0} B`;
 
@@ -53,14 +56,14 @@ export default function SftpTextOpenConfirmDialog({
           <div className="min-w-0 flex-1">
             <div
               id="sftp-open-confirm-title"
-              className="text-[10px] font-semibold uppercase tracking-[0.22em] text-warning/80"
-            >
-              Text Editor Check
+            className="text-[10px] font-semibold uppercase tracking-[0.22em] text-warning/80"
+          >
+              {t("Text Editor Check")}
             </div>
-            <h3 className="mt-1 text-lg font-semibold text-text">Open this file as text?</h3>
+            <h3 className="mt-1 text-lg font-semibold text-text">{t("Open file as text?")}</h3>
             <p className="mt-2 text-sm leading-6 text-muted">
-              <span className="font-medium text-text">{fileLabel}</span> may not be a good fit for the
-              built-in text editor.
+              <span className="font-medium text-text">{fileLabel}</span>{" "}
+              {t("may not be a good fit for the built-in text editor.")}
             </p>
           </div>
         </div>
@@ -68,19 +71,30 @@ export default function SftpTextOpenConfirmDialog({
         <div className="mt-4 rounded-2xl border border-border/70 bg-surface/75 p-3">
           <div className="flex items-center gap-2 text-sm font-medium text-text">
             <FileQuestion className="h-4 w-4 text-accent" aria-hidden="true" />
-            File details
+            {t("File details")}
           </div>
           <div className="mt-2 space-y-1 text-xs text-muted">
-            <div>Path: {entry.path}</div>
-            <div>Size: {sizeLabel}</div>
+            <div>{t("Path: {path}", { path: entry.path })}</div>
+            <div>{t("Size: {size}", { size: sizeLabel })}</div>
           </div>
 
           <div className="mt-3 space-y-2 text-sm text-muted">
-            {guard.reasons.map((reason) => (
-              <p key={reason} className="leading-6">
-                {reason}
+            {guard.isLarge ? (
+              <p className="leading-6">
+                {t("This file is larger than 50 MB and may be slow to load in the text editor.")}
               </p>
-            ))}
+            ) : null}
+            {guard.isBinaryLike ? (
+              <p className="leading-6">
+                {guard.extension
+                  ? t(".{extension} is a common binary format, so the content may be unreadable as text.", {
+                      extension: guard.extension,
+                    })
+                  : t(
+                      "This file looks like a common binary format, so the content may be unreadable as text.",
+                    )}
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -91,7 +105,7 @@ export default function SftpTextOpenConfirmDialog({
             onClick={onCancel}
             disabled={busy}
           >
-            Cancel
+            {t("Cancel")}
           </button>
           <button
             type="button"
@@ -104,7 +118,7 @@ export default function SftpTextOpenConfirmDialog({
             ) : (
               <FileQuestion className="h-4 w-4" aria-hidden="true" />
             )}
-            {busy ? "Opening..." : "Open Anyway"}
+            {busy ? t("Opening...") : t("Open Anyway")}
           </button>
         </div>
       </div>

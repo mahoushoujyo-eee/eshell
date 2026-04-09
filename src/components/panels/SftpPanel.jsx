@@ -10,6 +10,7 @@ import SftpTransferQueue from "./sftp/SftpTransferQueue";
 import SftpTreePane from "./sftp/SftpTreePane";
 import { getSftpTextOpenGuard } from "./sftp/sftpOpenGuard";
 import { getDirectoryNodes } from "./sftp/sftpPanelUtils";
+import { useI18n } from "../../lib/i18n";
 
 export default function SftpPanel({
   activeSessionId,
@@ -30,6 +31,7 @@ export default function SftpPanel({
   onOpenFileEditor,
   formatBytes,
 }) {
+  const { t } = useI18n();
   const [treeNodesByPath, setTreeNodesByPath] = useState({});
   const [expandedPaths, setExpandedPaths] = useState({ "/": true });
   const [loadingPaths, setLoadingPaths] = useState({});
@@ -200,7 +202,7 @@ export default function SftpPanel({
     }
 
     const current = typeof downloadDirectory === "string" ? downloadDirectory : "";
-    const next = window.prompt("Set local download directory", current);
+    const next = window.prompt(t("Set local download directory"), current);
     if (next === null) {
       return;
     }
@@ -259,8 +261,8 @@ export default function SftpPanel({
       <div className="min-h-0 flex-1">
         <SplitPane
           direction="horizontal"
-          initialRatio={0.33}
-          minPrimarySize={150}
+          initialRatio={0.26}
+          minPrimarySize={136}
           minSecondarySize={220}
           primary={
             <SftpTreePane

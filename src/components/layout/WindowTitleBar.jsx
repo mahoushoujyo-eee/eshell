@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Bot, Copy, Minus, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "../../lib/i18n";
 
 function WindowControlButton({ title, onClick, tone = "normal", children }) {
   return (
@@ -21,10 +22,12 @@ function WindowControlButton({ title, onClick, tone = "normal", children }) {
 }
 
 function AiEntryButton({ active, busy, onClick }) {
+  const { t } = useI18n();
+
   return (
     <button
       type="button"
-      title={active ? "Hide AI chat" : "Show AI chat"}
+      title={active ? t("Hide AI chat") : t("Show AI chat")}
       className={[
         "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-all",
         active
@@ -50,6 +53,7 @@ function AiEntryButton({ active, busy, onClick }) {
 }
 
 export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStreaming = false }) {
+  const { t } = useI18n();
   const appWindow = getCurrentWindow();
   const [isMaximized, setIsMaximized] = useState(false);
   const titleBarRef = useRef(null);
@@ -156,7 +160,7 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
           eShell
         </span>
         <span data-tauri-drag-region className="truncate text-xs opacity-85">
-          Operations Console
+          {t("Operations Console")}
         </span>
       </div>
 
@@ -166,13 +170,16 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
 
       <div data-window-control className="ml-2 flex items-center gap-1">
         <WindowControlButton
-          title="Minimize"
+          title={t("Minimize")}
           onClick={() => safeWindowAction(() => appWindow.minimize(), "minimize")}
         >
           <Minus className="h-3.5 w-3.5" aria-hidden="true" />
         </WindowControlButton>
 
-        <WindowControlButton title={isMaximized ? "Restore" : "Maximize"} onClick={handleToggleMaximize}>
+        <WindowControlButton
+          title={isMaximized ? t("Restore") : t("Maximize")}
+          onClick={handleToggleMaximize}
+        >
           {isMaximized ? (
             <Copy className="h-3.5 w-3.5" aria-hidden="true" />
           ) : (
@@ -181,7 +188,7 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
         </WindowControlButton>
 
         <WindowControlButton
-          title="Close"
+          title={t("Close")}
           tone="danger"
           onClick={() => safeWindowAction(() => appWindow.close(), "close")}
         >

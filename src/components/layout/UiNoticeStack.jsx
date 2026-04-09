@@ -1,5 +1,6 @@
 import { AlertTriangle, CircleCheck, Info, TriangleAlert, X } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { useI18n } from "../../lib/i18n";
 
 const noticeToneClass = (tone) => {
   if (tone === "success") {
@@ -52,13 +53,14 @@ const NoticeIcon = ({ tone }) => {
 };
 
 export default function UiNoticeStack({ notices, onDismiss }) {
+  const { t } = useI18n();
   const timersRef = useRef(new Map());
 
   const titleByTone = {
-    success: "Operation Complete",
-    info: "Operation Update",
-    warning: "Operation Warning",
-    danger: "Operation Error",
+    success: t("Operation Complete"),
+    info: t("Operation Update"),
+    warning: t("Operation Warning"),
+    danger: t("Operation Error"),
   };
 
   useEffect(() => {
@@ -156,7 +158,7 @@ export default function UiNoticeStack({ notices, onDismiss }) {
                     toneClass.button,
                   ].join(" ")}
                   onClick={() => onDismiss(notice.id)}
-                  title="Dismiss"
+                  title={t("Dismiss")}
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
                 </button>

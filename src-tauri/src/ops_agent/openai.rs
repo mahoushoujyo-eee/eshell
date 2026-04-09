@@ -9,14 +9,19 @@ use super::context::{
     build_answer_system_prompt, build_planner_system_prompt, build_tool_summary_prompt,
     format_tool_result_user_message, OpsAgentSessionContext, OpsAgentToolPromptHint,
 };
+use super::logging::{truncate_for_log, OpsAgentLogContext};
 use super::providers::{
     openai_compat, parse_planned_reply_from_native_tool_calls, text_fallback, ProviderChatMessage,
-    ProviderChatRequestOptions, ProviderToolChoice, ProviderToolDefinition,
+    ProviderChatMessageResponse, ProviderChatRequestOptions, ProviderToolChoice,
+    ProviderToolDefinition,
 };
 use super::types::{OpsAgentMessage, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply};
 
 const OPS_AGENT_AI_PLAN_TIMEOUT_SECS: u64 = 45;
 const OPS_AGENT_AI_STREAM_TIMEOUT_SECS: u64 = 240;
+const AI_LOG_MESSAGE_PREVIEW_CHARS: usize = 280;
+const AI_LOG_ARGUMENT_PREVIEW_CHARS: usize = 220;
+const AI_LOG_LAST_OUTPUT_PREVIEW_CHARS: usize = 180;
 
 pub async fn plan_reply(
     config: &AiConfig,
@@ -24,8 +29,19 @@ pub async fn plan_reply(
     current_message: &OpsAgentMessage,
     session_context: &OpsAgentSessionContext,
     tool_hints: &[OpsAgentToolPromptHint],
+    log_context: Option<OpsAgentLogContext<'_>>,
 ) -> AppResult<PlannedAgentReply> {
     validate_ai_config(config)?;
+    log_request_context(
+        log_context,
+        "ai.plan",
+        config,
+        history,
+        current_message,
+        session_context,
+        None,
+        Some(tool_hints),
+    );
 
     let mut messages = Vec::new();
     messages.push(ProviderChatMessage {
@@ -49,14 +65,79 @@ pub async fn plan_reply(
             stream: false,
         },
         Duration::from_secs(OPS_AGENT_AI_PLAN_TIMEOUT_SECS),
+        log_context,
+        "plan",
     )
     .await?;
+    log_provider_response(
+        log_context,
+        "ai.plan.provider_response",
+        "ai.plan.provider_tool_call",
+        &response,
+    );
 
-    if let Some(plan) = parse_planned_reply_from_native_tool_calls(&response, &registered_tools)? {
-        return Ok(plan);
+    match parse_planned_reply_from_native_tool_calls(&response, &registered_tools) {
+        Ok(Some(plan)) => {
+            if let Some(log_context) = log_context {
+                log_context.append(
+                    "ai.plan.native_tool_call",
+                    format!(
+                        "tool={} command={} reason={} reply_preview={}",
+                        plan.tool.kind,
+                        plan.tool.command.as_deref().unwrap_or("-"),
+                        plan.tool.reason.as_deref().unwrap_or("-"),
+                        truncate_for_log(plan.reply.as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS)
+                    ),
+                );
+            }
+            return Ok(plan);
+        }
+        Ok(None) => {
+            if let Some(log_context) = log_context {
+                log_context.append(
+                    "ai.plan.native_tool_call_missing",
+                    "provider response did not contain native tool calls",
+                );
+            }
+        }
+        Err(error) => {
+            if let Some(log_context) = log_context {
+                log_context.append("ai.plan.native_tool_call_failed", error.to_string());
+            }
+            return Err(error);
+        }
     }
 
-    text_fallback::parse_planned_reply(&response.content, tool_hints)
+    match text_fallback::parse_planned_reply(&response.content, tool_hints) {
+        Ok(plan) => {
+            if let Some(log_context) = log_context {
+                log_context.append(
+                    "ai.plan.text_fallback",
+                    format!(
+                        "tool={} command={} reason={} reply_preview={}",
+                        plan.tool.kind,
+                        plan.tool.command.as_deref().unwrap_or("-"),
+                        plan.tool.reason.as_deref().unwrap_or("-"),
+                        truncate_for_log(plan.reply.as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS)
+                    ),
+                );
+            }
+            Ok(plan)
+        }
+        Err(error) => {
+            if let Some(log_context) = log_context {
+                log_context.append(
+                    "ai.plan.text_fallback_failed",
+                    format!(
+                        "error={} response_preview={}",
+                        error,
+                        truncate_for_log(response.content.as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS)
+                    ),
+                );
+            }
+            Err(error)
+        }
+    }
 }
 
 pub async fn stream_final_answer<F>(
@@ -65,12 +146,23 @@ pub async fn stream_final_answer<F>(
     current_message: &OpsAgentMessage,
     session_context: &OpsAgentSessionContext,
     planner_reply: Option<&str>,
+    log_context: Option<OpsAgentLogContext<'_>>,
     on_delta: F,
 ) -> AppResult<String>
 where
     F: FnMut(&str) -> AppResult<()>,
 {
     validate_ai_config(config)?;
+    log_request_context(
+        log_context,
+        "ai.answer",
+        config,
+        history,
+        current_message,
+        session_context,
+        planner_reply,
+        None,
+    );
 
     let mut messages = Vec::new();
     messages.push(ProviderChatMessage {
@@ -85,6 +177,8 @@ where
         messages,
         ProviderChatRequestOptions::default(),
         Duration::from_secs(OPS_AGENT_AI_STREAM_TIMEOUT_SECS),
+        log_context,
+        "answer",
         on_delta,
     )
     .await
@@ -94,8 +188,21 @@ pub async fn compact_history_summary(
     config: &AiConfig,
     transcript: &str,
     target_max_tokens: u32,
+    log_context: Option<OpsAgentLogContext<'_>>,
 ) -> AppResult<String> {
     validate_ai_config(config)?;
+    if let Some(log_context) = log_context {
+        log_context.append(
+            "compact.ai_summary.request",
+            format!(
+                "model={} target_max_tokens={} transcript_chars={} transcript_preview={}",
+                config.model,
+                target_max_tokens,
+                transcript.chars().count(),
+                truncate_for_log(transcript, AI_LOG_MESSAGE_PREVIEW_CHARS)
+            ),
+        );
+    }
 
     let summary_config = AiConfig {
         max_tokens: target_max_tokens.max(256),
@@ -118,6 +225,8 @@ pub async fn compact_history_summary(
         &summary_config,
         messages,
         Duration::from_secs(OPS_AGENT_AI_PLAN_TIMEOUT_SECS),
+        log_context,
+        "compact_summary",
     )
     .await
 }
@@ -131,6 +240,7 @@ pub async fn stream_tool_summary<F>(
     command: &str,
     output: &str,
     exit_code: Option<i32>,
+    log_context: Option<OpsAgentLogContext<'_>>,
     on_delta: F,
 ) -> AppResult<String>
 where
@@ -154,6 +264,8 @@ where
         messages,
         ProviderChatRequestOptions::default(),
         Duration::from_secs(OPS_AGENT_AI_STREAM_TIMEOUT_SECS),
+        log_context,
+        "tool_summary",
         on_delta,
     )
     .await
@@ -265,21 +377,181 @@ async fn request_text_completion(
     config: &AiConfig,
     messages: Vec<ProviderChatMessage>,
     timeout: Duration,
+    log_context: Option<OpsAgentLogContext<'_>>,
+    request_kind: &str,
 ) -> AppResult<String> {
     let response = openai_compat::request_message(
         config,
         messages,
         ProviderChatRequestOptions::default(),
         timeout,
+        log_context,
+        request_kind,
     )
     .await?;
+    log_provider_response(
+        log_context,
+        "ai.text.provider_response",
+        "ai.text.provider_tool_call",
+        &response,
+    );
     let content = response.content.trim().to_string();
     if content.is_empty() {
+        if let Some(log_context) = log_context {
+            log_context.append(
+                "ai.text.empty_response",
+                format!("request_kind={request_kind}"),
+            );
+        }
         return Err(AppError::Runtime(
             "ops agent AI response did not contain usable content".to_string(),
         ));
     }
     Ok(content)
+}
+
+fn log_request_context(
+    log_context: Option<OpsAgentLogContext<'_>>,
+    level_prefix: &str,
+    config: &AiConfig,
+    history: &[OpsAgentMessage],
+    current_message: &OpsAgentMessage,
+    session_context: &OpsAgentSessionContext,
+    planner_reply: Option<&str>,
+    tool_hints: Option<&[OpsAgentToolPromptHint]>,
+) {
+    let Some(log_context) = log_context else {
+        return;
+    };
+
+    let context_level = format!("{level_prefix}.context");
+    let shell_context = current_message.shell_context.as_ref();
+    let planner_reply = planner_reply.unwrap_or_default();
+    log_context.append(
+        context_level.as_str(),
+        format!(
+            "model={} history_messages={} current_message_id={} current_chars={} current_preview={} shell_context_attached={} shell_context_chars={} planner_reply_chars={} planner_reply_preview={} session_id={} current_dir={} last_output_chars={} temperature={} max_tokens={} max_context_tokens={} tool_hints={}",
+            config.model,
+            history.len(),
+            current_message.id,
+            current_message.content.chars().count(),
+            truncate_for_log(current_message.content.as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS),
+            shell_context.is_some(),
+            shell_context_char_count(shell_context),
+            planner_reply.chars().count(),
+            truncate_for_log(planner_reply, AI_LOG_MESSAGE_PREVIEW_CHARS),
+            session_context.session_id.as_deref().unwrap_or("-"),
+            session_context.current_dir.as_deref().unwrap_or("-"),
+            session_context
+                .last_output_preview
+                .as_ref()
+                .map(|value| value.chars().count())
+                .unwrap_or(0),
+            config.temperature,
+            config.max_tokens,
+            config.max_context_tokens,
+            tool_hints.map(|items| items.len()).unwrap_or(0),
+        ),
+    );
+
+    if let Some(shell_context) = shell_context {
+        let shell_level = format!("{level_prefix}.shell_context");
+        log_context.append(
+            shell_level.as_str(),
+            format!(
+                "session_id={} session_name={} chars={} preview={}",
+                shell_context.session_id.as_deref().unwrap_or("-"),
+                shell_context.session_name,
+                shell_context_char_count(Some(shell_context)),
+                truncate_for_log(shell_context.content.as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS),
+            ),
+        );
+    }
+
+    if let Some(last_output_preview) = session_context.last_output_preview.as_ref() {
+        let output_level = format!("{level_prefix}.session_output");
+        log_context.append(
+            output_level.as_str(),
+            format!(
+                "chars={} preview={}",
+                last_output_preview.chars().count(),
+                truncate_for_log(last_output_preview, AI_LOG_LAST_OUTPUT_PREVIEW_CHARS),
+            ),
+        );
+    }
+
+    if let Some(tool_hints) = tool_hints {
+        for (index, tool_hint) in tool_hints.iter().enumerate() {
+            let tool_level = format!("{level_prefix}.tool_hint");
+            log_context.append(
+                tool_level.as_str(),
+                format!(
+                    "index={}/{} kind={} requires_approval={} description={} usage_notes={}",
+                    index + 1,
+                    tool_hints.len(),
+                    tool_hint.kind,
+                    tool_hint.requires_approval,
+                    truncate_for_log(tool_hint.description.as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS),
+                    truncate_for_log(tool_hint.usage_notes.join(" ").as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS),
+                ),
+            );
+        }
+    }
+}
+
+fn log_provider_response(
+    log_context: Option<OpsAgentLogContext<'_>>,
+    response_level: &str,
+    tool_call_level: &str,
+    response: &ProviderChatMessageResponse,
+) {
+    let Some(log_context) = log_context else {
+        return;
+    };
+
+    log_context.append(
+        response_level,
+        format!(
+            "content_chars={} reasoning_chars={} tool_calls={} content_preview={} reasoning_preview={}",
+            response.content.chars().count(),
+            response.reasoning_content.chars().count(),
+            response.tool_calls.len(),
+            truncate_for_log(response.content.as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS),
+            truncate_for_log(
+                response.reasoning_content.as_str(),
+                AI_LOG_MESSAGE_PREVIEW_CHARS
+            ),
+        ),
+    );
+
+    for (index, tool_call) in response.tool_calls.iter().enumerate() {
+        log_context.append(
+            tool_call_level,
+            format!(
+                "index={}/{} id={} name={} arguments_chars={} arguments_preview={}",
+                index + 1,
+                response.tool_calls.len(),
+                tool_call.id.as_deref().unwrap_or("-"),
+                tool_call.name,
+                tool_call.arguments.chars().count(),
+                truncate_for_log(tool_call.arguments.as_str(), AI_LOG_ARGUMENT_PREVIEW_CHARS),
+            ),
+        );
+    }
+}
+
+fn shell_context_char_count(
+    shell_context: Option<&super::types::OpsAgentShellContext>,
+) -> usize {
+    shell_context
+        .map(|value| {
+            if value.char_count > 0 {
+                value.char_count
+            } else {
+                value.content.chars().count()
+            }
+        })
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

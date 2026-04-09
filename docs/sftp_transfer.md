@@ -9,6 +9,8 @@ From the SFTP panel:
 - `Upload`: upload selected local file to current remote directory
 - `Download`: download selected remote file to configured local directory
 - `Transfers`: open collapsible transfer overlay
+- the split layout keeps the left tree narrower so the right-side remote entry list has more working room
+- context menus, confirms, and toolbar labels follow the active app locale (`English` / `简体中文`)
 
 Transfer overlay includes:
 - direction (`Upload`/`Download`)

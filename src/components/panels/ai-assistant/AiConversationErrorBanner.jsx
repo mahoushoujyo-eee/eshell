@@ -1,9 +1,12 @@
 import { AlertTriangle } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 
 export default function AiConversationErrorBanner({
   conversationErrorText,
   onClearConversationError,
 }) {
+  const { t } = useI18n();
+
   if (!conversationErrorText) {
     return null;
   }
@@ -16,7 +19,7 @@ export default function AiConversationErrorBanner({
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-danger/75">
-            Chat Execution Error
+            {t("Chat Execution Error")}
           </div>
           <p className="mt-1 break-words text-xs leading-5">{conversationErrorText}</p>
         </div>
@@ -26,7 +29,7 @@ export default function AiConversationErrorBanner({
             className="inline-flex items-center justify-center rounded-xl border border-danger/30 bg-white/70 px-2 py-1 text-[11px] text-danger transition-colors hover:border-danger/45 hover:bg-white"
             onClick={onClearConversationError}
           >
-            Dismiss
+            {t("Dismiss")}
           </button>
         ) : null}
       </div>

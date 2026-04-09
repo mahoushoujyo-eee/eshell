@@ -691,7 +691,7 @@ pub fn fetch_server_status(
     });
 
     let process_output =
-        run_channel_command(&ssh, "ps -eo pid,pcpu,pmem,comm --sort=-pcpu | head -n 5")?.0;
+        run_channel_command(&ssh, "ps -eo pid,pcpu,rss,comm --sort=-pcpu | head -n 5")?.0;
     let top_processes = parse_top_processes(&process_output);
 
     let disk_output = run_channel_command(&ssh, "df -hP")?.0;

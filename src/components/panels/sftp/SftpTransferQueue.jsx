@@ -6,6 +6,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 import {
   transferDirectionLabel,
   transferStageColor,
@@ -40,6 +41,8 @@ export default function SftpTransferQueue({
   formatBytes,
   onClose,
 }) {
+  const { t } = useI18n();
+
   if (!open) {
     return null;
   }
@@ -49,28 +52,28 @@ export default function SftpTransferQueue({
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="inline-flex items-center gap-1.5 text-xs font-semibold">
           <ArrowDownToLine className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-          Transfer Queue
+          {t("Transfer Queue")}
         </div>
         <button
           type="button"
           className="rounded-md border border-border px-2 py-0.5 text-[10px] transition-colors hover:bg-accent-soft"
           onClick={onClose}
         >
-          Close
+          {t("Close")}
         </button>
       </div>
 
       <div className="mb-2 rounded-md border border-border/70 bg-surface/50 px-2 py-1.5">
         <div className="flex items-center justify-between gap-2">
           <div className="truncate text-[10px] text-muted">
-            Download Dir: {downloadDirectory || "(not set)"}
+            {t("Download Dir: {path}", { path: downloadDirectory || t("(not set)") })}
           </div>
           <button
             type="button"
             className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] transition-colors hover:bg-accent-soft"
             onClick={onConfigureDownloadDirectory}
           >
-            Change
+            {t("Change")}
           </button>
         </div>
       </div>
@@ -78,7 +81,7 @@ export default function SftpTransferQueue({
       <div className="max-h-72 overflow-auto pr-0.5">
         {transferRows.length === 0 ? (
           <div className="rounded-md border border-dashed border-border/70 bg-surface/40 px-2 py-2 text-[11px] text-muted">
-            No transfer tasks yet.
+            {t("No transfer tasks yet.")}
           </div>
         ) : (
           transferRows.map((transfer) => (
@@ -92,12 +95,12 @@ export default function SftpTransferQueue({
                   <div className="min-w-0">
                     <div className="truncate text-xs font-medium">{transfer.fileName}</div>
                     <div className="truncate text-[10px] text-muted">
-                      {transferDirectionLabel(transfer.direction)}: {transfer.remotePath}
+                      {t(transferDirectionLabel(transfer.direction))}: {transfer.remotePath}
                     </div>
                   </div>
                 </div>
                 <span className={`text-[10px] font-medium ${transferStageColor(transfer.stage)}`}>
-                  {transferStageLabel(transfer.stage)}
+                  {t(transferStageLabel(transfer.stage))}
                 </span>
               </div>
 
@@ -109,7 +112,7 @@ export default function SftpTransferQueue({
                     onClick={() => cancelTransfer?.(transfer.transferId)}
                   >
                     <X className="h-3 w-3" aria-hidden="true" />
-                    Cancel
+                    {t("Cancel")}
                   </button>
                 </div>
               ) : null}
@@ -131,10 +134,12 @@ export default function SftpTransferQueue({
                   <span>{Math.round(transfer.percent || 0)}%</span>
                 </div>
                 {transfer.localPath ? (
-                  <div className="mt-1 truncate text-[10px] text-muted">Local: {transfer.localPath}</div>
+                  <div className="mt-1 truncate text-[10px] text-muted">
+                    {t("Local: {path}", { path: transfer.localPath })}
+                  </div>
                 ) : null}
                 {transfer.message ? (
-                  <div className="mt-1 truncate text-[10px] text-danger">{transfer.message}</div>
+                  <div className="mt-1 truncate text-[10px] text-danger">{t(transfer.message)}</div>
                 ) : null}
               </div>
             </div>

@@ -803,9 +803,59 @@ components:
           properties:
             sessionId: { type: string }
             selectedInterface: { type: string, nullable: true }
+    MemoryStatus:
+      type: object
+      required: [usedMb, totalMb, usedPercent]
+      properties:
+        usedMb: { type: number }
+        totalMb: { type: number }
+        usedPercent: { type: number }
+    NetworkInterfaceStatus:
+      type: object
+      required: [interface, rxBytes, txBytes]
+      properties:
+        interface: { type: string }
+        rxBytes: { type: integer, format: int64 }
+        txBytes: { type: integer, format: int64 }
+    ProcessStatus:
+      type: object
+      required: [pid, cpuPercent, memoryMb, command]
+      properties:
+        pid: { type: integer }
+        cpuPercent: { type: number }
+        memoryMb: { type: number }
+        command: { type: string }
+    DiskStatus:
+      type: object
+      required: [filesystem, mountPoint, used, total, usedPercent]
+      properties:
+        filesystem: { type: string }
+        mountPoint: { type: string }
+        used: { type: string }
+        total: { type: string }
+        usedPercent: { type: string }
     ServerStatus:
       type: object
-      additionalProperties: true
+      required:
+        [cpuPercent, memory, networkInterfaces, topProcesses, disks, fetchedAt]
+      properties:
+        cpuPercent: { type: number }
+        memory: { $ref: "#/components/schemas/MemoryStatus" }
+        networkInterfaces:
+          type: array
+          items: { $ref: "#/components/schemas/NetworkInterfaceStatus" }
+        selectedInterface: { type: string, nullable: true }
+        selectedInterfaceTraffic:
+          allOf:
+            - $ref: "#/components/schemas/NetworkInterfaceStatus"
+          nullable: true
+        topProcesses:
+          type: array
+          items: { $ref: "#/components/schemas/ProcessStatus" }
+        disks:
+          type: array
+          items: { $ref: "#/components/schemas/DiskStatus" }
+        fetchedAt: { type: string }
 
     ScriptRequest:
       type: object

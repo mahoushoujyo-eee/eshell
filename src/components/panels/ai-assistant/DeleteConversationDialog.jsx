@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2, Trash2 } from "lucide-react";
 import { useEffect } from "react";
+import { useI18n } from "../../../lib/i18n";
 
 export default function DeleteConversationDialog({
   open,
@@ -8,6 +9,8 @@ export default function DeleteConversationDialog({
   onCancel,
   onConfirm,
 }) {
+  const { t } = useI18n();
+
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -28,7 +31,7 @@ export default function DeleteConversationDialog({
     return null;
   }
 
-  const safeTitle = conversationTitle?.trim() || "Untitled conversation";
+  const safeTitle = conversationTitle?.trim() || t("Untitled conversation");
 
   return (
     <div
@@ -49,14 +52,14 @@ export default function DeleteConversationDialog({
           <div className="min-w-0 flex-1">
             <div
               id="delete-conversation-title"
-              className="text-[10px] font-semibold uppercase tracking-[0.22em] text-danger/75"
-            >
-              Confirm Delete
+            className="text-[10px] font-semibold uppercase tracking-[0.22em] text-danger/75"
+          >
+              {t("Confirm Delete")}
             </div>
-            <h3 className="mt-1 text-lg font-semibold text-text">Delete this conversation?</h3>
+            <h3 className="mt-1 text-lg font-semibold text-text">{t("Delete this conversation?")}</h3>
             <p className="mt-2 text-sm leading-6 text-muted">
-              <span className="font-medium text-text">{safeTitle}</span> and all of its messages will
-              be removed permanently.
+              <span className="font-medium text-text">{safeTitle}</span>{" "}
+              {t("and all of its messages will be removed permanently.")}
             </p>
           </div>
         </div>
@@ -68,7 +71,7 @@ export default function DeleteConversationDialog({
             onClick={onCancel}
             disabled={busy}
           >
-            Cancel
+            {t("Cancel")}
           </button>
           <button
             type="button"
@@ -81,7 +84,7 @@ export default function DeleteConversationDialog({
             ) : (
               <Trash2 className="h-4 w-4" aria-hidden="true" />
             )}
-            {busy ? "Deleting..." : "Delete"}
+            {busy ? t("Deleting...") : t("Delete")}
           </button>
         </div>
       </div>

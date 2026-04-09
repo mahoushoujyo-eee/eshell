@@ -9,6 +9,37 @@ use crate::state::AppState;
 static OPS_AGENT_LOG_LOCK: Mutex<()> = Mutex::new(());
 const OPS_AGENT_LOG_FILE: &str = "ops_agent_debug.log";
 
+#[derive(Clone, Copy)]
+pub struct OpsAgentLogContext<'a> {
+    state: &'a AppState,
+    run_id: Option<&'a str>,
+    conversation_id: Option<&'a str>,
+}
+
+impl<'a> OpsAgentLogContext<'a> {
+    pub fn new(
+        state: &'a AppState,
+        run_id: Option<&'a str>,
+        conversation_id: Option<&'a str>,
+    ) -> Self {
+        Self {
+            state,
+            run_id,
+            conversation_id,
+        }
+    }
+
+    pub fn append(self, level: &str, message: impl AsRef<str>) {
+        append_debug_log(
+            self.state,
+            level,
+            self.run_id,
+            self.conversation_id,
+            message,
+        );
+    }
+}
+
 pub fn append_debug_log(
     state: &AppState,
     level: &str,
@@ -43,6 +74,17 @@ pub fn append_debug_log(
 
 fn resolve_log_path(state: &AppState) -> PathBuf {
     state.storage.data_dir().join(OPS_AGENT_LOG_FILE)
+}
+
+pub fn truncate_for_log(text: &str, max_chars: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+
+    let mut preview = trimmed.chars().take(max_chars).collect::<String>();
+    preview.push_str("...");
+    preview
 }
 
 fn sanitize_for_single_line(text: &str) -> String {

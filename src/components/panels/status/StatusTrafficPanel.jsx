@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, Network } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 
 export function formatRate(value, formatBytes) {
   const numeric = Number(value || 0);
@@ -17,12 +18,14 @@ export default function StatusTrafficPanel({
   trafficScaleMax,
   formatBytes,
 }) {
+  const { t } = useI18n();
+
   return (
     <div className="border-b border-border bg-surface/30 px-2 py-2">
       <div className="mb-1 flex items-center justify-between">
         <span className="inline-flex items-center gap-1.5">
           <Network className="h-3.5 w-3.5 text-sky-500" aria-hidden="true" />
-          Network
+          {t("Network")}
         </span>
         <select
           className="border border-border bg-panel px-1 py-0.5"
@@ -83,8 +86,10 @@ export default function StatusTrafficPanel({
 
       {currentStatus.selectedInterfaceTraffic ? (
         <div className="mt-1 text-[10px] text-muted">
-          Total RX {formatBytes(currentStatus.selectedInterfaceTraffic.rxBytes)} / Total TX{" "}
-          {formatBytes(currentStatus.selectedInterfaceTraffic.txBytes)}
+          {t("Total RX {rx} / Total TX {tx}", {
+            rx: formatBytes(currentStatus.selectedInterfaceTraffic.rxBytes),
+            tx: formatBytes(currentStatus.selectedInterfaceTraffic.txBytes),
+          })}
         </div>
       ) : null}
     </div>

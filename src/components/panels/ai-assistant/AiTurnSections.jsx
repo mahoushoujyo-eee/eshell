@@ -2,6 +2,7 @@ import { Check, Loader2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { useI18n } from "../../../lib/i18n";
 import { splitOpsAgentMessageContent } from "../../../lib/ops-agent-message-rendering";
 import {
   MARKDOWN_COMPONENTS,
@@ -86,6 +87,7 @@ export function ToolMessageSection({
   const pendingRisk = pendingRiskLabel(pendingAction?.riskLevel);
   const toolState = toolStateLabel(message.toolState);
   const pendingBusy = pendingAction && resolvingActionId === pendingAction.id;
+  const { t } = useI18n();
 
   return (
     <section key={message.id} className={withDivider ? "mt-3 border-t border-border/60 pt-3" : ""}>
@@ -99,7 +101,7 @@ export function ToolMessageSection({
                 toolStateBadgeClass(message.toolState),
               ].join(" ")}
             >
-              {toolState}
+              {t(toolState)}
             </span>
           ) : null}
           {pendingAction ? (
@@ -109,7 +111,7 @@ export function ToolMessageSection({
                 pendingRiskBadgeClass(pendingRisk),
               ].join(" ")}
             >
-              {pendingRisk}
+              {t(pendingRisk)}
             </span>
           ) : null}
         </div>
@@ -119,7 +121,7 @@ export function ToolMessageSection({
       </div>
       {pendingAction ? (
         <div className="mt-2 rounded-2xl border border-[#efc77a] bg-[#fff8e8] px-3 py-2 text-[11px] text-[#714800]">
-          <div className="font-medium">{pendingAction.reason || "approval required"}</div>
+          <div className="font-medium">{t(pendingAction.reason || "approval required")}</div>
           {expanded ? (
             <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[12px] text-[#5f3e00]">
               {pendingAction.command}
@@ -138,7 +140,7 @@ export function ToolMessageSection({
                 ) : (
                   <Check className="h-3.5 w-3.5" />
                 )}
-                Approve
+                {t("Approve")}
               </button>
               <button
                 type="button"
@@ -147,7 +149,7 @@ export function ToolMessageSection({
                 onClick={() => onResolvePendingAction(pendingAction.id, false)}
               >
                 <X className="h-3.5 w-3.5" />
-                Reject
+                {t("Reject")}
               </button>
             </div>
           ) : null}
@@ -169,6 +171,7 @@ export function StreamingMessageSection({
   expandedThinkKeys,
   onToggleThinkSection,
 }) {
+  const { t } = useI18n();
   const sections = splitOpsAgentMessageContent(content);
 
   return (
@@ -181,7 +184,7 @@ export function StreamingMessageSection({
     >
       <div className="mb-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-muted">
         <Loader2 className="h-3 w-3 animate-spin" />
-        Agent typing
+        {t("Agent typing")}
       </div>
       {sections.length > 0 ? (
         sections.map((section, sectionIndex) => {

@@ -1,5 +1,6 @@
 import { ArrowLeft, Bot, Check, Key, Link, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useI18n } from "../../lib/i18n";
 
 const EMPTY_AI_FORM = {
   id: null,
@@ -25,6 +26,7 @@ export default function AiConfigModal({
   onDeleteAiProfile,
   onSelectAiProfile,
 }) {
+  const { t } = useI18n();
   const [mode, setMode] = useState("list");
 
   useEffect(() => {
@@ -62,9 +64,11 @@ export default function AiConfigModal({
           <div>
             <h3 className="inline-flex items-center gap-2 text-base font-semibold">
               <Bot className="h-4 w-4 text-accent" aria-hidden="true" />
-              AI Configs
+              {t("AI Configs")}
             </h3>
-            <p className="text-xs text-muted">Manage model profiles and pick one for conversation.</p>
+            <p className="text-xs text-muted">
+              {t("Manage model profiles and pick one for conversation.")}
+            </p>
           </div>
           <button
             type="button"
@@ -72,27 +76,29 @@ export default function AiConfigModal({
             onClick={onClose}
           >
             <X className="h-3.5 w-3.5" aria-hidden="true" />
-            Close
+            {t("Close")}
           </button>
         </div>
 
         {mode === "list" ? (
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">Configured: {aiProfiles.length}</span>
+              <span className="text-sm text-muted">
+                {t("Configured: {count}", { count: aiProfiles.length })}
+              </span>
               <button
                 type="button"
                 className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white"
                 onClick={openCreateForm}
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                New Config
+                {t("New Config")}
               </button>
             </div>
             <div className="max-h-96 space-y-2 overflow-auto pr-1">
               {aiProfiles.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border/80 bg-surface p-4 text-center text-sm text-muted">
-                  No AI configs yet.
+                  {t("No AI configs yet.")}
                 </div>
               ) : (
                 aiProfiles.map((item) => {
@@ -104,7 +110,7 @@ export default function AiConfigModal({
                         {isActive && (
                           <span className="inline-flex items-center gap-1 rounded border border-success/40 bg-success/10 px-1.5 py-0.5 text-[10px] text-success">
                             <Check className="h-3 w-3" aria-hidden="true" />
-                            Active
+                            {t("Active")}
                           </span>
                         )}
                       </div>
@@ -119,7 +125,7 @@ export default function AiConfigModal({
                           disabled={isActive}
                         >
                           <Bot className="h-3.5 w-3.5" aria-hidden="true" />
-                          {isActive ? "In Use" : "Use"}
+                          {isActive ? t("In Use") : t("Use")}
                         </button>
                         <button
                           type="button"
@@ -127,7 +133,7 @@ export default function AiConfigModal({
                           onClick={() => openEditForm(item)}
                         >
                           <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                          Edit
+                          {t("Edit")}
                         </button>
                         <button
                           type="button"
@@ -135,7 +141,7 @@ export default function AiConfigModal({
                           onClick={() => onDeleteAiProfile(item.id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                          Delete
+                          {t("Delete")}
                         </button>
                       </div>
                     </div>
@@ -147,21 +153,23 @@ export default function AiConfigModal({
         ) : (
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">{aiProfileForm.id ? "Edit config" : "New config"}</span>
+              <span className="text-sm text-muted">
+                {aiProfileForm.id ? t("Edit config") : t("New config")}
+              </span>
               <button
                 type="button"
                 className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs"
                 onClick={() => setMode("list")}
               >
                 <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                Back
+                {t("Back")}
               </button>
             </div>
 
             <form className="space-y-2" onSubmit={submitProfile}>
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="Config name"
+                placeholder={t("Config name")}
                 value={aiProfileForm.name}
                 onChange={(event) => setAiProfileForm((prev) => ({ ...prev, name: event.target.value }))}
               />
@@ -170,7 +178,7 @@ export default function AiConfigModal({
                 <Link className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-muted" aria-hidden="true" />
                 <input
                   className="w-full rounded border border-border bg-surface px-7 py-1.5 text-sm"
-                  placeholder="Base URL"
+                  placeholder={t("Base URL")}
                   value={aiProfileForm.baseUrl}
                   onChange={(event) => setAiProfileForm((prev) => ({ ...prev, baseUrl: event.target.value }))}
                 />
@@ -181,7 +189,7 @@ export default function AiConfigModal({
                 <input
                   type="password"
                   className="w-full rounded border border-border bg-surface px-7 py-1.5 text-sm"
-                  placeholder="API key"
+                  placeholder={t("API key")}
                   value={aiProfileForm.apiKey}
                   onChange={(event) => setAiProfileForm((prev) => ({ ...prev, apiKey: event.target.value }))}
                 />
@@ -190,13 +198,13 @@ export default function AiConfigModal({
               <div className="grid grid-cols-2 gap-2">
                 <input
                   className="rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder="Model"
+                  placeholder={t("Model")}
                   value={aiProfileForm.model}
                   onChange={(event) => setAiProfileForm((prev) => ({ ...prev, model: event.target.value }))}
                 />
                 <input
                   className="rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder="Temperature"
+                  placeholder={t("Temperature")}
                   value={aiProfileForm.temperature}
                   onChange={(event) => setAiProfileForm((prev) => ({ ...prev, temperature: event.target.value }))}
                 />
@@ -204,14 +212,14 @@ export default function AiConfigModal({
 
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="Max tokens"
+                placeholder={t("Max tokens")}
                 value={aiProfileForm.maxTokens}
                 onChange={(event) => setAiProfileForm((prev) => ({ ...prev, maxTokens: event.target.value }))}
               />
 
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="Max context tokens"
+                placeholder={t("Max context tokens")}
                 value={aiProfileForm.maxContextTokens}
                 onChange={(event) =>
                   setAiProfileForm((prev) => ({ ...prev, maxContextTokens: event.target.value }))
@@ -220,7 +228,7 @@ export default function AiConfigModal({
 
               <textarea
                 className="h-24 w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder="System prompt"
+                placeholder={t("System prompt")}
                 value={aiProfileForm.systemPrompt}
                 onChange={(event) => setAiProfileForm((prev) => ({ ...prev, systemPrompt: event.target.value }))}
               />
@@ -231,7 +239,7 @@ export default function AiConfigModal({
                   className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white"
                 >
                   <Save className="h-3.5 w-3.5" aria-hidden="true" />
-                  {aiProfileForm.id ? "Update Config" : "Create Config"}
+                  {aiProfileForm.id ? t("Update Config") : t("Create Config")}
                 </button>
               </div>
             </form>

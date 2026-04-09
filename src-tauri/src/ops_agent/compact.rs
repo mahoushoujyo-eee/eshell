@@ -5,6 +5,7 @@ use crate::models::{now_rfc3339, AiConfig};
 use crate::state::AppState;
 
 use super::context::{build_planner_system_prompt, load_session_context};
+use super::logging::{truncate_for_log, OpsAgentLogContext};
 use super::openai;
 use super::types::{
     OpsAgentCompactConversationResult, OpsAgentConversation, OpsAgentMessage, OpsAgentRole,
@@ -33,14 +34,44 @@ pub async fn auto_compact_conversation_if_needed(
     config: &AiConfig,
 ) -> AppResult<Option<OpsAgentCompactConversationResult>> {
     let conversation = state.ops_agent.get_conversation(conversation_id)?;
+    let log_context = OpsAgentLogContext::new(state, None, Some(conversation_id));
     let estimated_tokens = estimate_conversation_tokens(state, config, &conversation, session_id);
+    log_context.append(
+        "compact.auto.inspect",
+        format!(
+            "session_id={} messages={} estimated_tokens={} max_context_tokens={}",
+            session_id.unwrap_or("-"),
+            conversation.messages.len(),
+            estimated_tokens,
+            config.max_context_tokens
+        ),
+    );
     if estimated_tokens <= config.max_context_tokens as usize {
+        log_context.append(
+            "compact.auto.skip",
+            format!(
+                "reason=within_context_limit estimated_tokens={} max_context_tokens={}",
+                estimated_tokens, config.max_context_tokens
+            ),
+        );
         return Ok(None);
     }
 
-    let result =
-        compact_conversation_history(state, conversation, session_id, config, OpsAgentCompactMode::Auto)
-            .await?;
+    log_context.append(
+        "compact.auto.triggered",
+        format!(
+            "estimated_tokens={} max_context_tokens={}",
+            estimated_tokens, config.max_context_tokens
+        ),
+    );
+    let result = compact_conversation_history(
+        state,
+        conversation,
+        session_id,
+        config,
+        OpsAgentCompactMode::Auto,
+    )
+    .await?;
     Ok(Some(result))
 }
 
@@ -52,8 +83,30 @@ pub async fn compact_conversation_history(
     mode: OpsAgentCompactMode,
 ) -> AppResult<OpsAgentCompactConversationResult> {
     let estimated_tokens_before = estimate_conversation_tokens(state, config, &conversation, session_id);
+    let log_context = OpsAgentLogContext::new(state, None, Some(conversation.id.as_str()));
+    log_context.append(
+        "compact.begin",
+        format!(
+            "mode={:?} session_id={} messages={} estimated_tokens_before={} max_context_tokens={}",
+            mode,
+            session_id
+                .or(conversation.session_id.as_deref())
+                .unwrap_or("-"),
+            conversation.messages.len(),
+            estimated_tokens_before,
+            config.max_context_tokens
+        ),
+    );
 
     if conversation.messages.len() < COMPACT_MIN_MESSAGES {
+        log_context.append(
+            "compact.skip",
+            format!(
+                "reason=too_few_messages messages={} threshold={}",
+                conversation.messages.len(),
+                COMPACT_MIN_MESSAGES
+            ),
+        );
         return Ok(OpsAgentCompactConversationResult {
             conversation,
             compacted: false,
@@ -65,6 +118,14 @@ pub async fn compact_conversation_history(
 
     let keep_start = find_keep_start_index(&conversation.messages, config.max_context_tokens as usize);
     if keep_start == 0 || keep_start >= conversation.messages.len() {
+        log_context.append(
+            "compact.skip",
+            format!(
+                "reason=keep_window_already_fits keep_start={} messages={}",
+                keep_start,
+                conversation.messages.len()
+            ),
+        );
         return Ok(OpsAgentCompactConversationResult {
             conversation,
             compacted: false,
@@ -77,6 +138,7 @@ pub async fn compact_conversation_history(
     let messages_to_summarize = conversation.messages[..keep_start].to_vec();
     let messages_to_keep = conversation.messages[keep_start..].to_vec();
     if messages_to_summarize.is_empty() {
+        log_context.append("compact.skip", "reason=no_messages_to_summarize");
         return Ok(OpsAgentCompactConversationResult {
             conversation,
             compacted: false,
@@ -87,11 +149,49 @@ pub async fn compact_conversation_history(
     }
 
     let transcript = build_compaction_transcript(&messages_to_summarize);
-    let summary = match openai::compact_history_summary(config, &transcript, COMPACT_SUMMARY_MAX_TOKENS)
-        .await
+    log_context.append(
+        "compact.transcript_ready",
+        format!(
+            "keep_start={} summarize_messages={} keep_messages={} transcript_chars={}",
+            keep_start,
+            messages_to_summarize.len(),
+            messages_to_keep.len(),
+            transcript.chars().count()
+        ),
+    );
+    let summary = match openai::compact_history_summary(
+        config,
+        &transcript,
+        COMPACT_SUMMARY_MAX_TOKENS,
+        Some(log_context),
+    )
+    .await
     {
-        Ok(value) => value.trim().to_string(),
-        Err(_) => build_fallback_summary(&messages_to_summarize),
+        Ok(value) => {
+            let trimmed = value.trim().to_string();
+            log_context.append(
+                "compact.summary_ready",
+                format!(
+                    "source=ai summary_chars={} summary_preview={}",
+                    trimmed.chars().count(),
+                    truncate_for_log(trimmed.as_str(), COMPACT_MESSAGE_PREVIEW_CHARS)
+                ),
+            );
+            trimmed
+        }
+        Err(error) => {
+            let fallback = build_fallback_summary(&messages_to_summarize);
+            log_context.append(
+                "compact.summary_ready",
+                format!(
+                    "source=fallback error={} summary_chars={} summary_preview={}",
+                    error,
+                    fallback.chars().count(),
+                    truncate_for_log(fallback.as_str(), COMPACT_MESSAGE_PREVIEW_CHARS)
+                ),
+            );
+            fallback
+        }
     };
 
     let boundary_message = OpsAgentMessage {
@@ -128,17 +228,27 @@ pub async fn compact_conversation_history(
         tool_kind: None,
         shell_context: None,
     };
+    let summarized_message_count = messages_to_summarize.len();
+    let kept_message_count = messages_to_keep.len();
 
-    let compacted_messages = [
-        vec![boundary_message, summary_message],
-        messages_to_keep,
-    ]
-    .concat();
+    let compacted_messages = [vec![boundary_message, summary_message], messages_to_keep].concat();
 
     let updated = state
         .ops_agent
         .replace_messages(&conversation.id, compacted_messages)?;
     let estimated_tokens_after = estimate_conversation_tokens(state, config, &updated, session_id);
+    log_context.append(
+        "compact.completed",
+        format!(
+            "mode={:?} summarized_messages={} kept_messages={} updated_messages={} estimated_tokens_before={} estimated_tokens_after={}",
+            mode,
+            summarized_message_count,
+            kept_message_count,
+            updated.messages.len(),
+            estimated_tokens_before,
+            estimated_tokens_after
+        ),
+    );
 
     Ok(OpsAgentCompactConversationResult {
         conversation: updated,

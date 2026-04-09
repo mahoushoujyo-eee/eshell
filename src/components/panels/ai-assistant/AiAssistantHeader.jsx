@@ -1,4 +1,5 @@
 import { Archive, Bot, ChevronLeft, ChevronRight, Loader2, Plus, Settings2, X } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 import { HeaderActionButton } from "./AiAssistantControls";
 
 export default function AiAssistantHeader({
@@ -13,6 +14,8 @@ export default function AiAssistantHeader({
   onOpenAiConfig,
   onClose,
 }) {
+  const { t } = useI18n();
+
   if (!hasManagedShell) {
     return null;
   }
@@ -36,16 +39,16 @@ export default function AiAssistantHeader({
           <Bot className="h-5 w-5" aria-hidden="true" />
         </span>
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">Ops Agent</div>
+          <div className="truncate text-sm font-semibold">{t("Ops Agent")}</div>
           <div className="truncate text-[11px] uppercase tracking-[0.18em] text-muted">
-            Live diagnostics and guided actions
+            {t("Live diagnostics and guided actions")}
           </div>
         </div>
       </div>
 
       <div className="flex items-center gap-1.5">
         <HeaderActionButton
-          title={historyVisible ? "Hide chat history" : "Show chat history"}
+          title={historyVisible ? t("Hide chat history") : t("Show chat history")}
           onClick={onToggleHistory}
         >
           {historyVisible ? (
@@ -54,12 +57,12 @@ export default function AiAssistantHeader({
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
           )}
         </HeaderActionButton>
-        <HeaderActionButton title="New conversation" onClick={onCreateConversation}>
+        <HeaderActionButton title={t("New conversation")} onClick={onCreateConversation}>
           <Plus className="h-4 w-4" aria-hidden="true" />
         </HeaderActionButton>
         {onCompactConversation ? (
           <HeaderActionButton
-            title={compactBusy ? "Compacting conversation" : "Compact conversation"}
+            title={compactBusy ? t("Compacting conversation") : t("Compact conversation")}
             onClick={compactBusy ? undefined : onCompactConversation}
             disabled={!canCompact || compactBusy}
           >
@@ -71,12 +74,12 @@ export default function AiAssistantHeader({
           </HeaderActionButton>
         ) : null}
         {onOpenAiConfig ? (
-          <HeaderActionButton title="AI config" onClick={onOpenAiConfig}>
+          <HeaderActionButton title={t("AI config")} onClick={onOpenAiConfig}>
             <Settings2 className="h-4 w-4" aria-hidden="true" />
           </HeaderActionButton>
         ) : null}
         {onClose ? (
-          <HeaderActionButton title="Close AI chat" onClick={onClose}>
+          <HeaderActionButton title={t("Close AI chat")} onClick={onClose}>
             <X className="h-4 w-4" aria-hidden="true" />
           </HeaderActionButton>
         ) : null}

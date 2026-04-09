@@ -1,4 +1,5 @@
 import { Check, Loader2, ShieldAlert, X } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 import {
   pendingRiskBadgeClass,
   pendingRiskLabel,
@@ -9,6 +10,8 @@ export default function AiPendingActionsPanel({
   resolvingActionId,
   onResolvePendingAction,
 }) {
+  const { t } = useI18n();
+
   if (pendingActions.length === 0) {
     return null;
   }
@@ -17,7 +20,7 @@ export default function AiPendingActionsPanel({
     <div className="shrink-0 border-b border-border/70 bg-[#fff7e8] px-3 py-2">
       <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-[#8a5a00]">
         <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
-        Pending tool approvals
+        {t("Pending tool approvals")}
       </div>
       <div className="max-h-32 space-y-2 overflow-auto">
         {pendingActions.map((action) => {
@@ -38,10 +41,10 @@ export default function AiPendingActionsPanel({
                     pendingRiskBadgeClass(riskLevel),
                   ].join(" ")}
                 >
-                  {riskLevel}
+                  {t(riskLevel)}
                 </span>
               </div>
-              <div className="mb-2 truncate text-[#8a5a00]">{action.reason || "no reason"}</div>
+              <div className="mb-2 truncate text-[#8a5a00]">{t(action.reason || "no reason")}</div>
               <div className="flex items-center justify-end gap-1.5">
                 <button
                   type="button"
@@ -54,7 +57,7 @@ export default function AiPendingActionsPanel({
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  Approve
+                  {t("Approve")}
                 </button>
                 <button
                   type="button"
@@ -63,7 +66,7 @@ export default function AiPendingActionsPanel({
                   onClick={() => onResolvePendingAction(action.id, false)}
                 >
                   <X className="h-3.5 w-3.5" />
-                  Reject
+                  {t("Reject")}
                 </button>
               </div>
             </div>

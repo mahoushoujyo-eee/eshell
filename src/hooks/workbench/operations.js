@@ -1,5 +1,6 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { DEFAULT_AI, EMPTY_SCRIPT, EMPTY_SSH } from "../../constants/workbench";
+import { useI18n } from "../../lib/i18n";
 import { EMPTY_OPS_AGENT_STREAM } from "../../lib/ops-agent-stream";
 import { createShellContextAttachment } from "../../lib/ops-agent-shell-context";
 import { createPtyInputSender } from "../../lib/pty-input-sender";
@@ -16,7 +17,6 @@ import {
 import {
   STATUS_FETCH_WARNING_PREFIX,
   isSessionLostError,
-  isStatusFetchWarning,
   toErrorMessage,
 } from "./errors";
 import { shellQuote, trimTerminalOutput } from "./session";
@@ -86,6 +86,15 @@ export function useWorkbenchOperations({
   runBusy,
   onError,
 }) {
+  const { localeTag, t } = useI18n();
+  const localeTagRef = useRef(localeTag);
+  const tRef = useRef(t);
+
+  useEffect(() => {
+    localeTagRef.current = localeTag;
+    tRef.current = t;
+  }, [localeTag, t]);
+
   const appendLog = useCallback((sessionId, tag, text) => {
     if (!sessionId || !text) {
       return;
@@ -98,7 +107,7 @@ export function useWorkbenchOperations({
           ...rows,
           {
             id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            ts: new Date().toLocaleTimeString(),
+            ts: new Date().toLocaleTimeString(localeTagRef.current),
             tag,
             text,
           },
@@ -203,7 +212,7 @@ export function useWorkbenchOperations({
     async (sessionId) => {
       const originSessionId = resolveSessionAlias(sessionId);
       if (!originSessionId) {
-        throw new Error("No shell session selected");
+        throw new Error(tRef.current("No shell session selected"));
       }
 
       const existing = reconnectingSessionsRef.current.get(originSessionId);
@@ -214,7 +223,11 @@ export function useWorkbenchOperations({
       const task = (async () => {
         const staleSession = sessions.find((item) => item.id === originSessionId);
         if (!staleSession?.configId) {
-          throw new Error(`Shell session lost and cannot auto-reconnect: ${originSessionId}`);
+          throw new Error(
+            tRef.current("Shell session lost and cannot auto-reconnect: {sessionId}", {
+              sessionId: originSessionId,
+            }),
+          );
         }
 
         const reopened = await api.openShellSession(staleSession.configId);
@@ -276,7 +289,7 @@ export function useWorkbenchOperations({
           return next;
         });
 
-        appendLog(reopened.id, "SYSTEM", "Session disconnected. Auto-reconnected.");
+        appendLog(reopened.id, "SYSTEM", tRef.current("Session disconnected. Auto-reconnected."));
         return reopened;
       })();
 
@@ -294,7 +307,7 @@ export function useWorkbenchOperations({
     async (sessionId, action) => {
       const resolvedSessionId = resolveSessionAlias(sessionId);
       if (!resolvedSessionId) {
-        throw new Error("No shell session selected");
+        throw new Error(tRef.current("No shell session selected"));
       }
 
       try {
@@ -323,7 +336,7 @@ export function useWorkbenchOperations({
       send: (sessionId, data) => {
         const runWithReconnect = runWithSessionReconnectRef.current;
         if (typeof runWithReconnect !== "function") {
-          return Promise.reject(new Error("PTY input sender is not ready"));
+          return Promise.reject(new Error(tRef.current("PTY input sender is not ready")));
         }
         return runWithReconnect(sessionId, (activeId) => api.ptyWriteInput(activeId, data));
       },
@@ -393,7 +406,7 @@ export function useWorkbenchOperations({
 
   const bootstrap = useCallback(async () => {
     try {
-      await runBusy("Loading project", async () => {
+      await runBusy(tRef.current("Loading project"), async () => {
         const loadDefaultDirTask = downloadDirectory?.trim()
           ? Promise.resolve(downloadDirectory)
           : api.sftpDefaultDownloadDir().catch(() => "");
@@ -452,7 +465,7 @@ export function useWorkbenchOperations({
     async (event) => {
       event.preventDefault();
       try {
-        await runBusy("Save SSH config", () =>
+        await runBusy(tRef.current("Save SSH config"), () =>
           api.saveSshConfig({
             id: sshForm.id || null,
             name: sshForm.name,
@@ -477,14 +490,20 @@ export function useWorkbenchOperations({
   const connectServer = useCallback(
     async (configId) => {
       const targetConfig = sshConfigs.find((item) => item.id === configId) || null;
-      const targetLabel = targetConfig?.name || targetConfig?.host || "server";
-      const pendingNoticeId = pushUiNotice(`Connecting to ${targetLabel}...`, {
+      const targetLabel =
+        targetConfig?.name || targetConfig?.host || tRef.current("SSH Servers");
+      const pendingNoticeId = pushUiNotice(
+        tRef.current("Connecting to {target}...", { target: targetLabel }),
+        {
         tone: "info",
         ttlMs: 0,
-      });
+        },
+      );
 
       try {
-        const session = await runBusy("Open SSH session", () => api.openShellSession(configId));
+        const session = await runBusy(tRef.current("Open SSH session"), () =>
+          api.openShellSession(configId),
+        );
         dismissUiNotice(pendingNoticeId);
         await reloadSessions();
         setActiveSessionId(session.id);
@@ -493,16 +512,32 @@ export function useWorkbenchOperations({
           [session.id]: normalizeRemotePath(session.currentDir || "/"),
         }));
         setPtyOutputBySession((prev) => ({ ...prev, [session.id]: "" }));
-        appendLog(session.id, "SYSTEM", `Connected ${session.configName} (${session.currentDir})`);
-        pushUiNotice(`Connected to ${session.configName} (${session.currentDir})`, {
+        appendLog(
+          session.id,
+          "SYSTEM",
+          tRef.current("Connected to {name} ({dir})", {
+            name: session.configName,
+            dir: session.currentDir,
+          }),
+        );
+        pushUiNotice(
+          tRef.current("Connected to {name} ({dir})", {
+            name: session.configName,
+            dir: session.currentDir,
+          }),
+          {
           tone: "success",
           ttlMs: 4200,
-        });
+          },
+        );
         return true;
       } catch (err) {
         dismissUiNotice(pendingNoticeId);
         const reason = toErrorMessage(err);
-        const message = `Failed to connect to ${targetLabel}: ${reason}`;
+        const message = tRef.current("Failed to connect to {target}: {reason}", {
+          target: targetLabel,
+          reason,
+        });
         setError(message);
         pushUiNotice(message, { tone: "danger" });
         return false;
@@ -527,7 +562,7 @@ export function useWorkbenchOperations({
       const resolvedSessionId = resolveSessionAlias(sessionId);
       let rows = null;
       try {
-        await runBusy("Close session", () => api.closeShellSession(resolvedSessionId));
+        await runBusy(tRef.current("Close session"), () => api.closeShellSession(resolvedSessionId));
         rows = await reloadSessions();
       } catch (err) {
         if (!isSessionLostError(err)) {
@@ -584,7 +619,7 @@ export function useWorkbenchOperations({
       }
       try {
         const normalizedPath = normalizeRemotePath(path);
-        return await runBusy("Read directory", () =>
+        return await runBusy(tRef.current("Read directory"), () =>
           runWithSessionReconnect(activeSessionId, (sessionId) =>
             api.sftpListDir(sessionId, normalizedPath),
           ),
@@ -630,7 +665,7 @@ export function useWorkbenchOperations({
         return { opened: false };
       }
       try {
-        const file = await runBusy("Read file", () =>
+        const file = await runBusy(tRef.current("Read file"), () =>
           runWithSessionReconnect(activeSessionId, (sessionId) =>
             api.sftpReadFile(sessionId, entry.path),
           ),
@@ -674,7 +709,7 @@ export function useWorkbenchOperations({
 
       try {
         const contentBase64 = arrayBufferToBase64(await file.arrayBuffer());
-        await runBusy("Upload file", () =>
+        await runBusy(tRef.current("Upload file"), () =>
           runWithSessionReconnect(activeSessionId, (sessionId) =>
             api.sftpUploadFileWithProgress(
               sessionId,
@@ -700,7 +735,7 @@ export function useWorkbenchOperations({
             transferredBytes: 0,
             totalBytes: file.size,
             percent: 0,
-            message: cancelled ? "Transfer cancelled" : toErrorMessage(err),
+            message: cancelled ? tRef.current("Transfer cancelled") : toErrorMessage(err),
           }),
         );
         if (!cancelled) {
@@ -728,7 +763,7 @@ export function useWorkbenchOperations({
     }
     const localDir = (downloadDirectory || "").trim();
     if (!localDir) {
-      onError("Please set a local download directory first");
+      onError(tRef.current("Please set a local download directory first"));
       return;
     }
 
@@ -749,7 +784,7 @@ export function useWorkbenchOperations({
     }
 
     try {
-      const result = await runBusy("Download file", () =>
+      const result = await runBusy(tRef.current("Download file"), () =>
         runWithSessionReconnect(activeSessionId, (sessionId) =>
           api.sftpDownloadFileToLocal(sessionId, remotePath, localDir, transferId),
         ),
@@ -783,7 +818,7 @@ export function useWorkbenchOperations({
           transferredBytes: 0,
           totalBytes: targetEntry.size || null,
           percent: 0,
-          message: cancelled ? "Transfer cancelled" : toErrorMessage(err),
+          message: cancelled ? tRef.current("Transfer cancelled") : toErrorMessage(err),
         }),
       );
       if (!cancelled) {
@@ -809,7 +844,7 @@ export function useWorkbenchOperations({
 
       const remotePath = normalizeRemotePath(targetEntry.path);
       try {
-        await runBusy("Delete remote file", () =>
+        await runBusy(tRef.current("Delete remote file"), () =>
           runWithSessionReconnect(activeSessionId, (sessionId) =>
             api.sftpDeleteEntry(sessionId, remotePath, targetEntry.entryType),
           ),
@@ -827,7 +862,7 @@ export function useWorkbenchOperations({
 
         await refreshSftp(currentPath);
         setSelectedEntry(null);
-        pushUiNotice(`Deleted ${targetEntry.name || remotePath}`, {
+        pushUiNotice(tRef.current("Deleted {name}", { name: targetEntry.name || remotePath }), {
           tone: "success",
           ttlMs: 4200,
         });
@@ -865,7 +900,7 @@ export function useWorkbenchOperations({
           upsertSftpTransfer(prev, {
             transferId,
             stage: "cancelled",
-            message: "Cancellation requested",
+            message: tRef.current("Cancellation requested"),
           }),
         );
       } catch (err) {
@@ -883,6 +918,7 @@ export function useWorkbenchOperations({
       const resolvedSessionId = resolveSessionAlias(sessionId) || sessionId;
       const requestedNic = typeof nic === "string" && nic.trim() ? nic : null;
       const requestToken = Symbol(resolvedSessionId);
+      const statusWarningMessage = tRef.current(STATUS_FETCH_WARNING_PREFIX);
       statusRequestTokenRef.current.set(resolvedSessionId, requestToken);
 
       try {
@@ -922,15 +958,19 @@ export function useWorkbenchOperations({
 
         setError((prev) => {
           const current = typeof prev === "string" ? prev.trim() : "";
-          return isStatusFetchWarning(current) ? "" : prev;
+          return current === STATUS_FETCH_WARNING_PREFIX || current === statusWarningMessage ? "" : prev;
         });
       } catch (err) {
         setError((prev) => {
           const current = typeof prev === "string" ? prev.trim() : "";
-          if (current && !isStatusFetchWarning(current)) {
+          if (
+            current &&
+            current !== STATUS_FETCH_WARNING_PREFIX &&
+            current !== statusWarningMessage
+          ) {
             return prev;
           }
-          return STATUS_FETCH_WARNING_PREFIX;
+          return statusWarningMessage;
         });
       }
     },
@@ -941,7 +981,7 @@ export function useWorkbenchOperations({
     async (event) => {
       event.preventDefault();
       try {
-        await runBusy("Save script", () => api.saveScript(scriptForm));
+        await runBusy(tRef.current("Save script"), () => api.saveScript(scriptForm));
         setScriptForm(EMPTY_SCRIPT);
         setScripts(await api.listScripts());
       } catch (err) {
@@ -954,13 +994,13 @@ export function useWorkbenchOperations({
   const runScript = useCallback(
     async (scriptId) => {
       if (!activeSessionId) {
-        onError("Please connect an SSH session first");
+        onError(tRef.current("Please connect an SSH session first"));
         return;
       }
 
       const script = scripts.find((item) => item.id === scriptId);
       if (!script) {
-        onError("Script not found");
+        onError(tRef.current("Script not found"));
         return;
       }
 
@@ -968,12 +1008,12 @@ export function useWorkbenchOperations({
       const scriptPath = (script.path || "").trim();
       const resolvedCommand = directCommand || (scriptPath ? `bash ${shellQuote(scriptPath)}` : "");
       if (!resolvedCommand) {
-        onError("Script has no runnable command or path");
+        onError(tRef.current("Script has no runnable command or path"));
         return;
       }
 
       try {
-        await runBusy("Run script", () =>
+        await runBusy(tRef.current("Run script"), () =>
           runWithSessionReconnect(activeSessionId, (sessionId) =>
             api.ptyWriteInput(sessionId, `${resolvedCommand}\n`),
           ),
@@ -1020,7 +1060,7 @@ export function useWorkbenchOperations({
     async (event) => {
       event.preventDefault();
       try {
-        const state = await runBusy("Save AI config", () =>
+        const state = await runBusy(tRef.current("Save AI config"), () =>
           api.saveAiProfile(toAiProfileInput(aiProfileForm)),
         );
         const activeProfile = applyAiProfilesState(state);
@@ -1040,7 +1080,7 @@ export function useWorkbenchOperations({
         return;
       }
       try {
-        const state = await runBusy("Switch AI profile", () =>
+        const state = await runBusy(tRef.current("Switch AI profile"), () =>
           api.setActiveAiProfile(profileId),
         );
         applyAiProfilesState(state);
@@ -1057,7 +1097,7 @@ export function useWorkbenchOperations({
         return;
       }
       try {
-        const state = await runBusy("Delete AI config", () =>
+        const state = await runBusy(tRef.current("Delete AI config"), () =>
           api.deleteAiProfile(profileId),
         );
         applyAiProfilesState(state);
@@ -1086,7 +1126,7 @@ export function useWorkbenchOperations({
 
   const createAiConversation = useCallback(async () => {
     try {
-      const created = await runBusy("Create AI conversation", () =>
+      const created = await runBusy(tRef.current("Create AI conversation"), () =>
         api.opsAgentCreateConversation(null, activeSessionId || null),
       );
       clearAiConversationError(created.id);
@@ -1118,7 +1158,7 @@ export function useWorkbenchOperations({
         return false;
       }
       try {
-        await runBusy("Delete AI conversation", () =>
+        await runBusy(tRef.current("Delete AI conversation"), () =>
           api.opsAgentDeleteConversation(conversationId),
         );
         clearAiConversationError(conversationId);
@@ -1146,7 +1186,7 @@ export function useWorkbenchOperations({
       }
 
       try {
-        const result = await runBusy("Compact conversation", () =>
+        const result = await runBusy(tRef.current("Compact conversation"), () =>
           api.opsAgentCompactConversation(conversationId),
         );
         if (result?.conversation) {
@@ -1155,7 +1195,7 @@ export function useWorkbenchOperations({
           await loadAiConversation(conversationId);
         }
         await reloadAiConversations();
-        pushUiNotice(result?.note || "Conversation compaction finished.", {
+        pushUiNotice(tRef.current(result?.note || "Conversation compaction finished."), {
           tone: result?.compacted ? "success" : "info",
           ttlMs: 4200,
         });
@@ -1183,7 +1223,7 @@ export function useWorkbenchOperations({
       }
       setResolvingAiActionId(actionId);
       try {
-        await runBusy(approve ? "Approve command" : "Reject command", () =>
+        await runBusy(tRef.current(approve ? "Approve command" : "Reject command"), () =>
           api.opsAgentResolveAction(actionId, approve, activeSessionId || null),
         );
         await Promise.all([
@@ -1219,7 +1259,7 @@ export function useWorkbenchOperations({
       try {
         clearAiConversationError(activeAiConversationId || null);
         setAiQuestion("");
-        const accepted = await runBusy("AI response", () =>
+        const accepted = await runBusy(tRef.current("AI response"), () =>
           api.opsAgentChatStreamStart({
             conversationId: activeAiConversationId || null,
             sessionId: activeSessionId || null,
@@ -1278,7 +1318,7 @@ export function useWorkbenchOperations({
   const handleDeleteSsh = useCallback(
     async (sshId) => {
       try {
-        await runBusy("Delete SSH config", () => api.deleteSshConfig(sshId));
+        await runBusy(tRef.current("Delete SSH config"), () => api.deleteSshConfig(sshId));
         setSshConfigs(await api.listSshConfigs());
       } catch (err) {
         onError(err);
@@ -1290,7 +1330,7 @@ export function useWorkbenchOperations({
   const handleDeleteScript = useCallback(
     async (scriptId) => {
       try {
-        await runBusy("Delete script", () => api.deleteScript(scriptId));
+        await runBusy(tRef.current("Delete script"), () => api.deleteScript(scriptId));
         setScripts(await api.listScripts());
       } catch (err) {
         onError(err);

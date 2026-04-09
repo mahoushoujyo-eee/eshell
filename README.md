@@ -12,13 +12,14 @@ script execution, and Ops Agent workflows in one application.
 
 - Multi-session SSH management
 - PTY terminal (`xterm.js`) with input and resize sync
+- English / Simplified Chinese UI toggle with persisted locale
 - SFTP browser with:
   - directory tree and file preview/edit
   - upload/download
   - local download directory setting
   - transfer queue overlay with progress
   - manual transfer cancel (upload/download)
-- Server status panel (CPU, memory, NIC, disk, top processes)
+- Server status panel (CPU, memory, NIC, disk / process switcher)
 - Script center (save + execute in active session)
 - Ops Agent:
   - conversation management
@@ -27,6 +28,7 @@ script execution, and Ops Agent workflows in one application.
   - pending action approval flow
   - automatic resume after action resolution
   - shell context attachment from terminal selection
+  - detailed debug logging for request, stream, and compaction troubleshooting
 
 ## Recent SFTP Upgrade (2026-04)
 
@@ -37,6 +39,15 @@ script execution, and Ops Agent workflows in one application.
 - Added transfer cancel API: `sftp_cancel_transfer`
 - Added transfer status `cancelled`
 - UI now uses a collapsible transfer overlay (next to `Refresh`) to avoid consuming panel space
+
+## Recent UX and Localization Update (2026-04)
+
+- Added app-level English / Simplified Chinese switching from the top toolbar
+- Locale preference now persists via `localStorage` key `eshell:locale`
+- Refined the server status panel so `Processes` and `Disks` no longer compete in one dense stack
+- Process memory now displays as RSS in `MB`, while summary memory remains `used / total` in `GB`
+- Adjusted the SFTP split layout to prioritize the right-side remote file list over the tree
+- Expanded Ops Agent debug logging coverage in `.eshell-data/ops_agent_debug.log`
 
 ## Tech Stack
 
@@ -148,6 +159,8 @@ By default, runtime data is stored in `.eshell-data/` under the project root:
 - [Project Dev Guide](docs/PROJECT_DEV_GUIDE.md)
 - [Ops Agent Guide](docs/ops_agent.md)
 - [OpenAPI-style RPC Spec](docs/openapi.yaml)
+- [Server Status Guide](docs/server_status.md)
 - [SFTP Transfer Guide](docs/sftp_transfer.md)
+- [Unreleased Notes](docs/releases/unreleased.md)
 - [Release Notes 1.1.0](docs/releases/v1.1.0.md)
 - [Reference Projects](docs/refer_proj/README.md)

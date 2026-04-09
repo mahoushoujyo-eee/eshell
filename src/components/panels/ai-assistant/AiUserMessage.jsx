@@ -1,4 +1,5 @@
 import { normalizeShellContextAttachment } from "../../../lib/ops-agent-shell-context";
+import { useI18n } from "../../../lib/i18n";
 import { ShellContextChip } from "./AiAssistantControls";
 import { formatTime, roleLabel } from "./aiAssistantUtils";
 
@@ -8,6 +9,7 @@ export default function AiUserMessage({
   expandedShellMessageIds,
   onToggleShellContextMessage,
 }) {
+  const { t } = useI18n();
   const message = group.message;
   const shellContext = normalizeShellContextAttachment(message.shellContext);
   const shellContextExpanded = Boolean(expandedShellMessageIds[message.id]);
@@ -23,7 +25,7 @@ export default function AiUserMessage({
         ].join(" ")}
       >
         <div className="mb-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] opacity-80">
-          <span>{roleLabel(message.role)}</span>
+          <span>{t(roleLabel(message.role))}</span>
           <span>{formatTime(message.createdAt)}</span>
         </div>
         {shellContext ? (

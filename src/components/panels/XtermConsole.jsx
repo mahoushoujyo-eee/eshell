@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { getTerminalWallpaperStyle, normalizeWallpaperSelection } from "../../constants/workbench";
+import { useI18n } from "../../lib/i18n";
 import { normalizeShellContextContent } from "../../lib/ops-agent-shell-context";
 import XtermSelectionAction from "./xterm/XtermSelectionAction";
 
@@ -18,6 +19,7 @@ export default function XtermConsole({
   onAttachSelection,
   wallpaper,
 }) {
+  const { t } = useI18n();
   const hostRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -172,9 +174,9 @@ export default function XtermConsole({
       renderedSessionIdRef.current = activeSessionId;
       renderedLengthRef.current = 0;
       if (!activeSessionId) {
-        term.writeln("\x1b[38;5;245mNo active sessions\x1b[0m");
+        term.writeln(`\x1b[38;5;245m${t("No active sessions")}\x1b[0m`);
       } else if (!output) {
-        term.writeln("\x1b[38;5;245mPTY connected. Type directly in terminal.\x1b[0m");
+        term.writeln(`\x1b[38;5;245m${t("PTY connected. Type directly in terminal.")}\x1b[0m`);
       }
       setSelectionText("");
       if (activeSessionId && term.cols > 0 && term.rows > 0) {

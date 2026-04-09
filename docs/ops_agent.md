@@ -11,6 +11,7 @@ From the Ops Agent panel, the user can:
 - attach selected shell output as user-provided context
 - manually compact the active conversation from the header action
 - review and resolve approval-gated actions
+- view localized UI copy in English or Simplified Chinese
 
 The panel exposes conversation compaction as a manual action, while the backend can also compact automatically before a chat run continues.
 
@@ -162,9 +163,19 @@ Runtime-only state:
 - run registry and cancellation flags
 - current streaming run ownership per conversation
 
+Debug log coverage in `ops_agent_debug.log`:
+- shared log context includes `run_id` and `conversation_id` when available
+- high-level request assembly logs capture user message previews, shell context previews, and native tool-call parsing outcomes
+- provider logs capture outbound request metadata, message previews, tool schema previews, non-2xx response previews, and JSON parse failures
+- stream logs capture chunk/event progression plus final stream statistics
+- compaction logs capture trigger reason, preserved tail sizing, summary source, and estimated token deltas
+
 Important code paths:
 - `src-tauri/src/ops_agent/store.rs`
 - `src-tauri/src/ops_agent/logging.rs`
+- `src-tauri/src/ops_agent/openai.rs`
+- `src-tauri/src/ops_agent/providers/openai_compat.rs`
+- `src-tauri/src/ops_agent/compact.rs`
 - `src-tauri/src/ops_agent/run_registry.rs`
 
 ## 8. Current Limitations

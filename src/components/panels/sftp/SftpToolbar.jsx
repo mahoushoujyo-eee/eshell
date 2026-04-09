@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Upload,
 } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 
 export default function SftpToolbar({
   activeSessionId,
@@ -20,11 +21,13 @@ export default function SftpToolbar({
   onToggleTransferPanel,
   activeTransferCount,
 }) {
+  const { t } = useI18n();
+
   return (
     <div className="flex items-center justify-between border-b border-border px-2 py-2">
       <div className="inline-flex items-center gap-2 text-sm font-semibold">
         <FolderOpen className="h-4 w-4 text-accent" aria-hidden="true" />
-        SFTP Browser
+        {t("SFTP Browser")}
       </div>
 
       <div className="flex gap-1 text-xs">
@@ -35,7 +38,7 @@ export default function SftpToolbar({
           disabled={!activeSessionId}
         >
           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-          Refresh
+          {t("Refresh")}
         </button>
 
         <button
@@ -43,15 +46,15 @@ export default function SftpToolbar({
           className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
           onClick={configureDownloadDirectory}
           disabled={!activeSessionId}
-          title={downloadDirectory || "Set local download folder"}
+          title={downloadDirectory || t("Set local download folder")}
         >
           <FolderCog className="h-3.5 w-3.5" aria-hidden="true" />
-          Path
+          {t("Path")}
         </button>
 
         <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft">
           <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-          Upload
+          {t("Upload")}
           <input type="file" className="hidden" onChange={uploadFile} disabled={!activeSessionId} />
         </label>
 
@@ -62,7 +65,7 @@ export default function SftpToolbar({
           disabled={!activeSessionId || !selectedEntry || selectedEntry.entryType === "directory"}
         >
           <Download className="h-3.5 w-3.5" aria-hidden="true" />
-          Download
+          {t("Download")}
         </button>
 
         <button
@@ -72,10 +75,10 @@ export default function SftpToolbar({
             showTransferPanel ? "bg-accent-soft" : "hover:bg-accent-soft",
           ].join(" ")}
           onClick={onToggleTransferPanel}
-          title="Toggle transfer queue"
+          title={t("Toggle transfer queue")}
         >
           <ArrowUpToLine className="h-3.5 w-3.5" aria-hidden="true" />
-          Transfers
+          {t("Transfers")}
           {activeTransferCount > 0 ? (
             <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">
               {activeTransferCount}

@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight, CircleCheck } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 
 export function RailButton({
   icon: Icon,
@@ -111,11 +112,14 @@ export function ToolbarSection({ title, collapsed, children }) {
 }
 
 export function ToggleSidebarButton({ collapsed, onClick }) {
+  const { t } = useI18n();
+  const label = collapsed ? t("Expand sidebar") : t("Collapse sidebar");
+
   return (
     <button
       type="button"
-      title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      title={label}
+      aria-label={label}
       className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/75 bg-panel/92 text-muted transition-colors hover:border-accent/45 hover:bg-accent-soft hover:text-text"
       onClick={onClick}
     >

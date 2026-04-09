@@ -5,11 +5,13 @@ import AppAiDock from "./AppAiDock";
 import AppMainWorkspace from "./AppMainWorkspace";
 import FileEditorModal from "../panels/FileEditorModal";
 import { getWallpaperLabel } from "../../constants/workbench";
+import { useI18n } from "../../lib/i18n";
 
 export default function AppWorkspace({
   workbench,
   ui,
 }) {
+  const { t } = useI18n();
   const {
     theme,
     setTheme,
@@ -57,7 +59,7 @@ export default function AppWorkspace({
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-panel">
         <TopToolbar
           theme={theme}
-          wallpaperLabel={getWallpaperLabel(wallpaper)}
+          wallpaperLabel={t(getWallpaperLabel(wallpaper))}
           showSftpPanel={showSftpPanel}
           showStatusPanel={showStatusPanel}
           collapsed={sidebarCollapsed}

@@ -99,6 +99,7 @@ pub fn parse_planned_reply_from_native_tool_calls(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops_agent::providers::types::ProviderToolCall;
 
     #[test]
     fn parses_native_tool_call_into_plan() {

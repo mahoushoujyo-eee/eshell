@@ -1,4 +1,5 @@
 import { Bot } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 
 export default function AiAssistantProfileBar({
   hasManagedShell,
@@ -6,16 +7,18 @@ export default function AiAssistantProfileBar({
   activeAiProfileId,
   onSelectAiProfile,
 }) {
+  const { t } = useI18n();
+
   return (
     <div className="flex items-center gap-2 border-b border-border/70 px-3 py-3">
       {!hasManagedShell ? (
         <div className="inline-flex items-center gap-2 text-sm font-semibold">
           <Bot className="h-4 w-4 text-accent" aria-hidden="true" />
-          Ops Agent
+          {t("Ops Agent")}
         </div>
       ) : (
         <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
-          Model
+          {t("Model")}
         </span>
       )}
       <select
@@ -28,7 +31,7 @@ export default function AiAssistantProfileBar({
         disabled={aiProfiles.length === 0}
       >
         {aiProfiles.length === 0 ? (
-          <option value="">No AI profile</option>
+          <option value="">{t("No AI profile")}</option>
         ) : (
           aiProfiles.map((profile) => (
             <option key={profile.id} value={profile.id}>

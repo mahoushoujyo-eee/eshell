@@ -1,52 +1,76 @@
-#### 存活且SSH登录正常的IP（共31个）：
-```
-223.2.27.126
-223.2.27.128
-223.2.27.130
-223.2.27.117
-223.2.27.115
-223.2.27.110
-223.2.27.111
-223.2.27.119
-223.2.27.140 // 好像有点问题这个，登不上
-223.2.27.141
-223.2.27.142
-223.2.27.143
-223.2.27.144
-223.2.27.145
-223.2.27.146
-223.2.27.147
-223.2.27.148
-223.2.27.149
-223.2.27.151
-223.2.27.152
-223.2.27.153
-223.2.27.154
-223.2.27.155
-223.2.27.156
-223.2.27.159
-223.2.27.150
-223.2.27.162
-223.2.27.163
-223.2.27.166
-223.2.27.167
-223.2.27.168
-```
----
-#### 可ping通但SSH登录失败的IP（共2个）：
-```
-223.2.27.124
-223.2.27.161
-```
----
-#### ping不通不存活的IP（共8个）：
-```
-223.2.27.106
-223.2.27.122
-223.2.27.132
-223.2.27.107
-223.2.27.157
-223.2.27.158
-223.2.27.160
-223.2.27.169
-```
+# Server Status Guide
+
+This document describes the current server status panel in eShell.
+
+## 1. UX Behavior
+
+The status panel is split into two levels:
+- top summary keeps CPU, memory, and network visible at all times
+- lower detail area switches between `Processes` and `Disks` to avoid a crowded stacked layout
+
+Current display rules:
+- CPU is shown as a percentage bar
+- summary memory is shown as `used / total` in `GB`
+- process memory is shown in `MB`
+- disk rows show mount point, used / total, and a usage bar
+- fetched time is rendered with the current UI locale
+
+If status polling fails for one cycle because of a transient network issue, the UI shows a retry warning instead of treating it as a hard failure.
+
+## 2. Backend Commands
+
+- `fetch_server_status`
+- `get_cached_server_status`
+
+Request input:
+- `sessionId`
+- `selectedInterface` (optional)
+
+## 3. Data Semantics
+
+`ServerStatus` currently contains:
+- `cpuPercent`
+- `memory`
+- `networkInterfaces`
+- `selectedInterface`
+- `selectedInterfaceTraffic`
+- `topProcesses`
+- `disks`
+- `fetchedAt`
+
+Important field semantics:
+- `memory.usedMb` and `memory.totalMb` are returned in megabytes and rendered as `GB` in the summary UI
+- `memory.usedPercent` is still available for progress-bar rendering
+- `topProcesses[].memoryMb` is parsed from `ps` RSS output and converted from `KB` to `MB`
+- `disks[].usedPercent` remains a string as parsed from `df -hP`
+
+## 4. Process and Disk Views
+
+`Processes` view:
+- optimized for quick triage
+- shows `PID`, `CPU %`, `Memory (MB)`, and command
+- sorted from backend shell output by CPU usage
+
+`Disks` view:
+- optimized for mount-point readability
+- surfaces usage as a simple card-style list instead of a dense table
+- helps avoid line wrapping on long mount paths
+
+## 5. Frontend Integration
+
+Main frontend files:
+- `src/components/panels/StatusPanel.jsx`
+- `src/components/panels/status/StatusResourceBars.jsx`
+- `src/components/panels/status/StatusTrafficPanel.jsx`
+- `src/hooks/workbench/operations.js`
+
+Backend parsing files:
+- `src-tauri/src/server_ops/service.rs`
+- `src-tauri/src/server_ops/status_parser.rs`
+- `src-tauri/src/models.rs`
+
+## 6. Troubleshooting Notes
+
+- If network traffic appears empty, verify the selected NIC is correct for the remote host.
+- If process memory looks unexpectedly small, remember it now reflects RSS in `MB`, not percent-of-system-memory.
+- If the panel shows a warning banner but keeps updating afterward, that is the expected transient-retry path.

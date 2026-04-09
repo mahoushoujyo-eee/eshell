@@ -11,7 +11,7 @@ use crate::state::AppState;
 use super::super::compact;
 use super::super::context::load_session_context;
 use super::super::events::OpsAgentEventEmitter;
-use super::super::logging::append_debug_log;
+use super::super::logging::{append_debug_log, OpsAgentLogContext};
 use super::super::openai;
 use super::super::run_registry::OpsAgentRunHandle;
 use super::super::tools::OpsAgentToolOutcome;
@@ -487,6 +487,11 @@ async fn request_plan_with_retry(
                 current_message,
                 session_context,
                 tool_hints,
+                Some(OpsAgentLogContext::new(
+                    state,
+                    Some(run_id_for_log),
+                    Some(conversation_id),
+                )),
             )
         },
     )
@@ -524,6 +529,11 @@ async fn stream_answer_with_retry(
                 current_message,
                 session_context,
                 planner_reply,
+                Some(OpsAgentLogContext::new(
+                    state,
+                    Some(run_id_for_log),
+                    Some(conversation_id),
+                )),
                 |delta| {
                     ensure_run_not_cancelled(run_handle)?;
                     emitter.delta(delta.to_string());

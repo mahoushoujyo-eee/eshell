@@ -5,6 +5,7 @@ import {
   FileText,
   FolderOpen,
   Image,
+  Languages,
   LoaderCircle,
   Moon,
   Server,
@@ -18,6 +19,7 @@ import {
   ToggleSidebarButton,
   ToolbarSection,
 } from "./top-toolbar/TopToolbarPrimitives";
+import { useI18n } from "../../lib/i18n";
 
 export default function TopToolbar({
   theme,
@@ -35,12 +37,26 @@ export default function TopToolbar({
   busy,
   error,
 }) {
+  const { language, t, toggleLanguage } = useI18n();
   const hasError = Boolean(error && String(error).trim());
-  const isWarning = hasError && /^warning/i.test(String(error).trim());
-  const busyText = busy ? `Running: ${busy}` : "Idle";
-  const errorDetail = hasError ? String(error).trim() : "";
-  const errorText = hasError ? (isWarning ? "Background warning" : "Recent issue") : "No issues";
+  const normalizedError = hasError ? String(error).trim() : "";
+  const isWarning =
+    hasError &&
+    (/^warning/i.test(normalizedError) ||
+      normalizedError ===
+        t(
+          "Warning: Server status polling failed for this cycle due to a transient network fluctuation. The app will retry automatically.",
+        ));
+  const busyText = busy ? t("Running: {busy}", { busy }) : t("Idle");
+  const errorDetail = normalizedError;
+  const errorText = hasError
+    ? isWarning
+      ? t("Background warning")
+      : t("Recent issue")
+    : t("No issues");
   const errorTitle = hasError ? errorDetail : errorText;
+  const currentLanguageLabel = language === "zh" ? "简体中文" : "English";
+  const nextLanguageLabel = language === "zh" ? "English" : "简体中文";
 
   return (
     <aside
@@ -70,19 +86,19 @@ export default function TopToolbar({
           </div>
           <ToggleSidebarButton collapsed={collapsed} onClick={onToggleCollapsed} />
         </div>
-        {!collapsed ? <div className="mt-2 text-base font-semibold">Operations Console</div> : null}
+        {!collapsed ? <div className="mt-2 text-base font-semibold">{t("Operations Console")}</div> : null}
       </div>
 
       <div className="mt-2 space-y-2">
-        <ToolbarSection title="Config" collapsed={collapsed}>
-          <RailButton icon={Server} label="SSH Profiles" onClick={onOpenSshConfig} collapsed={collapsed} />
-          <RailButton icon={FileText} label="Script Center" onClick={onOpenScriptConfig} collapsed={collapsed} />
+        <ToolbarSection title={t("Config")} collapsed={collapsed}>
+          <RailButton icon={Server} label={t("SSH Profiles")} onClick={onOpenSshConfig} collapsed={collapsed} />
+          <RailButton icon={FileText} label={t("Script Center")} onClick={onOpenScriptConfig} collapsed={collapsed} />
         </ToolbarSection>
 
-        <ToolbarSection title="Panels" collapsed={collapsed}>
+        <ToolbarSection title={t("Panels")} collapsed={collapsed}>
           <RailButton
             icon={FolderOpen}
-            label={showSftpPanel ? "Hide SFTP panel" : "Show SFTP panel"}
+            label={showSftpPanel ? t("Hide SFTP panel") : t("Show SFTP panel")}
             active={showSftpPanel}
             onClick={onToggleSftpPanel}
             collapsed={collapsed}
@@ -90,7 +106,7 @@ export default function TopToolbar({
           />
           <RailButton
             icon={Activity}
-            label={showStatusPanel ? "Hide status panel" : "Show status panel"}
+            label={showStatusPanel ? t("Hide status panel") : t("Show status panel")}
             active={showStatusPanel}
             onClick={onToggleStatusPanel}
             collapsed={collapsed}
@@ -100,17 +116,23 @@ export default function TopToolbar({
       </div>
 
       <div className="mt-auto pt-2">
-        <ToolbarSection title="Quick" collapsed={collapsed}>
+        <ToolbarSection title={t("Quick")} collapsed={collapsed}>
           <RailButton
             icon={Image}
-            label={wallpaperLabel ? `Wallpaper: ${wallpaperLabel}` : "Wallpaper"}
+            label={wallpaperLabel ? t("Wallpaper: {label}", { label: wallpaperLabel }) : t("Wallpaper")}
             onClick={onOpenWallpaperPicker}
             collapsed={collapsed}
           />
           <RailButton
             icon={theme === "light" ? Moon : Sun}
-            label={theme === "light" ? "Dark Mode" : "Light Mode"}
+            label={theme === "light" ? t("Dark Mode") : t("Light Mode")}
             onClick={onToggleTheme}
+            collapsed={collapsed}
+          />
+          <RailButton
+            icon={Languages}
+            label={t("Language: {language}", { language: currentLanguageLabel })}
+            onClick={toggleLanguage}
             collapsed={collapsed}
           />
 
@@ -138,6 +160,11 @@ export default function TopToolbar({
               />
             </div>
           </div>
+          {!collapsed ? (
+            <div className="px-1 text-[10px] text-muted">
+              {t("Switch to {language}", { language: nextLanguageLabel })}
+            </div>
+          ) : null}
         </ToolbarSection>
       </div>
     </aside>

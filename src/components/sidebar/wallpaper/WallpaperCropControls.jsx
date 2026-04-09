@@ -1,3 +1,5 @@
+import { useI18n } from "../../../lib/i18n";
+
 function WallpaperCropSlider({
   label,
   valueLabel,
@@ -38,10 +40,12 @@ export default function WallpaperCropControls({
   applying,
   cropError,
 }) {
+  const { t } = useI18n();
+
   return (
     <div className="space-y-3 rounded-2xl border border-border/70 bg-surface/60 p-3">
       <WallpaperCropSlider
-        label="Zoom"
+        label={t("Zoom")}
         valueLabel={`${cropZoom.toFixed(2)}x`}
         min="1"
         max="3"
@@ -51,7 +55,7 @@ export default function WallpaperCropControls({
       />
 
       <WallpaperCropSlider
-        label="Horizontal"
+        label={t("Horizontal")}
         valueLabel={`${Math.round(cropPan.x * 100)}%`}
         min="-100"
         max="100"
@@ -61,7 +65,7 @@ export default function WallpaperCropControls({
       />
 
       <WallpaperCropSlider
-        label="Vertical"
+        label={t("Vertical")}
         valueLabel={`${Math.round(cropPan.y * 100)}%`}
         min="-100"
         max="100"
@@ -76,14 +80,14 @@ export default function WallpaperCropControls({
           className="rounded-xl border border-border px-3 py-1.5 text-xs text-muted hover:bg-accent-soft"
           onClick={onReset}
         >
-          Reset
+          {t("Reset")}
         </button>
         <button
           type="button"
           className="rounded-xl border border-border px-3 py-1.5 text-xs text-muted hover:bg-accent-soft"
           onClick={onCancel}
         >
-          Discard
+          {t("Discard")}
         </button>
         <button
           type="button"
@@ -91,11 +95,10 @@ export default function WallpaperCropControls({
           className="rounded-xl border border-accent bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
           onClick={onApply}
         >
-          {applying ? "Applying..." : "Apply Wallpaper"}
+          {applying ? t("Applying...") : t("Apply Wallpaper")}
         </button>
       </div>
-
-      {cropError ? <div className="text-xs text-danger">{cropError}</div> : null}
+      {cropError ? <div className="text-xs text-danger">{t(cropError)}</div> : null}
     </div>
   );
 }

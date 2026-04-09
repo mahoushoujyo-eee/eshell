@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronRight, TerminalSquare, X } from "lucide-react";
+import { useI18n } from "../../../lib/i18n";
 import { actionButtonClass, toolLabel } from "./aiAssistantUtils";
 
 export function HeaderActionButton({ title, onClick, children, disabled = false }) {
@@ -23,6 +24,7 @@ export function ShellContextChip({
   onRemove,
   inverted = false,
 }) {
+  const { t } = useI18n();
   const interactive = typeof onToggle === "function";
   const frameClass = inverted
     ? "border-white/18 bg-white/10 text-white hover:border-white/28 hover:bg-white/14"
@@ -47,7 +49,7 @@ export function ShellContextChip({
             inverted ? "text-white/70" : "text-muted",
           ].join(" ")}
         >
-          Shell Context / {shellContext.sessionName}
+          {t("Shell Context / {name}", { name: shellContext.sessionName })}
         </div>
         {!interactive ? (
           <div
@@ -82,7 +84,7 @@ export function ShellContextChip({
             inverted ? "hover:bg-white/10" : "hover:bg-black/5",
           ].join(" ")}
           onClick={onRemove}
-          title="Remove selected shell context"
+          title={t("Remove selected shell context")}
         >
           <X className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
@@ -120,13 +122,15 @@ export function ShellContextChip({
 }
 
 export function ToolMessageChip({ toolKind, expanded = false, onToggle }) {
+  const { t } = useI18n();
+
   return (
     <button
       type="button"
       className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-2xl border border-[#efc77a] bg-[#fff3d8] px-2.5 py-1.5 text-left text-[11px] text-[#5f3e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors hover:border-[#e1b95d] hover:bg-[#ffecc3]"
       onClick={onToggle}
       aria-expanded={expanded}
-      title={expanded ? "Hide tool details" : "Show tool details"}
+      title={expanded ? t("Hide tool details") : t("Show tool details")}
     >
       <span className="rounded-full bg-[#f5d48e] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[#714800]">
         {toolLabel(toolKind)}
@@ -141,18 +145,22 @@ export function ToolMessageChip({ toolKind, expanded = false, onToggle }) {
 }
 
 export function ThinkMessageChip({ expanded = false, onToggle }) {
+  const { t } = useI18n();
+
   return (
     <button
       type="button"
       className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-2xl border border-border/75 bg-surface/72 px-2.5 py-1.5 text-left text-[11px] text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:border-accent/35 hover:bg-accent-soft/50 hover:text-text"
       onClick={onToggle}
       aria-expanded={expanded}
-      title={expanded ? "Hide thinking details" : "Show thinking details"}
+      title={expanded ? t("Hide model reasoning") : t("Show model reasoning")}
     >
       <span className="rounded-full bg-warm px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-        think
+        {t("think")}
       </span>
-      <span className="truncate">{expanded ? "Hide model reasoning" : "Show model reasoning"}</span>
+      <span className="truncate">
+        {expanded ? t("Hide model reasoning") : t("Show model reasoning")}
+      </span>
       {expanded ? (
         <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       ) : (

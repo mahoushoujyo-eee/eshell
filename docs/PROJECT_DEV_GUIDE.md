@@ -1,6 +1,6 @@
 # Project Dev Guide
 
-Last updated: 2026-04-01
+Last updated: 2026-04-09
 
 ## 1. Engineering Priorities
 
@@ -23,6 +23,11 @@ When adding or changing commands:
 
 For Ops Agent changes, also update:
 - `docs/ops_agent.md`
+
+When changing user-visible frontend copy:
+- update `src/lib/i18n.js`
+- verify both `en-US` and `zh-CN`
+- keep new notices / busy labels / modal copy on the shared translator instead of hard-coded strings
 
 ## 3. Workbench Frontend Pattern
 
@@ -62,8 +67,16 @@ Current command set:
 - Transfer cancel should be user-visible and reflected in UI state.
 - Cancel should not be reported as a generic failure toast.
 - Avoid UI layout regressions: use collapsible/overlay controls for dense operational data.
+- Prefer switching or progressive disclosure when status data becomes too dense to scan in one view.
+- Preserve unit clarity in UI labels when backend semantics change (`GB` vs `MB`, percent vs absolute values).
 
-## 6. Testing Baseline
+## 6. Logging and Observability
+
+- Ops Agent debug logs should remain rich enough to reconstruct request assembly, provider exchange, stream flow, and compaction decisions.
+- New logs must include shared run / conversation context when available.
+- Log previews should be truncated rather than omitted entirely so failures remain diagnosable without dumping full payloads.
+
+## 7. Testing Baseline
 
 Before merge, run:
 
@@ -77,10 +90,12 @@ cargo check
 If `cargo test` cannot execute in the local environment (e.g., host runtime DLL issue),
 record that limitation explicitly in PR notes and keep `cargo check` green.
 
-## 7. Documentation Checklist
+## 8. Documentation Checklist
 
 For any feature-level change:
 - update `README.md` user-facing behavior
 - update `docs/openapi.yaml` command contract
 - update feature docs under `docs/` as needed
+- update `docs/server_status.md` for status-panel semantics or units
 - if the change affects Ops Agent flows, update `docs/ops_agent.md`
+- update `docs/releases/unreleased.md` for notable user-facing changes on the current branch

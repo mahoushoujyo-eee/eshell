@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "../../../lib/i18n";
 import { groupOpsAgentMessages } from "../../../lib/ops-agent-message-rendering";
 import AiAgentTurn from "./AiAgentTurn";
 import { copyText } from "./aiAssistantUtils";
@@ -15,6 +16,7 @@ export default function AiMessageList({
   resolvingActionId,
   onResolvePendingAction,
 }) {
+  const { t } = useI18n();
   const messageGroups = groupOpsAgentMessages(messages, {
     conversationId: activeConversationId,
     pendingActions,
@@ -85,7 +87,7 @@ export default function AiMessageList({
       {!hasContent ? (
         <div className="flex h-full flex-col items-center justify-center text-center text-xs text-muted">
           <span className="max-w-[18rem] leading-6">
-            Start a conversation about ops troubleshooting, diagnostics, or safe command planning.
+            {t("Start a conversation about ops troubleshooting, diagnostics, or safe command planning.")}
           </span>
         </div>
       ) : (
