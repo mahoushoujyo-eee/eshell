@@ -162,5 +162,5 @@ By default, runtime data is stored in `.eshell-data/` under the project root:
 - [Server Status Guide](docs/server_status.md)
 - [SFTP Transfer Guide](docs/sftp_transfer.md)
 - [Unreleased Notes](docs/releases/unreleased.md)
-- [Release Notes 1.1.0](docs/releases/v1.1.0.md)
+- [Release Notes 1.2.0](docs/releases/v1.2.0.md)
 - [Reference Projects](docs/refer_proj/README.md)
