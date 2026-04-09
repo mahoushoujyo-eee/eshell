@@ -7,11 +7,21 @@ import AiUserMessage from "./AiUserMessage";
 export default function AiMessageList({
   messages,
   activeConversationId,
+  pendingActions,
   isStreaming,
   streamingText,
+  streamingToolCalls,
   isDrawer,
+  resolvingActionId,
+  onResolvePendingAction,
 }) {
-  const messageGroups = groupOpsAgentMessages(messages, { isStreaming, streamingText });
+  const messageGroups = groupOpsAgentMessages(messages, {
+    conversationId: activeConversationId,
+    pendingActions,
+    isStreaming,
+    streamingText,
+    streamingToolCalls,
+  });
   const hasContent = messageGroups.length > 0;
   const messageScrollRef = useRef(null);
   const [expandedShellMessageIds, setExpandedShellMessageIds] = useState(() => ({}));
@@ -26,7 +36,7 @@ export default function AiMessageList({
       return;
     }
     node.scrollTop = node.scrollHeight;
-  }, [messages, isStreaming, streamingText, activeConversationId]);
+  }, [messages, pendingActions, isStreaming, streamingText, streamingToolCalls, activeConversationId]);
 
   useEffect(() => {
     setExpandedShellMessageIds({});
@@ -89,7 +99,9 @@ export default function AiMessageList({
                 copiedMessageKey={copiedMessageKey}
                 expandedThinkKeys={expandedThinkKeys}
                 expandedToolMessageIds={expandedToolMessageIds}
+                resolvingActionId={resolvingActionId}
                 onCopyMessage={handleCopyMessage}
+                onResolvePendingAction={onResolvePendingAction}
                 onToggleThinkSection={(sectionKey) =>
                   setExpandedThinkKeys((current) => ({
                     ...current,

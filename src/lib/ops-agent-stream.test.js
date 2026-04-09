@@ -27,7 +27,9 @@ describe("normalizeOpsAgentStreamEvent", () => {
       conversationId: "conv-1",
       stage: "delta",
       chunk: "hello",
+      createdAt: "",
       errorMessage: "boom",
+      toolCall: null,
       pendingAction: null,
     });
   });
@@ -40,7 +42,9 @@ describe("reduceOpsAgentStreamEvent", () => {
       conversationId: "conv-1",
       stage: "started",
       chunk: "",
+      createdAt: "",
       errorMessage: "",
+      toolCall: null,
       pendingAction: null,
     });
 
@@ -48,6 +52,7 @@ describe("reduceOpsAgentStreamEvent", () => {
       runId: "run-1",
       conversationId: "conv-1",
       text: "",
+      toolCalls: [],
     });
     expect(transition.activateConversationId).toBe("conv-1");
   });
@@ -58,18 +63,60 @@ describe("reduceOpsAgentStreamEvent", () => {
         runId: "run-1",
         conversationId: "conv-1",
         text: "hello",
+        toolCalls: [],
       },
       {
         runId: "run-1",
         conversationId: "conv-1",
         stage: "delta",
         chunk: " world",
+        createdAt: "",
         errorMessage: "",
+        toolCall: null,
         pendingAction: null,
       },
     );
 
     expect(transition.nextStream.text).toBe("hello world");
+  });
+
+  it("tracks tool call events while the agent is streaming", () => {
+    const transition = reduceOpsAgentStreamEvent(
+      {
+        runId: "run-1",
+        conversationId: "conv-1",
+        text: "checking",
+        toolCalls: [],
+      },
+      {
+        runId: "run-1",
+        conversationId: "conv-1",
+        stage: "tool_call",
+        chunk: "",
+        createdAt: "",
+        errorMessage: "",
+        toolCall: {
+          id: "tool-1",
+          toolKind: "shell",
+          command: "ls -la",
+          reason: "inspect",
+          status: "requested",
+          label: "",
+        },
+        pendingAction: null,
+      },
+    );
+
+    expect(transition.nextStream.toolCalls).toEqual([
+      {
+        id: "tool-1",
+        toolKind: "shell",
+        command: "ls -la",
+        reason: "inspect",
+        status: "requested",
+        label: "",
+      },
+    ]);
   });
 
   it("marks completion and requests downstream refreshes", () => {
@@ -78,13 +125,16 @@ describe("reduceOpsAgentStreamEvent", () => {
         runId: "run-1",
         conversationId: "conv-1",
         text: "done",
+        toolCalls: [{ id: "tool-1" }],
       },
       {
         runId: "run-1",
         conversationId: "conv-1",
         stage: "completed",
         chunk: "",
+        createdAt: "",
         errorMessage: "",
+        toolCall: null,
         pendingAction: { id: "action-1" },
       },
     );
@@ -102,13 +152,16 @@ describe("reduceOpsAgentStreamEvent", () => {
         runId: "run-1",
         conversationId: "conv-1",
         text: "partial",
+        toolCalls: [],
       },
       {
         runId: "",
         conversationId: "",
         stage: "error",
         chunk: "",
+        createdAt: "",
         errorMessage: "network failed",
+        toolCall: null,
         pendingAction: null,
       },
     );

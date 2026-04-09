@@ -17,7 +17,7 @@ export default function AiPendingActionsPanel({
     <div className="shrink-0 border-b border-border/70 bg-[#fff7e8] px-3 py-2">
       <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-[#8a5a00]">
         <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
-        Pending write_shell confirmation
+        Pending tool approvals
       </div>
       <div className="max-h-32 space-y-2 overflow-auto">
         {pendingActions.map((action) => {

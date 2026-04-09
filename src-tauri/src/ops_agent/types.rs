@@ -80,6 +80,14 @@ pub enum OpsAgentRiskLevel {
     High,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpsAgentToolCallStatus {
+    Requested,
+    Executed,
+    AwaitingApproval,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OpsAgentShellContext {
@@ -153,6 +161,19 @@ pub struct OpsAgentPendingAction {
     pub execution_exit_code: Option<i32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentToolCall {
+    pub id: String,
+    pub tool_kind: OpsAgentToolKind,
+    pub command: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    pub status: OpsAgentToolCallStatus,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OpsAgentData {
@@ -224,6 +245,7 @@ pub struct OpsAgentChatAccepted {
 pub enum OpsAgentStreamStage {
     Started,
     Delta,
+    ToolCall,
     ToolRead,
     RequiresApproval,
     Completed,
@@ -238,6 +260,7 @@ pub struct OpsAgentStreamEvent {
     pub stage: OpsAgentStreamStage,
     pub chunk: Option<String>,
     pub full_answer: Option<String>,
+    pub tool_call: Option<OpsAgentToolCall>,
     pub pending_action: Option<OpsAgentPendingAction>,
     pub error: Option<String>,
     pub created_at: String,
@@ -328,6 +351,7 @@ impl OpsAgentStreamEvent {
             stage,
             chunk: None,
             full_answer: None,
+            tool_call: None,
             pending_action: None,
             error: None,
             created_at: now_rfc3339(),

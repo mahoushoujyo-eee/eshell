@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use tauri::AppHandle;
 use tokio::time::sleep;
+use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -14,7 +15,10 @@ use super::super::logging::append_debug_log;
 use super::super::openai;
 use super::super::run_registry::OpsAgentRunHandle;
 use super::super::tools::OpsAgentToolOutcome;
-use super::super::types::{OpsAgentMessage, OpsAgentPendingAction, OpsAgentRole};
+use super::super::types::{
+    OpsAgentMessage, OpsAgentPendingAction, OpsAgentRole, OpsAgentToolCall,
+    OpsAgentToolCallStatus,
+};
 use super::helpers::{
     emit_static_reply, ensure_run_not_cancelled, is_run_cancelled_error, normalized_reply,
     truncate_for_log,
@@ -217,6 +221,16 @@ pub(super) async fn process_chat_stream(
                 command
             ),
         );
+        let tool_call_id = Uuid::new_v4().to_string();
+        let tool_call_reason = plan.tool.reason.clone();
+        emitter.tool_call(OpsAgentToolCall {
+            id: tool_call_id.clone(),
+            tool_kind: plan.tool.kind.clone(),
+            command: command.clone(),
+            reason: tool_call_reason.clone(),
+            status: OpsAgentToolCallStatus::Requested,
+            label: None,
+        });
         let tool_started_at = Instant::now();
         let outcome = tool
             .execute(super::super::tools::OpsAgentToolRequest {
@@ -225,7 +239,7 @@ pub(super) async fn process_chat_stream(
                 current_user_message_id: Some(current_user_message.id.clone()),
                 session_id: session_id.clone(),
                 command: command.clone(),
-                reason: plan.tool.reason.clone(),
+                reason: tool_call_reason.clone(),
             })
             .await;
         let tool_elapsed_ms = tool_started_at.elapsed().as_millis();
@@ -282,7 +296,17 @@ pub(super) async fn process_chat_stream(
                 let label = execution
                     .stream_label
                     .unwrap_or_else(|| format!("{} step {}", execution.tool_kind, step + 1));
-                emitter.tool_read(label);
+                emitter.tool_read(
+                    label.clone(),
+                    Some(OpsAgentToolCall {
+                        id: tool_call_id,
+                        tool_kind: execution.tool_kind,
+                        command,
+                        reason: tool_call_reason,
+                        status: OpsAgentToolCallStatus::Executed,
+                        label: Some(label),
+                    }),
+                );
             }
             OpsAgentToolOutcome::AwaitingApproval(action) => {
                 if run_handle.is_cancelled() {
@@ -303,7 +327,17 @@ pub(super) async fn process_chat_stream(
                         action.command
                     ),
                 );
-                emitter.requires_approval(action.clone());
+                emitter.requires_approval(
+                    action.clone(),
+                    Some(OpsAgentToolCall {
+                        id: tool_call_id,
+                        tool_kind: action.tool_kind.clone(),
+                        command: action.command.clone(),
+                        reason: Some(action.reason.clone()),
+                        status: OpsAgentToolCallStatus::AwaitingApproval,
+                        label: Some("awaiting approval".to_string()),
+                    }),
+                );
                 let approval_message = if plan.reply.trim().is_empty() {
                     format!(
                         "Command `{}` needs approval before execution.\nReason: {}\nPlease approve or reject it in the UI.",

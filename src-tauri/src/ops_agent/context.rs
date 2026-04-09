@@ -69,18 +69,16 @@ pub fn build_planner_system_prompt(
 ) -> String {
     format!(
         "{base}\n\nYou are an operations ReAct planner. Decide the next best action at each step.\n\
-Return STRICT JSON only without markdown:\n\
-{{\"reply\":\"...\",\"tool\":{{\"kind\":\"none|<registered-tool>\",\"command\":\"...\",\"reason\":\"...\"}}}}\n\
 Registered tools:\n\
 {tool_block}\n\
 Session context:\n\
 {session_block}\n\
 Rules:\n\
 1) Treat this as a loop: pick one tool action, observe result, then you will be asked again.\n\
-2) Only emit one tool per turn.\n\
-3) Use kind=\"none\" only when evidence is sufficient and you are ready for final user answer.\n\
-4) Keep reply concise and user-facing.\n\
-5) Omit command when kind=\"none\".\n\
+2) Use native tool calling when you need a tool. Do not serialize tool invocations into text.\n\
+3) Call at most one tool per turn.\n\
+4) If evidence is already sufficient, answer directly in plain text without any tool call.\n\
+5) Keep any direct textual reply concise and user-facing.\n\
 6) Choose a registered tool name exactly as documented above.",
         base = base_prompt.trim(),
         tool_block = format_tool_catalog(tool_hints),

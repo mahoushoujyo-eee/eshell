@@ -126,6 +126,32 @@ export const toolLabel = (toolKind) => {
   return toolKind.trim();
 };
 
+export const toolStateLabel = (toolState) => {
+  if (toolState === "awaiting_approval") {
+    return "awaiting approval";
+  }
+  if (toolState === "executed") {
+    return "executed";
+  }
+  if (toolState === "requested") {
+    return "requested";
+  }
+  return "";
+};
+
+export const toolStateBadgeClass = (toolState) => {
+  if (toolState === "awaiting_approval") {
+    return "border-[#e1b95d] bg-[#ffecc3] text-[#8a5a00]";
+  }
+  if (toolState === "executed") {
+    return "border-success/45 bg-success/10 text-success";
+  }
+  if (toolState === "requested") {
+    return "border-border/75 bg-surface/70 text-muted";
+  }
+  return "border-border/75 bg-surface/70 text-muted";
+};
+
 export const pendingRiskLabel = (riskLevel) => {
   if (typeof riskLevel !== "string" || !riskLevel.trim()) {
     return "unknown";
