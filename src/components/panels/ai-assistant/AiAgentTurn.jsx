@@ -16,7 +16,9 @@ export default function AiAgentTurn({
   copiedMessageKey,
   expandedThinkKeys,
   expandedToolMessageIds,
+  resolvingActionId,
   onCopyMessage,
+  onResolvePendingAction,
   onToggleThinkSection,
   onToggleToolMessage,
 }) {
@@ -48,6 +50,8 @@ export default function AiAgentTurn({
                 message={message}
                 withDivider={index > 0}
                 expanded={Boolean(expandedToolMessageIds[message.id])}
+                resolvingActionId={resolvingActionId}
+                onResolvePendingAction={onResolvePendingAction}
                 onToggle={() => onToggleToolMessage(message.id)}
               />
             );
@@ -74,11 +78,24 @@ export default function AiAgentTurn({
             </section>
           );
         })}
+        {Array.isArray(group.streamingToolCalls)
+          ? group.streamingToolCalls.map((message, index) => (
+              <ToolMessageSection
+                key={message.id}
+                message={message}
+                withDivider={group.messages.length > 0 || index > 0}
+                expanded={Boolean(expandedToolMessageIds[message.id])}
+                resolvingActionId={resolvingActionId}
+                onResolvePendingAction={onResolvePendingAction}
+                onToggle={() => onToggleToolMessage(message.id)}
+              />
+            ))
+          : null}
         {group.isStreaming ? (
           <StreamingMessageSection
             content={group.streamingText}
             sectionKeyPrefix={`${group.id}:streaming`}
-            withDivider={group.messages.length > 0}
+            withDivider={group.messages.length > 0 || (group.streamingToolCalls?.length || 0) > 0}
             expandedThinkKeys={expandedThinkKeys}
             onToggleThinkSection={onToggleThinkSection}
           />

@@ -20,6 +20,7 @@ export default function AppAiDock({
     aiPendingActions,
     isAiStreaming,
     aiStreamingText,
+    aiStreamingToolCalls,
     activeAiConversationError,
     clearActiveAiConversationError,
     resolvingAiActionId,
@@ -79,6 +80,7 @@ export default function AppAiDock({
             onClearShellContext={clearAiShellContext}
             isStreaming={isAiStreaming}
             streamingText={aiStreamingText}
+            streamingToolCalls={aiStreamingToolCalls}
             conversationError={activeAiConversationError}
             onClearConversationError={clearActiveAiConversationError}
             onAskAi={askAi}

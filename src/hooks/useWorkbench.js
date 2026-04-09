@@ -367,6 +367,8 @@ export function useWorkbench() {
   const currentPtyOutput = activeSessionId ? ptyOutputBySession[activeSessionId] || "" : "";
   const aiStreamingText =
     aiStream.conversationId === activeAiConversationId ? aiStream.text : "";
+  const aiStreamingToolCalls =
+    aiStream.conversationId === activeAiConversationId ? aiStream.toolCalls || [] : [];
   const isAiStreaming =
     Boolean(aiStream.runId) && aiStream.conversationId === activeAiConversationId;
   const activeAiConversationError = activeAiConversationId
@@ -425,6 +427,7 @@ export function useWorkbench() {
     aiPendingActions,
     isAiStreaming,
     aiStreamingText,
+    aiStreamingToolCalls,
     activeAiConversationError,
     clearActiveAiConversationError,
     resolvingAiActionId,

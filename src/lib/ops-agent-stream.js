@@ -2,6 +2,7 @@ export const EMPTY_OPS_AGENT_STREAM = Object.freeze({
   runId: null,
   conversationId: null,
   text: "",
+  toolCalls: [],
 });
 
 export const upsertOpsAgentPendingAction = (rows, nextAction) => {
@@ -34,12 +35,42 @@ export const normalizeOpsAgentStreamEvent = (payload) => {
     conversationId: typeof payload.conversationId === "string" ? payload.conversationId : "",
     stage,
     chunk: typeof payload.chunk === "string" ? payload.chunk : "",
+    createdAt: typeof payload.createdAt === "string" ? payload.createdAt : "",
     errorMessage: typeof payload.error === "string" ? payload.error : "",
+    toolCall:
+      payload.toolCall && typeof payload.toolCall === "object"
+        ? payload.toolCall
+        : null,
     pendingAction:
       payload.pendingAction && typeof payload.pendingAction === "object"
         ? payload.pendingAction
         : null,
   };
+};
+
+const upsertOpsAgentStreamToolCall = (rows, nextToolCall) => {
+  if (!nextToolCall?.id) {
+    return rows;
+  }
+
+  const normalized = {
+    ...nextToolCall,
+    command: typeof nextToolCall.command === "string" ? nextToolCall.command : "",
+    reason: typeof nextToolCall.reason === "string" ? nextToolCall.reason : "",
+    label: typeof nextToolCall.label === "string" ? nextToolCall.label : "",
+    status: typeof nextToolCall.status === "string" ? nextToolCall.status : "",
+  };
+  const index = rows.findIndex((item) => item.id === normalized.id);
+  if (index === -1) {
+    return [normalized, ...rows];
+  }
+
+  const next = [...rows];
+  next[index] = {
+    ...next[index],
+    ...normalized,
+  };
+  return next;
 };
 
 export const reduceOpsAgentStreamEvent = (previousStream, event) => {
@@ -66,6 +97,7 @@ export const reduceOpsAgentStreamEvent = (previousStream, event) => {
         runId: event.runId,
         conversationId: event.conversationId,
         text: "",
+        toolCalls: [],
       },
       activateConversationId: event.conversationId,
     };
@@ -80,20 +112,50 @@ export const reduceOpsAgentStreamEvent = (previousStream, event) => {
               runId: event.runId,
               conversationId: event.conversationId,
               text: event.chunk,
+              toolCalls: [],
+            },
+    };
+  }
+
+  if (event.stage === "tool_call") {
+    return {
+      nextStream:
+        stream.runId === event.runId
+          ? {
+              ...stream,
+              toolCalls: upsertOpsAgentStreamToolCall(stream.toolCalls || [], event.toolCall),
+            }
+          : {
+              runId: event.runId,
+              conversationId: event.conversationId,
+              text: "",
+              toolCalls: event.toolCall ? [event.toolCall] : [],
             },
     };
   }
 
   if (event.stage === "tool_read") {
     return {
-      nextStream: stream,
+      nextStream:
+        stream.runId === event.runId
+          ? {
+              ...stream,
+              toolCalls: upsertOpsAgentStreamToolCall(stream.toolCalls || [], event.toolCall),
+            }
+          : stream,
       reloadConversationId: event.conversationId,
     };
   }
 
   if (event.stage === "requires_approval") {
     return {
-      nextStream: stream,
+      nextStream:
+        stream.runId === event.runId
+          ? {
+              ...stream,
+              toolCalls: upsertOpsAgentStreamToolCall(stream.toolCalls || [], event.toolCall),
+            }
+          : stream,
       pendingAction: event.pendingAction,
     };
   }

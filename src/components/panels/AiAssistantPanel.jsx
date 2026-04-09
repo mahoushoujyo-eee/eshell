@@ -28,6 +28,7 @@ export default function AiAssistantPanel({
   onClearShellContext,
   isStreaming,
   streamingText,
+  streamingToolCalls = [],
   conversationError = "",
   onClearConversationError,
   onAskAi,
@@ -173,9 +174,13 @@ export default function AiAssistantPanel({
           <AiMessageList
             messages={messages}
             activeConversationId={activeConversationId}
+            pendingActions={pendingActions}
             isStreaming={isStreaming}
             streamingText={streamingText}
+            streamingToolCalls={streamingToolCalls}
             isDrawer={isDrawer}
+            resolvingActionId={resolvingActionId}
+            onResolvePendingAction={onResolvePendingAction}
           />
 
           <AiComposer

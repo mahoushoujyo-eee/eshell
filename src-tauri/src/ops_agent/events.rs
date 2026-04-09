@@ -1,6 +1,8 @@
 use tauri::{AppHandle, Emitter};
 
-use super::types::{OpsAgentPendingAction, OpsAgentStreamEvent, OpsAgentStreamStage};
+use super::types::{
+    OpsAgentPendingAction, OpsAgentStreamEvent, OpsAgentStreamStage, OpsAgentToolCall,
+};
 
 /// Thin helper around Tauri event emission so service code stays protocol-focused.
 pub struct OpsAgentEventEmitter {
@@ -34,17 +36,31 @@ impl OpsAgentEventEmitter {
         });
     }
 
-    pub fn tool_read(&self, chunk: impl Into<String>) {
-        self.emit(OpsAgentStreamStage::ToolRead, |event| {
+    pub fn tool_call(&self, tool_call: OpsAgentToolCall) {
+        self.emit(OpsAgentStreamStage::ToolCall, |event| {
             let mut next = event;
-            next.chunk = Some(chunk.into());
+            next.tool_call = Some(tool_call);
             next
         });
     }
 
-    pub fn requires_approval(&self, pending_action: OpsAgentPendingAction) {
+    pub fn tool_read(&self, chunk: impl Into<String>, tool_call: Option<OpsAgentToolCall>) {
+        self.emit(OpsAgentStreamStage::ToolRead, |event| {
+            let mut next = event;
+            next.chunk = Some(chunk.into());
+            next.tool_call = tool_call;
+            next
+        });
+    }
+
+    pub fn requires_approval(
+        &self,
+        pending_action: OpsAgentPendingAction,
+        tool_call: Option<OpsAgentToolCall>,
+    ) {
         self.emit(OpsAgentStreamStage::RequiresApproval, |event| {
             let mut next = event;
+            next.tool_call = tool_call;
             next.pending_action = Some(pending_action);
             next
         });

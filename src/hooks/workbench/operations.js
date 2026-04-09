@@ -1233,6 +1233,7 @@ export function useWorkbenchOperations({
           runId: accepted.runId,
           conversationId: accepted.conversationId,
           text: "",
+          toolCalls: [],
         };
         aiStreamRef.current = nextStream;
         setAiStream(nextStream);
