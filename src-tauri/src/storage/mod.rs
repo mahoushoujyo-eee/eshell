@@ -10,7 +10,7 @@ use std::sync::RwLock;
 use crate::error::AppResult;
 use crate::models::{AiConfig, AiProfilesState, ScriptDefinition, SshConfig};
 
-use ai_profiles::ensure_ai_profiles_state;
+use ai_profiles::{ensure_ai_profiles_state, load_ai_profiles_state};
 use io::{read_json_or_default, write_json_pretty};
 
 const SSH_CONFIGS_FILE: &str = "ssh_configs.json";
@@ -43,7 +43,7 @@ impl Storage {
 
         let ssh_configs = read_json_or_default::<Vec<SshConfig>>(&ssh_configs_path)?;
         let scripts = read_json_or_default::<Vec<ScriptDefinition>>(&scripts_path)?;
-        let mut ai_profiles = read_json_or_default::<AiProfilesState>(&ai_profiles_path)?;
+        let mut ai_profiles = load_ai_profiles_state(&ai_profiles_path)?;
 
         // Migration fallback for older versions that only stored one ai_config.json.
         let legacy_ai_config = read_json_or_default::<AiConfig>(&legacy_ai_config_path)?;

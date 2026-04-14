@@ -11,7 +11,9 @@ import DeleteConversationDialog from "./ai-assistant/DeleteConversationDialog";
 export default function AiAssistantPanel({
   aiProfiles,
   activeAiProfileId,
+  approvalMode,
   onSelectAiProfile,
+  onSaveApprovalMode,
   conversations,
   activeConversationId,
   activeConversation,
@@ -185,12 +187,14 @@ export default function AiAssistantPanel({
 
           <AiComposer
             isDrawer={isDrawer}
+            approvalMode={approvalMode}
             shellContext={shellContext}
             onClearShellContext={onClearShellContext}
             aiQuestion={aiQuestion}
             setAiQuestion={setAiQuestion}
             onAskAi={onAskAi}
             onCancelStreaming={onCancelStreaming}
+            onSaveApprovalMode={onSaveApprovalMode}
             isStreaming={isStreaming}
             activeConversationId={activeConversationId}
             activeConversation={activeConversation}

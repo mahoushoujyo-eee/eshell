@@ -280,6 +280,8 @@ pub struct OpsAgentResolveActionInput {
     pub approve: bool,
     #[serde(default)]
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

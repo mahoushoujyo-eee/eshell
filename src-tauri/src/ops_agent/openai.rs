@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use crate::error::{AppError, AppResult};
-use crate::models::AiConfig;
+use crate::models::{AiApprovalMode, AiConfig};
 
 use super::context::{
     build_answer_system_prompt, build_planner_system_prompt, build_tool_summary_prompt,
@@ -44,9 +44,22 @@ pub async fn plan_reply(
     );
 
     let mut messages = Vec::new();
+    let shell_execution_policy = match config.approval_mode {
+        AiApprovalMode::AutoExecute => {
+            "The shell tool may auto-execute commands directly, including non-read-only commands."
+        }
+        AiApprovalMode::RequireApproval => {
+            "Read-only shell commands can run immediately; commands outside the safe read-only allowlist require user approval."
+        }
+    };
     messages.push(ProviderChatMessage {
         role: "system".to_string(),
-        content: build_planner_system_prompt(&config.system_prompt, session_context, tool_hints),
+        content: build_planner_system_prompt(
+            &config.system_prompt,
+            session_context,
+            tool_hints,
+            shell_execution_policy,
+        ),
     });
     messages.extend(history.iter().map(convert_history_message));
     messages.push(convert_history_message(current_message));

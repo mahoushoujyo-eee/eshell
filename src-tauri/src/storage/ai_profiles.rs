@@ -1,8 +1,13 @@
+use std::fs;
+use std::path::Path;
+
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    now_rfc3339, AiConfig, AiConfigInput, AiProfile, AiProfileInput, AiProfilesState,
+    now_rfc3339, AiApprovalMode, AiConfig, AiConfigInput, AiProfile, AiProfileInput,
+    AiProfilesState,
 };
 
 use super::io::write_json_pretty;
@@ -104,6 +109,18 @@ impl Storage {
         Ok(guard.clone())
     }
 
+    /// Persists the global approval mode used by every AI profile.
+    pub fn save_ai_approval_mode(
+        &self,
+        approval_mode: AiApprovalMode,
+    ) -> AppResult<AiProfilesState> {
+        let mut guard = self.ai_profiles.write().expect("ai profiles lock poisoned");
+        ensure_ai_profiles_state(&mut guard, &AiConfig::default());
+        guard.approval_mode = approval_mode;
+        write_json_pretty(&self.ai_profiles_path, &*guard)?;
+        Ok(guard.clone())
+    }
+
     /// Sets one profile as active for AI chat calls.
     pub fn set_active_ai_profile(&self, id: &str) -> AppResult<AiProfilesState> {
         let mut guard = self.ai_profiles.write().expect("ai profiles lock poisoned");
@@ -115,7 +132,7 @@ impl Storage {
         Ok(guard.clone())
     }
 
-    /// Returns active AI configuration resolved from active profile.
+    /// Returns active AI configuration resolved from active profile plus global approval mode.
     pub fn get_ai_config(&self) -> AiConfig {
         let mut snapshot = self
             .ai_profiles
@@ -127,8 +144,12 @@ impl Storage {
             .active_profile_id
             .as_ref()
             .and_then(|id| snapshot.profiles.iter().find(|item| item.id == *id))
-            .map(config_from_profile)
-            .unwrap_or_default()
+            .map(|profile| config_from_profile(profile, snapshot.approval_mode.clone()))
+            .unwrap_or_else(|| {
+                let mut config = AiConfig::default();
+                config.approval_mode = snapshot.approval_mode;
+                config
+            })
     }
 
     /// Updates active profile using old single-config API for compatibility.
@@ -174,10 +195,35 @@ impl Storage {
             updated_at: now,
         };
         guard.profiles[index] = updated.clone();
+        guard.approval_mode = input.approval_mode.clone();
 
         write_json_pretty(&self.ai_profiles_path, &*guard)?;
-        Ok(config_from_profile(&updated))
+        Ok(config_from_profile(&updated, guard.approval_mode.clone()))
     }
+}
+
+pub(super) fn load_ai_profiles_state(path: &Path) -> AppResult<AiProfilesState> {
+    if !path.exists() {
+        return Ok(AiProfilesState::default());
+    }
+
+    let content = fs::read_to_string(path)?;
+    if content.trim().is_empty() {
+        return Ok(AiProfilesState::default());
+    }
+
+    let raw: Value = serde_json::from_str(&content)?;
+    let mut state: AiProfilesState = serde_json::from_value(raw.clone())?;
+
+    if raw.get("approvalMode").is_none() {
+        if let Some(legacy_mode) =
+            legacy_profile_approval_mode(&raw, state.active_profile_id.as_deref())
+        {
+            state.approval_mode = legacy_mode;
+        }
+    }
+
+    Ok(state)
 }
 
 pub(super) fn ensure_ai_profiles_state(state: &mut AiProfilesState, fallback_config: &AiConfig) {
@@ -197,6 +243,26 @@ pub(super) fn ensure_ai_profiles_state(state: &mut AiProfilesState, fallback_con
     if !active_valid {
         state.active_profile_id = state.profiles.first().map(|item| item.id.clone());
     }
+}
+
+fn legacy_profile_approval_mode(root: &Value, active_profile_id: Option<&str>) -> Option<AiApprovalMode> {
+    let profiles = root.get("profiles")?.as_array()?;
+
+    if let Some(active_id) = active_profile_id {
+        if let Some(mode) = profiles
+            .iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some(active_id))
+            .and_then(extract_legacy_approval_mode)
+        {
+            return Some(mode);
+        }
+    }
+
+    profiles.iter().find_map(extract_legacy_approval_mode)
+}
+
+fn extract_legacy_approval_mode(profile: &Value) -> Option<AiApprovalMode> {
+    serde_json::from_value(profile.get("approvalMode")?.clone()).ok()
 }
 
 fn validate_ai_payload(
@@ -295,7 +361,7 @@ fn profile_from_config(config: &AiConfig, name: &str) -> AiProfile {
     }
 }
 
-fn config_from_profile(profile: &AiProfile) -> AiConfig {
+fn config_from_profile(profile: &AiProfile, approval_mode: AiApprovalMode) -> AiConfig {
     AiConfig {
         base_url: profile.base_url.clone(),
         api_key: profile.api_key.clone(),
@@ -304,6 +370,7 @@ fn config_from_profile(profile: &AiProfile) -> AiConfig {
         temperature: profile.temperature,
         max_tokens: profile.max_tokens,
         max_context_tokens: profile.max_context_tokens,
+        approval_mode,
         updated_at: profile.updated_at.clone(),
     }
 }

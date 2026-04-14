@@ -270,7 +270,20 @@ pub fn estimate_conversation_tokens(
 ) -> usize {
     let session_context = load_session_context(state, session_id.or(conversation.session_id.as_deref()));
     let tool_hints = state.ops_agent_tools.prompt_hints();
-    let system_prompt = build_planner_system_prompt(&config.system_prompt, &session_context, &tool_hints);
+    let shell_execution_policy = match config.approval_mode {
+        crate::models::AiApprovalMode::AutoExecute => {
+            "The shell tool may auto-execute commands directly, including non-read-only commands."
+        }
+        crate::models::AiApprovalMode::RequireApproval => {
+            "Read-only shell commands can run immediately; commands outside the safe read-only allowlist require user approval."
+        }
+    };
+    let system_prompt = build_planner_system_prompt(
+        &config.system_prompt,
+        &session_context,
+        &tool_hints,
+        shell_execution_policy,
+    );
     let messages_text = conversation
         .messages
         .iter()

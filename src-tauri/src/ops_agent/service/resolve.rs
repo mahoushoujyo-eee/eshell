@@ -22,6 +22,7 @@ pub async fn resolve_pending_action(
 ) -> AppResult<OpsAgentResolveActionResult> {
     let action = state.ops_agent.get_pending_action(&input.action_id)?;
     let requested_session_id = normalize_session_id(input.session_id.as_deref());
+    let resolution_comment = normalize_resolution_comment(input.comment.as_deref());
     let effective_session_id = requested_session_id
         .clone()
         .or_else(|| action.session_id.clone());
@@ -49,10 +50,17 @@ pub async fn resolve_pending_action(
 
     if !input.approve {
         let updated = state.ops_agent.mark_action_rejected(&input.action_id)?;
-        let notice = format!(
-            "{} rejected.\nRisk: {:?}\nCommand: {}\nReason: {}",
-            updated.tool_kind, updated.risk_level, updated.command, updated.reason
-        );
+        let notice = if let Some(comment) = resolution_comment.as_deref() {
+            format!(
+                "{} rejected.\nRisk: {:?}\nCommand: {}\nReason: {}\nComment: {}",
+                updated.tool_kind, updated.risk_level, updated.command, updated.reason, comment
+            )
+        } else {
+            format!(
+                "{} rejected.\nRisk: {:?}\nCommand: {}\nReason: {}",
+                updated.tool_kind, updated.risk_level, updated.command, updated.reason
+            )
+        };
         let _ = state.ops_agent.append_message(
             &updated.conversation_id,
             OpsAgentRole::Assistant,
@@ -60,6 +68,26 @@ pub async fn resolve_pending_action(
             Some(updated.tool_kind.clone()),
             None,
         );
+        let resume_user_message = match resolution_comment.as_deref() {
+            Some(comment) => Some(state.ops_agent.append_message(
+                &updated.conversation_id,
+                OpsAgentRole::User,
+                comment,
+                None,
+                None,
+            )?),
+            None => None,
+        };
+        if let Some(app) = app {
+            maybe_resume_run_after_action_resolution(
+                Arc::clone(&state),
+                app,
+                &updated,
+                None,
+                effective_session_id.as_deref(),
+                resume_user_message.as_ref(),
+            );
+        }
         return Ok(OpsAgentResolveActionResult {
             action: updated,
             note: "Action rejected".to_string(),
@@ -103,13 +131,25 @@ pub async fn resolve_pending_action(
         None,
     )?;
 
+    let resume_user_message = match resolution_comment.as_deref() {
+        Some(comment) => Some(state.ops_agent.append_message(
+            &resolution.action.conversation_id,
+            OpsAgentRole::User,
+            comment,
+            None,
+            None,
+        )?),
+        None => None,
+    };
+
     if let Some(app) = app {
         maybe_resume_run_after_action_resolution(
             Arc::clone(&state),
             app,
             &resolution.action,
-            &tool_message.id,
+            Some(&tool_message.id),
             effective_session_id.as_deref(),
+            resume_user_message.as_ref(),
         );
     }
 
@@ -130,13 +170,18 @@ fn maybe_resume_run_after_action_resolution(
     state: Arc<AppState>,
     app: AppHandle,
     action: &OpsAgentPendingAction,
-    resolved_tool_message_id: &str,
+    resolved_tool_message_id: Option<&str>,
     resume_session_id_override: Option<&str>,
+    resume_user_message: Option<&OpsAgentMessage>,
 ) {
     if !matches!(
         action.status,
-        OpsAgentActionStatus::Executed | OpsAgentActionStatus::Failed
+        OpsAgentActionStatus::Executed | OpsAgentActionStatus::Failed | OpsAgentActionStatus::Rejected
     ) {
+        return;
+    }
+
+    if action.status == OpsAgentActionStatus::Rejected && resume_user_message.is_none() {
         return;
     }
 
@@ -157,9 +202,13 @@ fn maybe_resume_run_after_action_resolution(
         }
     };
 
-    let Some(source_user_message_id) =
+    let source_user_message_id = if let Some(message) = resume_user_message {
+        message.id.clone()
+    } else if let Some(source_user_message_id) =
         resolve_action_source_user_message_id(&conversation.messages, action)
-    else {
+    {
+        source_user_message_id
+    } else {
         append_debug_log(
             state.as_ref(),
             "react.resume.skipped",
@@ -191,9 +240,11 @@ fn maybe_resume_run_after_action_resolution(
             }
         };
 
-    if !seed_turn_tool_history
-        .iter()
-        .any(|item| item.id == resolved_tool_message_id)
+    if resume_user_message.is_none()
+        && resolved_tool_message_id.is_some()
+        && !seed_turn_tool_history
+            .iter()
+            .any(|item| Some(item.id.as_str()) == resolved_tool_message_id)
     {
         append_debug_log(
             state.as_ref(),
@@ -257,6 +308,15 @@ fn maybe_resume_run_after_action_resolution(
         run_handle,
         seed_turn_tool_history,
     );
+}
+
+fn normalize_resolution_comment(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn resolve_action_source_user_message_id(

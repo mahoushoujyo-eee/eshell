@@ -5,7 +5,7 @@ use tauri::State;
 use crate::error::to_command_error;
 use crate::models::{
     AiConfig, AiConfigInput, AiProfileInput, AiProfilesState, ScriptDefinition, ScriptInput,
-    SetActiveAiProfileInput, SshConfig, SshConfigInput,
+    SetActiveAiProfileInput, SetAiApprovalModeInput, SshConfig, SshConfigInput,
 };
 use crate::state::AppState;
 
@@ -90,6 +90,18 @@ pub fn delete_ai_profile(
     state
         .storage
         .delete_ai_profile(&id)
+        .map_err(to_command_error)
+}
+
+/// Saves the global approval mode shared by every AI profile.
+#[tauri::command]
+pub fn save_ai_approval_mode(
+    state: State<'_, Arc<AppState>>,
+    input: SetAiApprovalModeInput,
+) -> Result<AiProfilesState, String> {
+    state
+        .storage
+        .save_ai_approval_mode(input.approval_mode)
         .map_err(to_command_error)
 }
 

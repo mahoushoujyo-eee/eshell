@@ -10,6 +10,10 @@ pub fn default_ai_max_context_tokens() -> u32 {
     100_000
 }
 
+pub fn default_ai_approval_mode() -> AiApprovalMode {
+    AiApprovalMode::RequireApproval
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SshConfig {
@@ -301,6 +305,19 @@ pub struct RunScriptResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AiApprovalMode {
+    RequireApproval,
+    AutoExecute,
+}
+
+impl Default for AiApprovalMode {
+    fn default() -> Self {
+        default_ai_approval_mode()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConfig {
     pub base_url: String,
@@ -311,6 +328,8 @@ pub struct AiConfig {
     pub max_tokens: u32,
     #[serde(default = "default_ai_max_context_tokens")]
     pub max_context_tokens: u32,
+    #[serde(default = "default_ai_approval_mode")]
+    pub approval_mode: AiApprovalMode,
     pub updated_at: String,
 }
 
@@ -324,6 +343,7 @@ impl Default for AiConfig {
             temperature: 0.2,
             max_tokens: 800,
             max_context_tokens: default_ai_max_context_tokens(),
+            approval_mode: default_ai_approval_mode(),
             updated_at: now_rfc3339(),
         }
     }
@@ -340,6 +360,8 @@ pub struct AiConfigInput {
     pub max_tokens: u32,
     #[serde(default = "default_ai_max_context_tokens")]
     pub max_context_tokens: u32,
+    #[serde(default = "default_ai_approval_mode")]
+    pub approval_mode: AiApprovalMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -379,12 +401,21 @@ pub struct AiProfileInput {
 pub struct AiProfilesState {
     pub profiles: Vec<AiProfile>,
     pub active_profile_id: Option<String>,
+    #[serde(default = "default_ai_approval_mode")]
+    pub approval_mode: AiApprovalMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetActiveAiProfileInput {
     pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAiApprovalModeInput {
+    #[serde(default = "default_ai_approval_mode")]
+    pub approval_mode: AiApprovalMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

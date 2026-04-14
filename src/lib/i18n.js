@@ -16,8 +16,12 @@ const zhMessages = {
   "and everything inside it will be removed from the remote server immediately.":
     "以及其中的所有内容都会立即从远端服务器删除。",
   "approval required": "需要审批",
+  "Approval mode": "审批模式",
   "Approve": "批准",
   "Approve command": "批准命令",
+  "Add guidance for the agent after this decision (optional)":
+    "可选：补充说明给 agent，用于后续动作",
+  "Allow agent to auto-execute commands": "允许 agent 自动执行命令",
   "Ask the ops agent about diagnostics, root cause, or safe commands...":
     "向运维助手询问诊断、根因分析或安全命令……",
   "awaiting approval": "等待审批",
@@ -127,6 +131,8 @@ const zhMessages = {
   "Manage scripts and execute them in the active SSH session.":
     "管理脚本，并在当前 SSH 会话中执行。",
   "Manage server profiles and connect quickly.": "管理服务器配置并快速连接。",
+  "Commands outside the safe read-only allowlist will pause for approval.":
+    "超出安全只读白名单的命令会暂停并等待审批。",
   "Max context tokens": "最大上下文 Token",
   "Max tokens": "最大 Token",
   "Maximize": "最大化",
@@ -194,6 +200,7 @@ const zhMessages = {
   "Refresh": "刷新",
   "Reject": "拒绝",
   "Reject command": "拒绝命令",
+  "Require approval for non-read-only commands": "非只读命令需要审批",
   "Remove Custom": "移除自定义",
   "Remove selected shell context": "移除选中的 Shell 上下文",
   "Replace Image": "替换图片",
@@ -241,6 +248,8 @@ const zhMessages = {
   "System prompt": "系统提示词",
   "Temperature": "温度",
   "Terminal Wallpaper": "终端壁纸",
+  "The agent will try to execute commands directly, including commands outside the read-only allowlist.":
+    "agent 会尽量直接执行命令，包括只读白名单之外的命令。",
   "Text Editor Check": "文本编辑器检查",
   "This file is larger than 50 MB and may be slow to load in the text editor.":
     "该文件大于 50 MB，在文本编辑器中加载可能较慢。",

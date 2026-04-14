@@ -94,6 +94,7 @@ export const DEFAULT_AI = {
   temperature: 0.2,
   maxTokens: 800,
   maxContextTokens: 100000,
+  approvalMode: "require_approval",
 };
 
 export const getWallpaperPreset = (id) => WALLPAPER_PRESET_MAP.get(id) || WALLPAPER_PRESET_MAP.get(DEFAULT_WALLPAPER.id);

@@ -424,6 +424,7 @@ fn react_loop_can_queue_mock_approval_action() {
             action_id: action.id.clone(),
             approve: true,
             session_id: None,
+            comment: None,
         },
     ))
     .expect("resolve pending action");
@@ -470,6 +471,7 @@ fn rejecting_pending_action_appends_assistant_notice() {
             action_id: action.id.clone(),
             approve: false,
             session_id: None,
+            comment: None,
         },
     ))
     .expect("reject pending action");
@@ -490,6 +492,61 @@ fn rejecting_pending_action_appends_assistant_notice() {
     assert!(last_assistant_message
         .content
         .contains("dangerous-operation"));
+}
+
+#[test]
+fn resolving_pending_action_with_comment_appends_user_message_for_follow_up() {
+    let mut registry = OpsAgentToolRegistry::new();
+    registry.register(MockDangerTool);
+
+    let state = test_state_with_registry(registry);
+    let conversation = state
+        .ops_agent
+        .create_conversation(Some("approval-comment"), None)
+        .expect("create conversation");
+
+    let (_assistant_message, pending_action) = tauri::async_runtime::block_on(run_mock_react_loop(
+        Arc::clone(&state),
+        &conversation.id,
+        None,
+        "需要高风险操作，请先审批",
+        |_history, _current_user_message| PlannedAgentReply {
+            reply: "这个动作有风险，等待审批。".to_string(),
+            tool: PlannedToolAction {
+                kind: OpsAgentToolKind::new("mock_danger"),
+                command: Some("dangerous-operation".to_string()),
+                reason: Some("verify comment flow".to_string()),
+            },
+        },
+    ))
+    .expect("run mock react loop");
+
+    let action = pending_action.expect("approval action");
+    let resolved = tauri::async_runtime::block_on(resolve_pending_action(
+        Arc::clone(&state),
+        None,
+        OpsAgentResolveActionInput {
+            action_id: action.id.clone(),
+            approve: true,
+            session_id: None,
+            comment: Some("执行后继续检查服务状态".to_string()),
+        },
+    ))
+    .expect("resolve pending action");
+
+    assert_eq!(resolved.action.status, OpsAgentActionStatus::Executed);
+
+    let updated = state
+        .ops_agent
+        .get_conversation(&conversation.id)
+        .expect("reload conversation");
+    let last_user_message = updated
+        .messages
+        .iter()
+        .rev()
+        .find(|item| item.role == OpsAgentRole::User)
+        .expect("follow-up user message");
+    assert_eq!(last_user_message.content, "执行后继续检查服务状态");
 }
 
 #[test]
@@ -532,6 +589,7 @@ fn resolve_pending_action_uses_requested_session_override_for_tool_resolution() 
             action_id: action.id.clone(),
             approve: true,
             session_id: Some("session-2".to_string()),
+            comment: None,
         },
     ))
     .expect("resolve pending action");

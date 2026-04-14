@@ -67,6 +67,8 @@ export const api = {
   listAiProfiles: () => invoke("list_ai_profiles"),
   saveAiProfile: (input) => invoke("save_ai_profile", { input }),
   deleteAiProfile: (id) => invoke("delete_ai_profile", { id }),
+  saveAiApprovalMode: (approvalMode) =>
+    invoke("save_ai_approval_mode", { input: { approvalMode } }),
   setActiveAiProfile: (id) =>
     invoke("set_active_ai_profile", { input: { id } }),
   askAi: (input) => invoke("ai_ask", { input }),
@@ -86,8 +88,8 @@ export const api = {
     invoke("ops_agent_chat_stream_start", { input }),
   opsAgentListPendingActions: (sessionId = null, onlyPending = true) =>
     invoke("ops_agent_list_pending_actions", { input: { sessionId, onlyPending } }),
-  opsAgentResolveAction: (actionId, approve, sessionId = null) =>
-    invoke("ops_agent_resolve_action", { input: { actionId, approve, sessionId } }),
+  opsAgentResolveAction: (actionId, approve, sessionId = null, comment = null) =>
+    invoke("ops_agent_resolve_action", { input: { actionId, approve, sessionId, comment } }),
   opsAgentCancelRun: (runId) =>
     invoke("ops_agent_cancel_run", { input: { runId } }),
 };

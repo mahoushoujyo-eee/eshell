@@ -57,6 +57,7 @@ pub fn run() {
             commands::config::list_ai_profiles,
             commands::config::save_ai_profile,
             commands::config::delete_ai_profile,
+            commands::config::save_ai_approval_mode,
             commands::config::set_active_ai_profile,
             commands::config::save_ai_config,
             commands::ops_agent::ops_agent_list_conversations,

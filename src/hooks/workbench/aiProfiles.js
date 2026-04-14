@@ -16,18 +16,32 @@ export const normalizeAiConfig = (config) => ({
     1,
     Math.round(parseNumber(config?.maxContextTokens, DEFAULT_AI.maxContextTokens)),
   ),
+  approvalMode:
+    config?.approvalMode === "auto_execute"
+      ? "auto_execute"
+      : DEFAULT_AI.approvalMode,
 });
 
 const normalizeAiProfile = (profile) => ({
   id: profile?.id || "",
   name: (profile?.name || "").trim() || "Default",
-  ...normalizeAiConfig(profile),
+  baseUrl: profile?.baseUrl || DEFAULT_AI.baseUrl,
+  apiKey: profile?.apiKey || "",
+  model: profile?.model || DEFAULT_AI.model,
+  systemPrompt: profile?.systemPrompt || DEFAULT_AI.systemPrompt,
+  temperature: parseNumber(profile?.temperature, DEFAULT_AI.temperature),
+  maxTokens: Math.max(1, Math.round(parseNumber(profile?.maxTokens, DEFAULT_AI.maxTokens))),
+  maxContextTokens: Math.max(
+    1,
+    Math.round(parseNumber(profile?.maxContextTokens, DEFAULT_AI.maxContextTokens)),
+  ),
 });
 
 export const normalizeAiProfilesState = (state) => {
   const profiles = Array.isArray(state?.profiles)
     ? state.profiles.map(normalizeAiProfile).filter((item) => item.id)
     : [];
+  const approvalMode = state?.approvalMode === "auto_execute" ? "auto_execute" : DEFAULT_AI.approvalMode;
   const activeFromState = state?.activeProfileId || null;
   const activeProfileId =
     activeFromState && profiles.some((item) => item.id === activeFromState)
@@ -36,6 +50,7 @@ export const normalizeAiProfilesState = (state) => {
   return {
     profiles,
     activeProfileId,
+    approvalMode,
   };
 };
 
@@ -54,5 +69,11 @@ export const toAiProfileInput = (profile) => ({
 export const DEFAULT_AI_PROFILE_FORM = {
   id: null,
   name: "Default",
-  ...DEFAULT_AI,
+  baseUrl: DEFAULT_AI.baseUrl,
+  apiKey: DEFAULT_AI.apiKey,
+  model: DEFAULT_AI.model,
+  systemPrompt: DEFAULT_AI.systemPrompt,
+  temperature: DEFAULT_AI.temperature,
+  maxTokens: DEFAULT_AI.maxTokens,
+  maxContextTokens: DEFAULT_AI.maxContextTokens,
 };

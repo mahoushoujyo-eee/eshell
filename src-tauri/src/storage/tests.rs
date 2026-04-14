@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::{
-    AiConfigInput, AiProfile, AiProfileInput, AiProfilesState, ScriptInput, SshConfigInput,
+    AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput, AiProfilesState, ScriptInput,
+    SshConfigInput,
 };
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -179,6 +180,7 @@ fn save_ai_config_updates_active_profile() {
             temperature: profile_seed.temperature,
             max_tokens: profile_seed.max_tokens,
             max_context_tokens: profile_seed.max_context_tokens,
+            approval_mode: AiApprovalMode::AutoExecute,
         })
         .expect("save config");
 
@@ -190,6 +192,7 @@ fn save_ai_config_updates_active_profile() {
     assert_eq!(updated.base_url, expected_base_url);
     assert_eq!(active.model, profile_seed.model);
     assert_eq!(active.api_key, profile_seed.api_key);
+    assert_eq!(state.approval_mode, AiApprovalMode::AutoExecute);
 }
 
 #[test]
@@ -221,6 +224,7 @@ fn get_ai_config_prefers_requested_active_profile() {
                 "temperature": 0.7,
                 "maxTokens": 1024,
                 "maxContextTokens": 64000,
+                "approvalMode": "auto_execute",
                 "createdAt": "2026-03-20T09:46:30.522552100+00:00",
                 "updatedAt": "2026-03-20T09:46:30.522552100+00:00"
             },
@@ -234,11 +238,13 @@ fn get_ai_config_prefers_requested_active_profile() {
                 "temperature": requested_temperature,
                 "maxTokens": requested_max_tokens,
                 "maxContextTokens": requested_max_context_tokens,
+                "approvalMode": "require_approval",
                 "createdAt": "2026-03-20T09:46:30.522552100+00:00",
                 "updatedAt": "2026-03-20T09:46:30.522552100+00:00"
             }
         ],
-        "activeProfileId": REQUESTED_PROFILE_ID
+        "activeProfileId": REQUESTED_PROFILE_ID,
+        "approvalMode": "require_approval"
     });
 
     std::fs::write(
@@ -261,6 +267,7 @@ fn get_ai_config_prefers_requested_active_profile() {
     assert_eq!(config.max_context_tokens, profile_seed.max_context_tokens);
     assert_eq!(config.temperature, profile_seed.temperature);
     assert_eq!(config.system_prompt, profile_seed.system_prompt);
+    assert_eq!(config.approval_mode, AiApprovalMode::RequireApproval);
 }
 
 #[test]
@@ -298,4 +305,73 @@ fn legacy_ai_profiles_without_max_context_tokens_get_default_value() {
 
     let profiles = storage.list_ai_profiles();
     assert_eq!(profiles.profiles[0].max_context_tokens, 100_000);
+    assert_eq!(profiles.approval_mode, AiApprovalMode::RequireApproval);
+}
+
+#[test]
+fn legacy_profile_approval_mode_is_migrated_to_global_setting() {
+    let root = temp_dir("ai-profile-legacy-approval");
+    std::fs::create_dir_all(&root).expect("create temp root");
+
+    let payload = serde_json::json!({
+        "profiles": [
+            {
+                "id": "legacy-profile",
+                "name": "Legacy",
+                "baseUrl": "https://api.openai.com/v1",
+                "apiKey": "legacy-key",
+                "model": "gpt-4o-mini",
+                "systemPrompt": "legacy prompt",
+                "temperature": 0.2,
+                "maxTokens": 800,
+                "maxContextTokens": 100000,
+                "approvalMode": "auto_execute",
+                "createdAt": "2026-03-20T09:46:30.522552100+00:00",
+                "updatedAt": "2026-03-20T09:46:30.522552100+00:00"
+            }
+        ],
+        "activeProfileId": "legacy-profile"
+    });
+
+    std::fs::write(
+        root.join("ai_profiles.json"),
+        serde_json::to_string_pretty(&payload).expect("serialize payload"),
+    )
+    .expect("write ai_profiles");
+
+    let storage = Storage::new(root).expect("create storage");
+    let profiles = storage.list_ai_profiles();
+    let config = storage.get_ai_config();
+
+    assert_eq!(profiles.approval_mode, AiApprovalMode::AutoExecute);
+    assert_eq!(config.approval_mode, AiApprovalMode::AutoExecute);
+}
+
+#[test]
+fn save_ai_approval_mode_updates_global_setting_only() {
+    let profile_seed = first_usable_profile_from_eshell_data();
+    let storage = Storage::new(temp_dir("ai-approval-mode")).expect("create storage");
+
+    let created_state = storage
+        .save_ai_profile(AiProfileInput {
+            id: None,
+            name: "SeedProfile".to_string(),
+            base_url: profile_seed.base_url.clone(),
+            api_key: profile_seed.api_key.clone(),
+            model: profile_seed.model.clone(),
+            system_prompt: profile_seed.system_prompt.clone(),
+            temperature: profile_seed.temperature,
+            max_tokens: profile_seed.max_tokens,
+            max_context_tokens: profile_seed.max_context_tokens,
+        })
+        .expect("save profile");
+    let profile_count = created_state.profiles.len();
+
+    let updated_state = storage
+        .save_ai_approval_mode(AiApprovalMode::AutoExecute)
+        .expect("save approval mode");
+
+    assert_eq!(updated_state.approval_mode, AiApprovalMode::AutoExecute);
+    assert_eq!(updated_state.profiles.len(), profile_count);
+    assert_eq!(storage.get_ai_config().approval_mode, AiApprovalMode::AutoExecute);
 }

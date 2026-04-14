@@ -1,4 +1,5 @@
 import { Check, Loader2, X } from "lucide-react";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -83,6 +84,7 @@ export function ToolMessageSection({
   resolvingActionId = "",
   onResolvePendingAction,
 }) {
+  const [resolutionComment, setResolutionComment] = useState("");
   const pendingAction = message.pendingAction || null;
   const pendingRisk = pendingRiskLabel(pendingAction?.riskLevel);
   const toolState = toolStateLabel(message.toolState);
@@ -127,13 +129,20 @@ export function ToolMessageSection({
               {pendingAction.command}
             </pre>
           ) : null}
+          <textarea
+            value={resolutionComment}
+            disabled={pendingBusy}
+            placeholder={t("Add guidance for the agent after this decision (optional)")}
+            className="mt-2 min-h-18 w-full rounded-xl border border-[#efc77a] bg-white/70 px-2.5 py-2 text-[12px] text-[#5f3e00] outline-none placeholder:text-[#8a5a00]/60 disabled:opacity-50"
+            onChange={(event) => setResolutionComment(event.target.value)}
+          />
           {typeof onResolvePendingAction === "function" ? (
             <div className="mt-2 flex items-center justify-end gap-1.5">
               <button
                 type="button"
                 disabled={pendingBusy}
                 className="inline-flex items-center gap-1 rounded-xl border border-success/50 bg-success/85 px-2.5 py-1.5 text-white disabled:opacity-40"
-                onClick={() => onResolvePendingAction(pendingAction.id, true)}
+                onClick={() => onResolvePendingAction(pendingAction.id, true, resolutionComment)}
               >
                 {pendingBusy ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -146,7 +155,7 @@ export function ToolMessageSection({
                 type="button"
                 disabled={pendingBusy}
                 className="inline-flex items-center gap-1 rounded-xl border border-danger/50 bg-danger/85 px-2.5 py-1.5 text-white disabled:opacity-40"
-                onClick={() => onResolvePendingAction(pendingAction.id, false)}
+                onClick={() => onResolvePendingAction(pendingAction.id, false, resolutionComment)}
               >
                 <X className="h-3.5 w-3.5" />
                 {t("Reject")}

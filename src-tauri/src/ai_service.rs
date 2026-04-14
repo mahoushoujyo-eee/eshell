@@ -215,6 +215,7 @@ mod tests {
             && !profile.model.trim().is_empty()
             && (0.0..=2.0).contains(&profile.temperature)
             && profile.max_tokens > 0
+            && profile.max_context_tokens > 0
     }
 
     fn find_header_end(bytes: &[u8]) -> Option<usize> {

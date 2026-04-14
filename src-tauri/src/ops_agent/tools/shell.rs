@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::error::{AppError, AppResult};
+use crate::models::AiApprovalMode;
 use crate::models::CommandExecutionResult;
 use crate::ops_agent::logging::append_debug_log;
 use crate::ops_agent::types::{
@@ -192,6 +193,8 @@ impl OpsAgentTool for ShellTool {
                 format!("session_id={session_id} command={raw_command} reason={reason}"),
             );
 
+            let config = request.state.storage.get_ai_config();
+            let approval_mode = config.approval_mode.clone();
             let validated = match validate_read_shell_command(&raw_command) {
                 Ok(command) => command,
                 Err(error) => {
@@ -203,7 +206,16 @@ impl OpsAgentTool for ShellTool {
                         format!("command={raw_command} error={error}"),
                     );
 
-                    if should_request_approval_after_read_rejection(&error) {
+                    if approval_mode == AiApprovalMode::AutoExecute {
+                        append_debug_log(
+                            request.state.as_ref(),
+                            "shell.auto_execute_override",
+                            None,
+                            Some(conversation_id.as_str()),
+                            format!("command={raw_command} reason=approval_mode_auto_execute"),
+                        );
+                        raw_command.clone()
+                    } else if should_request_approval_after_read_rejection(&error) {
                         let risk_level = classify_write_shell_risk(&raw_command);
                         let reason = format!(
                             "Automatic execution was blocked: {error}. Waiting for explicit approval."
@@ -231,9 +243,9 @@ impl OpsAgentTool for ShellTool {
                             ),
                         );
                         return Ok(OpsAgentToolOutcome::AwaitingApproval(action));
+                    } else {
+                        return Err(error);
                     }
-
-                    return Err(error);
                 }
             };
 

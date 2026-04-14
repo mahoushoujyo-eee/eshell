@@ -362,14 +362,14 @@ export function useWorkbenchOperations({
     const activeProfile =
       normalized.profiles.find((item) => item.id === normalized.activeProfileId) || null;
     if (activeProfile) {
-      setAiConfig(normalizeAiConfig(activeProfile));
+      setAiConfig(normalizeAiConfig({ ...activeProfile, approvalMode: normalized.approvalMode }));
       if (!keepForm) {
         setAiProfileForm(activeProfile);
       }
       return activeProfile;
     }
 
-    setAiConfig(DEFAULT_AI);
+    setAiConfig(normalizeAiConfig({ ...DEFAULT_AI, approvalMode: normalized.approvalMode }));
     if (!keepForm) {
       setAiProfileForm(DEFAULT_AI_PROFILE_FORM);
     }
@@ -1108,6 +1108,23 @@ export function useWorkbenchOperations({
     [applyAiProfilesState, onError, runBusy],
   );
 
+  const saveAiApprovalMode = useCallback(
+    async (approvalMode) => {
+      if (approvalMode !== "auto_execute" && approvalMode !== "require_approval") {
+        return;
+      }
+      try {
+        const state = await runBusy(tRef.current("Approval mode"), () =>
+          api.saveAiApprovalMode(approvalMode),
+        );
+        applyAiProfilesState(state, true);
+      } catch (err) {
+        onError(err);
+      }
+    },
+    [applyAiProfilesState, onError, runBusy],
+  );
+
   const selectAiConversation = useCallback(
     async (conversationId) => {
       if (!conversationId) {
@@ -1217,14 +1234,19 @@ export function useWorkbenchOperations({
   );
 
   const resolveAiPendingAction = useCallback(
-    async (actionId, approve) => {
+    async (actionId, approve, comment = "") => {
       if (!actionId) {
         return;
       }
       setResolvingAiActionId(actionId);
       try {
         await runBusy(tRef.current(approve ? "Approve command" : "Reject command"), () =>
-          api.opsAgentResolveAction(actionId, approve, activeSessionId || null),
+          api.opsAgentResolveAction(
+            actionId,
+            approve,
+            activeSessionId || null,
+            typeof comment === "string" && comment.trim() ? comment.trim() : null,
+          ),
         );
         await Promise.all([
           reloadAiPendingActions(activeSessionId || null),
@@ -1408,6 +1430,7 @@ export function useWorkbenchOperations({
     saveAiProfile,
     selectAiProfile,
     deleteAiProfile,
+    saveAiApprovalMode,
     selectAiConversation,
     createAiConversation,
     deleteAiConversation,

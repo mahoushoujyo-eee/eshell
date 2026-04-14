@@ -13,6 +13,7 @@ export default function AppAiDock({
   const {
     aiProfiles,
     activeAiProfileId,
+    aiConfig,
     aiQuestion,
     setAiQuestion,
     aiShellContext,
@@ -34,6 +35,7 @@ export default function AppAiDock({
     resolveAiPendingAction,
     askAi,
     cancelAiStreaming,
+    saveAiApprovalMode,
     clearAiShellContext,
     setShowAiPanel,
   } = workbench;
@@ -65,7 +67,9 @@ export default function AppAiDock({
           <AiAssistantPanel
             aiProfiles={aiProfiles}
             activeAiProfileId={activeAiProfileId}
+            approvalMode={aiConfig.approvalMode}
             onSelectAiProfile={selectAiProfile}
+            onSaveApprovalMode={saveAiApprovalMode}
             conversations={aiConversations}
             activeConversationId={activeAiConversationId}
             activeConversation={activeAiConversation}

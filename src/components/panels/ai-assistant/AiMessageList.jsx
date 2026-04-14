@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useI18n } from "../../../lib/i18n";
 import { groupOpsAgentMessages } from "../../../lib/ops-agent-message-rendering";
 import AiAgentTurn from "./AiAgentTurn";
 import { copyText } from "./aiAssistantUtils";
 import AiUserMessage from "./AiUserMessage";
+
+const AUTO_SCROLL_THRESHOLD_PX = 40;
 
 export default function AiMessageList({
   messages,
@@ -31,10 +33,21 @@ export default function AiMessageList({
   const [expandedThinkKeys, setExpandedThinkKeys] = useState(() => ({}));
   const [copiedMessageKey, setCopiedMessageKey] = useState(null);
   const copyFeedbackTimerRef = useRef(null);
+  const shouldStickToBottomRef = useRef(true);
+  const activeConversationIdRef = useRef(activeConversationId);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = messageScrollRef.current;
     if (!node) {
+      return;
+    }
+    if (activeConversationIdRef.current !== activeConversationId) {
+      activeConversationIdRef.current = activeConversationId;
+      shouldStickToBottomRef.current = true;
+      node.scrollTop = node.scrollHeight;
+      return;
+    }
+    if (!shouldStickToBottomRef.current) {
       return;
     }
     node.scrollTop = node.scrollHeight;
@@ -45,6 +58,22 @@ export default function AiMessageList({
     setExpandedToolMessageIds({});
     setExpandedThinkKeys({});
     setCopiedMessageKey(null);
+  }, [activeConversationId]);
+
+  useEffect(() => {
+    const node = messageScrollRef.current;
+    if (!node) {
+      return undefined;
+    }
+
+    const updateStickiness = () => {
+      const distanceToBottom = node.scrollHeight - node.scrollTop - node.clientHeight;
+      shouldStickToBottomRef.current = distanceToBottom <= AUTO_SCROLL_THRESHOLD_PX;
+    };
+
+    updateStickiness();
+    node.addEventListener("scroll", updateStickiness, { passive: true });
+    return () => node.removeEventListener("scroll", updateStickiness);
   }, [activeConversationId]);
 
   useEffect(

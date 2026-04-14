@@ -66,6 +66,7 @@ pub fn build_planner_system_prompt(
     base_prompt: &str,
     session_context: &OpsAgentSessionContext,
     tool_hints: &[OpsAgentToolPromptHint],
+    shell_execution_policy: &str,
 ) -> String {
     format!(
         "{base}\n\nYou are an operations ReAct planner. Decide the next best action at each step.\n\
@@ -79,10 +80,12 @@ Rules:\n\
 3) Call at most one tool per turn.\n\
 4) If evidence is already sufficient, answer directly in plain text without any tool call.\n\
 5) Keep any direct textual reply concise and user-facing.\n\
-6) Choose a registered tool name exactly as documented above.",
+6) Choose a registered tool name exactly as documented above.\n\
+7) Shell execution policy: {shell_execution_policy}",
         base = base_prompt.trim(),
         tool_block = format_tool_catalog(tool_hints),
         session_block = session_context.to_prompt_block(),
+        shell_execution_policy = shell_execution_policy,
     )
 }
 
@@ -223,6 +226,7 @@ mod tests {
                     requires_approval: false,
                 },
             ],
+            "Read-only runs immediately; writes require approval.",
         );
 
         assert!(prompt.contains("shell"));
