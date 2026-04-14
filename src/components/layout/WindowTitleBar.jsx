@@ -1,7 +1,93 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Bot, Copy, Minus, Square, X } from "lucide-react";
+import { Bot, Copy, Minus, Plus, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+
+const TITLEBAR_PLATFORM_OVERRIDE_KEY = "eshell:debug:titlebar-platform";
+const TITLEBAR_PLATFORM_OVERRIDE_EVENT = "eshell:titlebar-platform-override-change";
+
+function normalizePlatformKind(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "macos" || normalized === "windows" || normalized === "linux") {
+    return normalized;
+  }
+  return "auto";
+}
+
+function detectDesktopPlatform() {
+  if (typeof window === "undefined") {
+    return "unknown";
+  }
+
+  const source =
+    window.navigator?.userAgentData?.platform ||
+    window.navigator?.platform ||
+    window.navigator?.userAgent ||
+    "";
+  const normalized = String(source).toLowerCase();
+
+  if (normalized.includes("mac")) {
+    return "macos";
+  }
+  if (normalized.includes("win")) {
+    return "windows";
+  }
+  if (normalized.includes("linux")) {
+    return "linux";
+  }
+  return "unknown";
+}
+
+function readPlatformOverride() {
+  if (typeof window === "undefined") {
+    return "auto";
+  }
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = normalizePlatformKind(params.get("titlebarPlatform"));
+    if (fromQuery !== "auto") {
+      return fromQuery;
+    }
+  } catch {
+    // noop
+  }
+
+  try {
+    return normalizePlatformKind(window.localStorage.getItem(TITLEBAR_PLATFORM_OVERRIDE_KEY));
+  } catch {
+    return "auto";
+  }
+}
+
+function resolveDesktopPlatform() {
+  const override = readPlatformOverride();
+  return override === "auto" ? detectDesktopPlatform() : override;
+}
+
+function setPlatformOverride(nextValue) {
+  if (typeof window === "undefined") {
+    return "auto";
+  }
+
+  const normalized = normalizePlatformKind(nextValue);
+  try {
+    if (normalized === "auto") {
+      window.localStorage.removeItem(TITLEBAR_PLATFORM_OVERRIDE_KEY);
+    } else {
+      window.localStorage.setItem(TITLEBAR_PLATFORM_OVERRIDE_KEY, normalized);
+    }
+  } catch {
+    // noop
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(TITLEBAR_PLATFORM_OVERRIDE_EVENT, {
+      detail: { override: normalized },
+    }),
+  );
+  return normalized;
+}
 
 function WindowControlButton({ title, onClick, tone = "normal", children }) {
   return (
@@ -17,6 +103,29 @@ function WindowControlButton({ title, onClick, tone = "normal", children }) {
       onClick={onClick}
     >
       {children}
+    </button>
+  );
+}
+
+function MacWindowControlButton({ title, tone = "danger", onClick, children }) {
+  const toneClass =
+    tone === "danger"
+      ? "border-[#e2483f]/80 bg-[#ff5f57] text-black/65"
+      : tone === "warning"
+        ? "border-[#d7a52b]/80 bg-[#febc2e] text-black/60"
+        : "border-[#1ea833]/80 bg-[#28c840] text-black/55";
+
+  return (
+    <button
+      type="button"
+      title={title}
+      className={[
+        "group inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] transition-transform hover:scale-105",
+        toneClass,
+      ].join(" ")}
+      onClick={onClick}
+    >
+      <span className="opacity-0 transition-opacity group-hover:opacity-70">{children}</span>
     </button>
   );
 }
@@ -56,7 +165,66 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
   const { t } = useI18n();
   const appWindow = getCurrentWindow();
   const [isMaximized, setIsMaximized] = useState(false);
+  const [detectedPlatform, setDetectedPlatform] = useState(detectDesktopPlatform);
+  const [platformKind, setPlatformKind] = useState(resolveDesktopPlatform);
   const titleBarRef = useRef(null);
+  const isMacPlatform = platformKind === "macos";
+
+  useEffect(() => {
+    const detected = detectDesktopPlatform();
+    setDetectedPlatform(detected);
+    setPlatformKind(resolveDesktopPlatform());
+
+    const handleOverrideChange = () => {
+      setDetectedPlatform(detectDesktopPlatform());
+      setPlatformKind(resolveDesktopPlatform());
+    };
+
+    window.addEventListener(TITLEBAR_PLATFORM_OVERRIDE_EVENT, handleOverrideChange);
+    return () => window.removeEventListener(TITLEBAR_PLATFORM_OVERRIDE_EVENT, handleOverrideChange);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const debugApi = {
+      getDetectedPlatform: () => detectDesktopPlatform(),
+      getTitleBarPlatform: () => resolveDesktopPlatform(),
+      getTitleBarPlatformOverride: () => readPlatformOverride(),
+      setTitleBarPlatform: (nextValue = "auto") => setPlatformOverride(nextValue),
+      clearTitleBarPlatformOverride: () => setPlatformOverride("auto"),
+      help: () => ({
+        detected: detectDesktopPlatform(),
+        effective: resolveDesktopPlatform(),
+        override: readPlatformOverride(),
+        usage: [
+          'window.__eshellDebug.setTitleBarPlatform("macos")',
+          'window.__eshellDebug.setTitleBarPlatform("windows")',
+          'window.__eshellDebug.setTitleBarPlatform("linux")',
+          'window.__eshellDebug.clearTitleBarPlatformOverride()',
+        ],
+      }),
+    };
+
+    window.__eshellDebug = {
+      ...(window.__eshellDebug || {}),
+      ...debugApi,
+    };
+
+    return () => {
+      if (!window.__eshellDebug) {
+        return;
+      }
+      delete window.__eshellDebug.getDetectedPlatform;
+      delete window.__eshellDebug.getTitleBarPlatform;
+      delete window.__eshellDebug.getTitleBarPlatformOverride;
+      delete window.__eshellDebug.setTitleBarPlatform;
+      delete window.__eshellDebug.clearTitleBarPlatformOverride;
+      delete window.__eshellDebug.help;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -145,56 +313,115 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
     return () => titleBarElement.removeEventListener("mousedown", handleMouseDown);
   }, [appWindow, handleToggleMaximize]);
 
+  const titleContent = (
+    <div
+      data-tauri-drag-region
+      className={[
+        "flex min-w-0 items-center gap-2 px-1 text-sm text-muted select-none",
+        isMacPlatform ? "mx-auto max-w-[48%] justify-center text-center" : "flex-1",
+      ].join(" ")}
+    >
+      <span data-tauri-drag-region className="text-[11px] font-semibold tracking-[0.2em] uppercase">
+        eShell
+      </span>
+      <span data-tauri-drag-region className="truncate text-xs opacity-85">
+        {t("Operations Console")}
+      </span>
+    </div>
+  );
+
   return (
     <header
       ref={titleBarRef}
       data-tauri-drag-region
-      className="relative flex h-9 shrink-0 items-center border-b border-border bg-surface/95 px-2"
+      className={[
+        "relative shrink-0 border-b border-border bg-surface/95",
+        isMacPlatform ? "flex h-10 items-center px-3" : "flex h-9 items-center px-2",
+      ].join(" ")}
     >
-      <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-1 z-20" />
-      <div
-        data-tauri-drag-region
-        className="flex min-w-0 flex-1 items-center gap-2 px-1 text-sm text-muted select-none"
-      >
-        <span data-tauri-drag-region className="text-[11px] font-semibold tracking-[0.2em] uppercase">
-          eShell
-        </span>
-        <span data-tauri-drag-region className="truncate text-xs opacity-85">
-          {t("Operations Console")}
-        </span>
-      </div>
+      <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-20 h-1" />
 
-      <div data-window-control className="ml-3 flex items-center gap-2">
-        <AiEntryButton active={showAiPanel} busy={isAiStreaming} onClick={onToggleAiPanel} />
-      </div>
+      {isMacPlatform ? (
+        <>
+          <div
+            data-window-control
+            className="absolute left-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-2"
+          >
+            <MacWindowControlButton
+              title={t("Close")}
+              tone="danger"
+              onClick={() => safeWindowAction(() => appWindow.close(), "close")}
+            >
+              <X className="h-2.5 w-2.5" aria-hidden="true" />
+            </MacWindowControlButton>
 
-      <div data-window-control className="ml-2 flex items-center gap-1">
-        <WindowControlButton
-          title={t("Minimize")}
-          onClick={() => safeWindowAction(() => appWindow.minimize(), "minimize")}
-        >
-          <Minus className="h-3.5 w-3.5" aria-hidden="true" />
-        </WindowControlButton>
+            <MacWindowControlButton
+              title={t("Minimize")}
+              tone="warning"
+              onClick={() => safeWindowAction(() => appWindow.minimize(), "minimize")}
+            >
+              <Minus className="h-2.5 w-2.5" aria-hidden="true" />
+            </MacWindowControlButton>
 
-        <WindowControlButton
-          title={isMaximized ? t("Restore") : t("Maximize")}
-          onClick={handleToggleMaximize}
-        >
-          {isMaximized ? (
-            <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-          ) : (
-            <Square className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-        </WindowControlButton>
+            <MacWindowControlButton
+              title={isMaximized ? t("Restore") : t("Maximize")}
+              tone="success"
+              onClick={handleToggleMaximize}
+            >
+              {isMaximized ? (
+                <Copy className="h-2.5 w-2.5" aria-hidden="true" />
+              ) : (
+                <Plus className="h-2.5 w-2.5" aria-hidden="true" />
+              )}
+            </MacWindowControlButton>
+          </div>
 
-        <WindowControlButton
-          title={t("Close")}
-          tone="danger"
-          onClick={() => safeWindowAction(() => appWindow.close(), "close")}
-        >
-          <X className="h-3.5 w-3.5" aria-hidden="true" />
-        </WindowControlButton>
-      </div>
+          {titleContent}
+
+          <div
+            data-window-control
+            className="absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center"
+          >
+            <AiEntryButton active={showAiPanel} busy={isAiStreaming} onClick={onToggleAiPanel} />
+          </div>
+        </>
+      ) : (
+        <>
+          {titleContent}
+
+          <div data-window-control className="ml-3 flex items-center gap-2">
+            <AiEntryButton active={showAiPanel} busy={isAiStreaming} onClick={onToggleAiPanel} />
+          </div>
+
+          <div data-window-control className="ml-2 flex items-center gap-1">
+            <WindowControlButton
+              title={t("Minimize")}
+              onClick={() => safeWindowAction(() => appWindow.minimize(), "minimize")}
+            >
+              <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+            </WindowControlButton>
+
+            <WindowControlButton
+              title={isMaximized ? t("Restore") : t("Maximize")}
+              onClick={handleToggleMaximize}
+            >
+              {isMaximized ? (
+                <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <Square className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+            </WindowControlButton>
+
+            <WindowControlButton
+              title={t("Close")}
+              tone="danger"
+              onClick={() => safeWindowAction(() => appWindow.close(), "close")}
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </WindowControlButton>
+          </div>
+        </>
+      )}
     </header>
   );
 }

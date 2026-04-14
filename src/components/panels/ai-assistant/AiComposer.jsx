@@ -90,7 +90,7 @@ export default function AiComposer({
                     : "text-muted hover:bg-white/40",
                 ].join(" ")}
               >
-                Approval
+                {t("Approval")}
               </button>
               <button
                 type="button"
@@ -106,7 +106,7 @@ export default function AiComposer({
                     : "text-muted hover:bg-white/40",
                 ].join(" ")}
               >
-                Full Access
+                {t("Full Access")}
               </button>
             </div>
           </div>

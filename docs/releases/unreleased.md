@@ -1,5 +1,5 @@
 # Unreleased Changes
 
-Last updated: 2026-04-09
+Last updated: 2026-04-14
 
-- No unreleased changes are queued after `v1.2.0`.
+- No unreleased changes are queued after `v1.3.0`.

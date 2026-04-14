@@ -315,6 +315,9 @@ const zhMessages = {
   "简体中文": "简体中文",
 };
 
+zhMessages["Approval"] = "审批";
+zhMessages["Full Access"] = "完全访问";
+
 const defaultContextValue = {
   language: "en",
   localeTag: "en-US",
