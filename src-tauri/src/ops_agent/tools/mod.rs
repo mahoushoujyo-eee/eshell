@@ -75,6 +75,7 @@ pub enum OpsAgentToolOutcome {
 pub struct OpsAgentToolResolveRequest {
     pub state: Arc<AppState>,
     pub action: OpsAgentPendingAction,
+    pub approval_comment: Option<String>,
 }
 
 /// Tool trait used by the registry. New tools only need to implement this contract.

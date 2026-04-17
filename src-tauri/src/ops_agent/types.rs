@@ -71,6 +71,13 @@ pub enum OpsAgentActionStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpsAgentApprovalDecision {
+    Approved,
+    Rejected,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum OpsAgentRiskLevel {
@@ -157,6 +164,12 @@ pub struct OpsAgentPendingAction {
     pub created_at: String,
     pub updated_at: String,
     pub resolved_at: Option<String>,
+    #[serde(default)]
+    pub approval_decision: Option<OpsAgentApprovalDecision>,
+    #[serde(default)]
+    pub approval_comment: Option<String>,
+    #[serde(default)]
+    pub approval_at: Option<String>,
     pub execution_output: Option<String>,
     pub execution_exit_code: Option<i32>,
 }
@@ -489,5 +502,8 @@ mod tests {
         .expect("deserialize legacy pending action");
 
         assert_eq!(action.risk_level, OpsAgentRiskLevel::Low);
+        assert_eq!(action.approval_decision, None);
+        assert_eq!(action.approval_comment, None);
+        assert_eq!(action.approval_at, None);
     }
 }

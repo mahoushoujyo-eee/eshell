@@ -298,6 +298,7 @@ impl OpsAgentTool for ShellTool {
                 let updated = request.state.ops_agent.mark_action_failed(
                     &action.id,
                     "missing session id for shell action".to_string(),
+                    request.approval_comment.clone(),
                 )?;
                 append_debug_log(
                     request.state.as_ref(),
@@ -332,6 +333,7 @@ impl OpsAgentTool for ShellTool {
                         &action.id,
                         output.clone(),
                         execution.exit_code,
+                        request.approval_comment.clone(),
                     )?;
                     append_debug_log(
                         request.state.as_ref(),
@@ -359,7 +361,11 @@ impl OpsAgentTool for ShellTool {
                     let updated = request
                         .state
                         .ops_agent
-                        .mark_action_failed(&action.id, error.to_string())?;
+                        .mark_action_failed(
+                            &action.id,
+                            error.to_string(),
+                            request.approval_comment.clone(),
+                        )?;
                     append_debug_log(
                         request.state.as_ref(),
                         "shell.approval_failed",

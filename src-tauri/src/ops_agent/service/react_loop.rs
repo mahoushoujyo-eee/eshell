@@ -338,19 +338,10 @@ pub(super) async fn process_chat_stream(
                         label: Some("awaiting approval".to_string()),
                     }),
                 );
-                let approval_message = if plan.reply.trim().is_empty() {
-                    format!(
-                        "Command `{}` needs approval before execution.\nReason: {}\nPlease approve or reject it in the UI.",
-                        action.command, action.reason
-                    )
-                } else {
-                    format!(
-                        "{}\n\nCommand `{}` needs approval before execution.\nReason: {}\nPlease approve or reject it in the UI.",
-                        plan.reply.trim(),
-                        action.command,
-                        action.reason
-                    )
-                };
+                let approval_message = normalized_reply(
+                    plan.reply,
+                    "I created a command approval request in the chat. Review it before continuing.",
+                );
                 let assistant_answer = emit_static_reply(approval_message, &emitter);
                 return finalize_chat_completion(
                     &state,

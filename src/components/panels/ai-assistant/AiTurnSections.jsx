@@ -55,19 +55,23 @@ export function AssistantMessageSection({
                 </div>
                 {thinkExpanded ? (
                   <div className="border-t border-border/60 px-3 py-3 text-[11px] text-muted">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm, remarkBreaks]}
-                      components={MARKDOWN_COMPONENTS}
-                    >
-                      {section.content}
-                    </ReactMarkdown>
+                    <div className="ai-markdown">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkBreaks]}
+                        components={MARKDOWN_COMPONENTS}
+                      >
+                        {section.content}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 ) : null}
               </div>
             ) : (
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
-                {section.content}
-              </ReactMarkdown>
+              <div className="ai-markdown">
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
+                  {section.content}
+                </ReactMarkdown>
+              </div>
             )}
           </div>
         );
@@ -90,6 +94,13 @@ export function ToolMessageSection({
   const toolState = toolStateLabel(message.toolState);
   const pendingBusy = pendingAction && resolvingActionId === pendingAction.id;
   const { t } = useI18n();
+  const actionAwaitingDecision = pendingAction?.status === "pending";
+  const approvalDecisionLabel =
+    pendingAction?.approvalDecision === "approved"
+      ? t("Approved")
+      : pendingAction?.approvalDecision === "rejected"
+        ? t("Rejected")
+        : "";
 
   return (
     <section key={message.id} className={withDivider ? "mt-3 border-t border-border/60 pt-3" : ""}>
@@ -123,20 +134,45 @@ export function ToolMessageSection({
       </div>
       {pendingAction ? (
         <div className="mt-2 rounded-2xl border border-[#efc77a] bg-[#fff8e8] px-3 py-2 text-[11px] text-[#714800]">
-          <div className="font-medium">{t(pendingAction.reason || "approval required")}</div>
-          {expanded ? (
-            <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[12px] text-[#5f3e00]">
-              {pendingAction.command}
-            </pre>
+          <div className="font-medium">{t("Execute command request")}</div>
+          <pre className="mt-2 whitespace-pre-wrap break-words rounded-xl border border-[#efc77a] bg-white/55 px-2.5 py-2 font-mono text-[12px] text-[#5f3e00]">
+            {pendingAction.command}
+          </pre>
+          {pendingAction.reason ? (
+            <div className="mt-2 text-[#8a5a00]">
+              {t("Reason")}: {t(pendingAction.reason)}
+            </div>
           ) : null}
-          <textarea
-            value={resolutionComment}
-            disabled={pendingBusy}
-            placeholder={t("Add guidance for the agent after this decision (optional)")}
-            className="mt-2 min-h-18 w-full rounded-xl border border-[#efc77a] bg-white/70 px-2.5 py-2 text-[12px] text-[#5f3e00] outline-none placeholder:text-[#8a5a00]/60 disabled:opacity-50"
-            onChange={(event) => setResolutionComment(event.target.value)}
-          />
-          {typeof onResolvePendingAction === "function" ? (
+          {approvalDecisionLabel ? (
+            <div className="mt-2 text-[#8a5a00]">
+              {t("Decision")}: {approvalDecisionLabel}
+            </div>
+          ) : null}
+          {pendingAction.approvalComment ? (
+            <div className="mt-2 text-[#8a5a00]">
+              {t("Reviewer note")}: {pendingAction.approvalComment}
+            </div>
+          ) : null}
+          {expanded && pendingAction.executionOutput ? (
+            <div className="mt-2">
+              <div className="mb-1 text-[#8a5a00]">
+                {pendingAction.status === "failed" ? t("Execution error") : t("Execution result")}
+              </div>
+              <pre className="whitespace-pre-wrap break-words rounded-xl border border-[#efc77a] bg-white/55 px-2.5 py-2 font-mono text-[12px] text-[#5f3e00]">
+                {pendingAction.executionOutput}
+              </pre>
+            </div>
+          ) : null}
+          {actionAwaitingDecision ? (
+            <textarea
+              value={resolutionComment}
+              disabled={pendingBusy}
+              placeholder={t("Add guidance for the agent after this decision (optional)")}
+              className="mt-2 min-h-18 w-full rounded-xl border border-[#efc77a] bg-white/70 px-2.5 py-2 text-[12px] text-[#5f3e00] outline-none placeholder:text-[#8a5a00]/60 disabled:opacity-50"
+              onChange={(event) => setResolutionComment(event.target.value)}
+            />
+          ) : null}
+          {actionAwaitingDecision && typeof onResolvePendingAction === "function" ? (
             <div className="mt-2 flex items-center justify-end gap-1.5">
               <button
                 type="button"
@@ -215,27 +251,33 @@ export function StreamingMessageSection({
                   </div>
                   {thinkExpanded ? (
                     <div className="border-t border-border/60 px-3 py-3 text-[11px] text-muted">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm, remarkBreaks]}
-                        components={MARKDOWN_COMPONENTS}
-                      >
-                        {section.content}
-                      </ReactMarkdown>
+                      <div className="ai-markdown">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkBreaks]}
+                          components={MARKDOWN_COMPONENTS}
+                        >
+                          {section.content}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   ) : null}
                 </div>
               ) : (
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
-                  {section.content}
-                </ReactMarkdown>
+                <div className="ai-markdown">
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
+                    {section.content}
+                  </ReactMarkdown>
+                </div>
               )}
             </div>
           );
         })
       ) : (
-        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
-          {"..."}
-        </ReactMarkdown>
+        <div className="ai-markdown">
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
+            {"..."}
+          </ReactMarkdown>
+        </div>
       )}
     </section>
   );

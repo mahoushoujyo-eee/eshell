@@ -118,6 +118,140 @@ body > #root {
   box-shadow: var(--es-shadow);
 }
 
+.ai-markdown {
+  color: var(--es-text);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.ai-markdown > :first-child {
+  margin-top: 0;
+}
+
+.ai-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.ai-markdown h1,
+.ai-markdown h2,
+.ai-markdown h3 {
+  margin: 1.25rem 0 0.8rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ai-markdown h1 {
+  font-size: 1.5rem;
+}
+
+.ai-markdown h2 {
+  font-size: 1.3rem;
+}
+
+.ai-markdown h3 {
+  font-size: 1.1rem;
+}
+
+.ai-markdown p,
+.ai-markdown ul,
+.ai-markdown ol,
+.ai-markdown blockquote,
+.ai-markdown .ai-markdown-table-wrap,
+.ai-markdown .ai-markdown-pre {
+  margin: 0.8rem 0;
+}
+
+.ai-markdown ul,
+.ai-markdown ol {
+  padding-left: 1.5rem;
+}
+
+.ai-markdown li + li {
+  margin-top: 0.25rem;
+}
+
+.ai-markdown blockquote {
+  padding-left: 1rem;
+  border-left: 3px solid color-mix(in srgb, var(--es-muted) 45%, transparent);
+  color: var(--es-muted);
+}
+
+.ai-markdown-link {
+  color: var(--es-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ai-markdown-inline-code {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--es-text) 8%, transparent);
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 0.92em;
+  line-height: 1.4;
+}
+
+.ai-markdown-pre {
+  overflow: auto;
+  padding: 1rem 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--es-border) 85%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--es-text) 6%, var(--es-panel) 94%);
+}
+
+.ai-markdown-pre > code {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 0.95em;
+  line-height: 1.6;
+  white-space: pre;
+  color: inherit;
+}
+
+.ai-markdown-table-wrap {
+  overflow: auto;
+  padding: 0.35rem 0;
+}
+
+.ai-markdown table {
+  min-width: 100%;
+  border-collapse: collapse;
+}
+
+.ai-markdown th,
+.ai-markdown td {
+  padding: 0.25rem 0.9rem 0.25rem 0;
+  text-align: left;
+  vertical-align: top;
+  border: 0;
+}
+
+.ai-markdown th {
+  font-weight: 600;
+  color: var(--es-muted);
+}
+
+:root[data-theme="dark"] .ai-markdown-inline-code {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="dark"] .ai-markdown-pre {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #2b2b2b;
+}
+
+:root[data-theme="dark"] .ai-markdown-pre > code {
+  color: #d4d4d4;
+}
+
+:root[data-theme="dark"] .ai-markdown th {
+  color: #9da7b3;
+}
+
 .terminal-frame {
   isolation: isolate;
 }

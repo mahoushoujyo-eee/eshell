@@ -123,13 +123,26 @@ export const getOpsAgentLatestAssistantReplyText = (messages) => {
   return "";
 };
 
+const pendingActionToolState = (action) => {
+  if (action?.status === "executed") {
+    return "executed";
+  }
+  if (action?.status === "failed") {
+    return "failed";
+  }
+  if (action?.status === "rejected") {
+    return "rejected";
+  }
+  return "awaiting_approval";
+};
+
 const createPendingActionToolMessage = (action) => ({
   id: `pending-action:${action.id}`,
   role: "tool",
   content: toText(action.command),
   createdAt: toText(action.createdAt),
   toolKind: action.toolKind,
-  toolState: "awaiting_approval",
+  toolState: pendingActionToolState(action),
   pendingAction: action,
 });
 

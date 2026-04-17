@@ -417,14 +417,11 @@ export function useWorkbenchOperations({
     [],
   );
 
-  const reloadAiPendingActions = useCallback(
-    async (sessionId) => {
-      const rows = await api.opsAgentListPendingActions(sessionId || null, true);
-      setAiPendingActions(rows);
-      return rows;
-    },
-    [],
-  );
+  const reloadAiPendingActions = useCallback(async () => {
+    const rows = await api.opsAgentListPendingActions(null, false);
+    setAiPendingActions(rows);
+    return rows;
+  }, []);
 
   const bootstrap = useCallback(async () => {
     try {
@@ -439,7 +436,7 @@ export function useWorkbenchOperations({
           aiProfilesState,
           opened,
           conversations,
-          pendingActions,
+          actionHistory,
           defaultDownloadDir,
         ] = await Promise.all([
           api.listSshConfigs(),
@@ -447,14 +444,14 @@ export function useWorkbenchOperations({
           api.listAiProfiles(),
           api.listShellSessions(),
           api.opsAgentListConversations(),
-          api.opsAgentListPendingActions(null, true),
+          api.opsAgentListPendingActions(null, false),
           loadDefaultDirTask,
         ]);
         setSshConfigs(configs);
         setScripts(scriptRows);
         applyAiProfilesState(aiProfilesState);
         setAiConversations(conversations);
-        setAiPendingActions(pendingActions);
+        setAiPendingActions(actionHistory);
         if (!downloadDirectory?.trim() && defaultDownloadDir) {
           setDownloadDirectory(defaultDownloadDir);
         }
@@ -1177,7 +1174,7 @@ export function useWorkbenchOperations({
       aiStreamRef.current = EMPTY_OPS_AGENT_STREAM;
       await Promise.all([
         reloadAiConversations(),
-        reloadAiPendingActions(activeSessionId || null),
+        reloadAiPendingActions(),
       ]);
     } catch (err) {
       onError(err);
@@ -1202,6 +1199,7 @@ export function useWorkbenchOperations({
         );
         clearAiConversationError(conversationId);
         const conversations = await reloadAiConversations();
+        await reloadAiPendingActions();
         const nextId = conversations[0]?.id || null;
         setActiveAiConversationId(nextId);
         if (nextId) {
@@ -1271,7 +1269,7 @@ export function useWorkbenchOperations({
           ),
         );
         await Promise.all([
-          reloadAiPendingActions(activeSessionId || null),
+          reloadAiPendingActions(),
           activeAiConversationId ? loadAiConversation(activeAiConversationId) : Promise.resolve(),
           reloadAiConversations(),
         ]);
@@ -1325,7 +1323,7 @@ export function useWorkbenchOperations({
         await Promise.all([
           loadAiConversation(accepted.conversationId),
           reloadAiConversations(),
-          reloadAiPendingActions(activeSessionId || null),
+          reloadAiPendingActions(),
         ]);
       } catch (err) {
         setAiQuestion(question);

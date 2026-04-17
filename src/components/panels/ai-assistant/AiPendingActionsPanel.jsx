@@ -13,8 +13,9 @@ export default function AiPendingActionsPanel({
 }) {
   const { t } = useI18n();
   const [commentsByActionId, setCommentsByActionId] = useState(() => ({}));
+  const pendingRows = pendingActions.filter((action) => action?.status === "pending");
 
-  if (pendingActions.length === 0) {
+  if (pendingRows.length === 0) {
     return null;
   }
 
@@ -25,7 +26,7 @@ export default function AiPendingActionsPanel({
         {t("Pending tool approvals")}
       </div>
       <div className="max-h-32 space-y-2 overflow-auto">
-        {pendingActions.map((action) => {
+        {pendingRows.map((action) => {
           const busy = resolvingActionId === action.id;
           const riskLevel = pendingRiskLabel(action.riskLevel);
           const comment = commentsByActionId[action.id] || "";

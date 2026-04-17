@@ -10,9 +10,9 @@ use crate::error::{AppError, AppResult};
 use crate::models::now_rfc3339;
 
 use super::types::{
-    OpsAgentActionStatus, OpsAgentConversation, OpsAgentConversationSummary, OpsAgentData,
-    OpsAgentMessage, OpsAgentPendingAction, OpsAgentRiskLevel, OpsAgentRole, OpsAgentShellContext,
-    OpsAgentToolKind,
+    OpsAgentActionStatus, OpsAgentApprovalDecision, OpsAgentConversation,
+    OpsAgentConversationSummary, OpsAgentData, OpsAgentMessage, OpsAgentPendingAction,
+    OpsAgentRiskLevel, OpsAgentRole, OpsAgentShellContext, OpsAgentToolKind,
 };
 
 const LEGACY_DATA_FILE: &str = "ops_agent.json";
@@ -347,6 +347,9 @@ impl OpsAgentStore {
             created_at: now.clone(),
             updated_at: now,
             resolved_at: None,
+            approval_decision: None,
+            approval_comment: None,
+            approval_at: None,
             execution_output: None,
             execution_exit_code: None,
         };
@@ -367,8 +370,19 @@ impl OpsAgentStore {
             .ok_or_else(|| AppError::NotFound(format!("ops agent action {action_id}")))
     }
 
-    pub fn mark_action_rejected(&self, action_id: &str) -> AppResult<OpsAgentPendingAction> {
-        self.update_action_status(action_id, OpsAgentActionStatus::Rejected, None, None)
+    pub fn mark_action_rejected(
+        &self,
+        action_id: &str,
+        approval_comment: Option<String>,
+    ) -> AppResult<OpsAgentPendingAction> {
+        self.update_action_status(
+            action_id,
+            OpsAgentActionStatus::Rejected,
+            Some(OpsAgentApprovalDecision::Rejected),
+            approval_comment,
+            None,
+            None,
+        )
     }
 
     pub fn mark_action_executed(
@@ -376,10 +390,13 @@ impl OpsAgentStore {
         action_id: &str,
         output: String,
         exit_code: i32,
+        approval_comment: Option<String>,
     ) -> AppResult<OpsAgentPendingAction> {
         self.update_action_status(
             action_id,
             OpsAgentActionStatus::Executed,
+            Some(OpsAgentApprovalDecision::Approved),
+            approval_comment,
             Some(output),
             Some(exit_code),
         )
@@ -389,14 +406,24 @@ impl OpsAgentStore {
         &self,
         action_id: &str,
         output: String,
+        approval_comment: Option<String>,
     ) -> AppResult<OpsAgentPendingAction> {
-        self.update_action_status(action_id, OpsAgentActionStatus::Failed, Some(output), None)
+        self.update_action_status(
+            action_id,
+            OpsAgentActionStatus::Failed,
+            Some(OpsAgentApprovalDecision::Approved),
+            approval_comment,
+            Some(output),
+            None,
+        )
     }
 
     fn update_action_status(
         &self,
         action_id: &str,
         status: OpsAgentActionStatus,
+        approval_decision: Option<OpsAgentApprovalDecision>,
+        approval_comment: Option<String>,
         output: Option<String>,
         exit_code: Option<i32>,
     ) -> AppResult<OpsAgentPendingAction> {
@@ -413,6 +440,11 @@ impl OpsAgentStore {
             action.status = status;
             action.updated_at = now.clone();
             action.resolved_at = Some(now.clone());
+            if let Some(decision) = approval_decision {
+                action.approval_decision = Some(decision);
+                action.approval_at = Some(now.clone());
+            }
+            action.approval_comment = approval_comment;
             action.execution_output = output;
             action.execution_exit_code = exit_code;
             (action.conversation_id.clone(), action.clone())
@@ -740,8 +772,15 @@ mod tests {
         assert!(action.source_user_message_id.is_none());
         assert_eq!(store.list_pending_actions(Some("session-1"), true).len(), 1);
 
-        let rejected = store.mark_action_rejected(&action.id).expect("reject");
+        let rejected = store
+            .mark_action_rejected(&action.id, Some("operator rejected".to_string()))
+            .expect("reject");
         assert_eq!(rejected.status, OpsAgentActionStatus::Rejected);
+        assert_eq!(
+            rejected.approval_decision,
+            Some(OpsAgentApprovalDecision::Rejected)
+        );
+        assert_eq!(rejected.approval_comment.as_deref(), Some("operator rejected"));
     }
 
     #[test]

@@ -181,7 +181,7 @@ export function useWorkbenchEffects({
           tasks.push(reloadAiConversations());
         }
         if (transition.reloadPendingActions) {
-          tasks.push(reloadAiPendingActions(activeSessionId || null));
+          tasks.push(reloadAiPendingActions());
         }
         void Promise.all(tasks).catch(() => {});
       }
@@ -263,7 +263,7 @@ export function useWorkbenchEffects({
   }, [activeAiConversationId, loadAiConversation, onError, setActiveAiConversation]);
 
   useEffect(() => {
-    void reloadAiPendingActions(activeSessionId || null).catch(() => {});
+    void reloadAiPendingActions().catch(() => {});
   }, [activeSessionId, reloadAiPendingActions]);
 
   useEffect(() => {

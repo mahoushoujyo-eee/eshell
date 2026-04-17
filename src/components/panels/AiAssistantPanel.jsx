@@ -45,6 +45,12 @@ export default function AiAssistantPanel({
   const historyPanelWidth = hasManagedShell ? 184 : 208;
   const conversationErrorText = String(conversationError || "").trim();
   const messages = activeConversation?.messages || [];
+  const conversationActions = pendingActions.filter(
+    (action) => !activeConversationId || action?.conversationId === activeConversationId,
+  );
+  const pendingConversationActions = conversationActions.filter(
+    (action) => action?.status === "pending",
+  );
   const [historyVisible, setHistoryVisible] = useState(() => {
     if (typeof window === "undefined") {
       return true;
@@ -163,7 +169,7 @@ export default function AiAssistantPanel({
           />
 
           <AiPendingActionsPanel
-            pendingActions={pendingActions}
+            pendingActions={pendingConversationActions}
             resolvingActionId={resolvingActionId}
             onResolvePendingAction={onResolvePendingAction}
           />
@@ -176,7 +182,7 @@ export default function AiAssistantPanel({
           <AiMessageList
             messages={messages}
             activeConversationId={activeConversationId}
-            pendingActions={pendingActions}
+            pendingActions={conversationActions}
             isStreaming={isStreaming}
             streamingText={streamingText}
             streamingToolCalls={streamingToolCalls}

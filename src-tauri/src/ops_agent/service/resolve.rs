@@ -49,25 +49,9 @@ pub async fn resolve_pending_action(
     }
 
     if !input.approve {
-        let updated = state.ops_agent.mark_action_rejected(&input.action_id)?;
-        let notice = if let Some(comment) = resolution_comment.as_deref() {
-            format!(
-                "{} rejected.\nRisk: {:?}\nCommand: {}\nReason: {}\nComment: {}",
-                updated.tool_kind, updated.risk_level, updated.command, updated.reason, comment
-            )
-        } else {
-            format!(
-                "{} rejected.\nRisk: {:?}\nCommand: {}\nReason: {}",
-                updated.tool_kind, updated.risk_level, updated.command, updated.reason
-            )
-        };
-        let _ = state.ops_agent.append_message(
-            &updated.conversation_id,
-            OpsAgentRole::Assistant,
-            &notice,
-            Some(updated.tool_kind.clone()),
-            None,
-        );
+        let updated = state
+            .ops_agent
+            .mark_action_rejected(&input.action_id, resolution_comment.clone())?;
         let resume_user_message = match resolution_comment.as_deref() {
             Some(comment) => Some(state.ops_agent.append_message(
                 &updated.conversation_id,
@@ -120,6 +104,7 @@ pub async fn resolve_pending_action(
         .resolve_action(OpsAgentToolResolveRequest {
             state: Arc::clone(&state),
             action: action_for_resolution,
+            approval_comment: resolution_comment.clone(),
         })
         .await?;
 

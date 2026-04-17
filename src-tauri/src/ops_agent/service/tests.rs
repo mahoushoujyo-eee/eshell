@@ -130,6 +130,7 @@ impl OpsAgentTool for MockDangerTool {
                 &request.action.id,
                 "mock danger executed".to_string(),
                 0,
+                request.approval_comment.clone(),
             )?;
             Ok(OpsAgentToolResolution {
                 message: "mock danger resolved".to_string(),
@@ -189,6 +190,7 @@ impl OpsAgentTool for MockDangerSessionAwareTool {
                 &request.action.id,
                 format!("mock danger executed in session {session_label}"),
                 0,
+                request.approval_comment.clone(),
             )?;
             Ok(OpsAgentToolResolution {
                 message: format!("mock danger resolved with session {session_label}"),
@@ -277,9 +279,9 @@ where
                 history.push(tool_message);
             }
             OpsAgentToolOutcome::AwaitingApproval(action) => {
-                let prompt = format!(
-                    "Command `{}` needs approval before execution.\nReason: {}",
-                    action.command, action.reason
+                let prompt = normalized_reply(
+                    plan.reply,
+                    "I created a command approval request in the chat. Review it before continuing.",
                 );
                 state.ops_agent.append_message(
                     conversation_id,
@@ -415,7 +417,7 @@ fn react_loop_can_queue_mock_approval_action() {
     assert_eq!(action.tool_kind, OpsAgentToolKind::new("mock_danger"));
     assert_eq!(action.status, OpsAgentActionStatus::Pending);
     assert!(action.source_user_message_id.is_some());
-    assert!(assistant_message.contains("needs approval"));
+    assert!(assistant_message.contains("approval request"));
 
     let resolved = tauri::async_runtime::block_on(resolve_pending_action(
         Arc::clone(&state),
@@ -434,10 +436,14 @@ fn react_loop_can_queue_mock_approval_action() {
         resolved.action.execution_output.as_deref(),
         Some("mock danger executed")
     );
+    assert_eq!(
+        resolved.action.approval_decision,
+        Some(crate::ops_agent::types::OpsAgentApprovalDecision::Approved)
+    );
 }
 
 #[test]
-fn rejecting_pending_action_appends_assistant_notice() {
+fn rejecting_pending_action_persists_rejection_decision() {
     let mut registry = OpsAgentToolRegistry::new();
     registry.register(MockDangerTool);
 
@@ -478,20 +484,10 @@ fn rejecting_pending_action_appends_assistant_notice() {
 
     assert_eq!(resolved.action.status, OpsAgentActionStatus::Rejected);
 
-    let updated = state
-        .ops_agent
-        .get_conversation(&conversation.id)
-        .expect("reload conversation");
-    let last_assistant_message = updated
-        .messages
-        .iter()
-        .rev()
-        .find(|item| item.role == OpsAgentRole::Assistant)
-        .expect("assistant rejection notice");
-    assert!(last_assistant_message.content.contains("rejected"));
-    assert!(last_assistant_message
-        .content
-        .contains("dangerous-operation"));
+    assert_eq!(
+        resolved.action.approval_decision,
+        Some(crate::ops_agent::types::OpsAgentApprovalDecision::Rejected)
+    );
 }
 
 #[test]
@@ -535,6 +531,10 @@ fn resolving_pending_action_with_comment_appends_user_message_for_follow_up() {
     .expect("resolve pending action");
 
     assert_eq!(resolved.action.status, OpsAgentActionStatus::Executed);
+    assert_eq!(
+        resolved.action.approval_comment.as_deref(),
+        Some("鎵ц鍚庣户缁鏌ユ湇鍔＄姸鎬?")
+    );
 
     let updated = state
         .ops_agent
@@ -613,4 +613,8 @@ fn resolve_pending_action_uses_requested_session_override_for_tool_resolution() 
         .find(|item| item.role == OpsAgentRole::Tool)
         .expect("tool message appended after resolve");
     assert!(last_tool_message.content.contains("session-2"));
+    assert_eq!(
+        resolved.action.approval_decision,
+        Some(crate::ops_agent::types::OpsAgentApprovalDecision::Approved)
+    );
 }

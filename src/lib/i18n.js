@@ -318,6 +318,32 @@ const zhMessages = {
 zhMessages["Approval"] = "审批";
 zhMessages["Full Access"] = "完全访问";
 
+zhMessages["Approval"] = "瀹℃壒";
+zhMessages["Full Access"] = "瀹屽叏璁块棶";
+zhMessages["Approved"] = "已批准";
+zhMessages["Rejected"] = "已拒绝";
+zhMessages["Decision"] = "审批结果";
+zhMessages["Reason"] = "原因";
+zhMessages["Reviewer note"] = "审批备注";
+zhMessages["Execute command request"] = "执行命令请求";
+zhMessages["Execution result"] = "执行结果";
+zhMessages["Execution error"] = "执行错误";
+zhMessages["failed"] = "执行失败";
+zhMessages["rejected"] = "已拒绝";
+
+zhMessages["Approval"] = "\u5ba1\u6279";
+zhMessages["Full Access"] = "\u5b8c\u5168\u8bbf\u95ee";
+zhMessages["Approved"] = "\u5df2\u6279\u51c6";
+zhMessages["Rejected"] = "\u5df2\u62d2\u7edd";
+zhMessages["Decision"] = "\u5ba1\u6279\u7ed3\u679c";
+zhMessages["Reason"] = "\u539f\u56e0";
+zhMessages["Reviewer note"] = "\u5ba1\u6279\u5907\u6ce8";
+zhMessages["Execute command request"] = "\u6267\u884c\u547d\u4ee4\u8bf7\u6c42";
+zhMessages["Execution result"] = "\u6267\u884c\u7ed3\u679c";
+zhMessages["Execution error"] = "\u6267\u884c\u9519\u8bef";
+zhMessages["failed"] = "\u6267\u884c\u5931\u8d25";
+zhMessages["rejected"] = "\u5df2\u62d2\u7edd";
+
 const defaultContextValue = {
   language: "en",
   localeTag: "en-US",
