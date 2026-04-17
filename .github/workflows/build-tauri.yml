@@ -21,9 +21,12 @@ jobs:
           - platform: ubuntu-latest
             artifact_name: eshell-linux-x64
             tauri_args: ""
+          - platform: macos-13
+            artifact_name: eshell-macos-x64
+            tauri_args: ""
           - platform: macos-latest
-            artifact_name: eshell-macos-universal
-            tauri_args: "--target universal-apple-darwin"
+            artifact_name: eshell-macos-arm64
+            tauri_args: ""
 
     runs-on: ${{ matrix.platform }}
 
@@ -39,10 +42,6 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Install macOS Rust targets
-        if: matrix.platform == 'macos-latest'
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-latest'
@@ -77,7 +76,6 @@ jobs:
           if-no-files-found: error
           path: |
             src-tauri/target/release/bundle/**
-            src-tauri/target/universal-apple-darwin/release/bundle/**
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
