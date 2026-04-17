@@ -7,6 +7,7 @@ import {
   upsertOpsAgentPendingAction,
 } from "../../lib/ops-agent-stream";
 import { normalizeSftpTransferEvent, upsertSftpTransfer } from "../../lib/sftp-transfer";
+import { recordPtyChunk } from "../../lib/terminal-perf-debug";
 import { api } from "../../lib/tauri-api";
 
 export function useWorkbenchEffects({
@@ -79,6 +80,36 @@ export function useWorkbenchEffects({
 
   useEffect(() => {
     let disposed = false;
+    const pendingChunksBySession = new Map();
+    let flushHandle = 0;
+
+    const flushPendingChunks = () => {
+      flushHandle = 0;
+      if (pendingChunksBySession.size === 0) {
+        return;
+      }
+
+      pendingChunksBySession.forEach((chunk, sessionId) => {
+        if (chunk) {
+          appendPtyOutput(sessionId, chunk);
+        }
+      });
+      pendingChunksBySession.clear();
+    };
+
+    const scheduleFlush = () => {
+      if (flushHandle) {
+        return;
+      }
+
+      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+        flushHandle = window.requestAnimationFrame(flushPendingChunks);
+        return;
+      }
+
+      flushHandle = window.setTimeout(flushPendingChunks, 16);
+    };
+
     const unlistenPromise = listen("pty-output", (event) => {
       const payload = event.payload;
       if (!payload || typeof payload !== "object") {
@@ -89,7 +120,9 @@ export function useWorkbenchEffects({
       if (typeof sessionId !== "string" || typeof chunk !== "string" || !chunk) {
         return;
       }
-      appendPtyOutput(sessionId, chunk);
+      recordPtyChunk(sessionId, chunk.length);
+      pendingChunksBySession.set(sessionId, `${pendingChunksBySession.get(sessionId) || ""}${chunk}`);
+      scheduleFlush();
     }).catch((error) => {
       if (!disposed) {
         console.warn("Failed to bind PTY output listener", error);
@@ -99,6 +132,14 @@ export function useWorkbenchEffects({
 
     return () => {
       disposed = true;
+      if (flushHandle) {
+        if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
+          window.cancelAnimationFrame(flushHandle);
+        } else {
+          window.clearTimeout(flushHandle);
+        }
+      }
+      flushPendingChunks();
       void unlistenPromise.then((unlisten) => {
         if (typeof unlisten === "function") {
           unlisten();

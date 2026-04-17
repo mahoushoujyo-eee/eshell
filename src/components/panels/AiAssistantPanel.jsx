@@ -187,6 +187,9 @@ export default function AiAssistantPanel({
 
           <AiComposer
             isDrawer={isDrawer}
+            aiProfiles={aiProfiles}
+            activeAiProfileId={activeAiProfileId}
+            onSelectAiProfile={onSelectAiProfile}
             approvalMode={approvalMode}
             shellContext={shellContext}
             onClearShellContext={onClearShellContext}

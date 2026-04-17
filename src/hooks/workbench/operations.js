@@ -5,6 +5,7 @@ import { EMPTY_OPS_AGENT_STREAM } from "../../lib/ops-agent-stream";
 import { createShellContextAttachment } from "../../lib/ops-agent-shell-context";
 import { createPtyInputSender } from "../../lib/pty-input-sender";
 import { createSftpTransferSeed, upsertSftpTransfer } from "../../lib/sftp-transfer";
+import { recordOutputBufferUpdate } from "../../lib/terminal-perf-debug";
 import { api } from "../../lib/tauri-api";
 import { arrayBufferToBase64 } from "../../utils/encoding";
 import { joinPath, normalizeRemotePath } from "../../utils/path";
@@ -120,10 +121,31 @@ export function useWorkbenchOperations({
     if (!sessionId || !chunk) {
       return;
     }
-    setPtyOutputBySession((prev) => ({
-      ...prev,
-      [sessionId]: trimTerminalOutput(`${prev[sessionId] || ""}${chunk}`),
-    }));
+    setPtyOutputBySession((prev) => {
+      const startedAt =
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+      const previousOutput = prev[sessionId] || "";
+      const nextOutput = trimTerminalOutput(`${previousOutput}${chunk}`);
+      const finishedAt =
+        typeof performance !== "undefined" && typeof performance.now === "function"
+          ? performance.now()
+          : Date.now();
+
+      recordOutputBufferUpdate(
+        sessionId,
+        previousOutput.length,
+        chunk.length,
+        nextOutput.length,
+        finishedAt - startedAt,
+      );
+
+      return {
+        ...prev,
+        [sessionId]: nextOutput,
+      };
+    });
   }, []);
 
   const resolveSessionAlias = useCallback((sessionId) => {

@@ -4,7 +4,7 @@ import {
   getOpsAgentAssistantReplyText,
   getOpsAgentLatestAssistantReplyText,
 } from "../../../lib/ops-agent-message-rendering";
-import { formatTurnTime, messageActionButtonClass } from "./aiAssistantUtils";
+import { messageActionButtonClass } from "./aiAssistantUtils";
 import {
   AssistantMessageSection,
   StreamingMessageSection,
@@ -28,22 +28,15 @@ export default function AiAgentTurn({
     ? getOpsAgentAssistantReplyText(group.streamingText) ||
       getOpsAgentLatestAssistantReplyText(group.messages)
     : getOpsAgentLatestAssistantReplyText(group.messages);
-  const turnTime = formatTurnTime(group.messages);
 
   return (
-    <div className="flex justify-start">
+    <div className="flex justify-center">
       <article
         className={[
-          "min-w-0 max-w-[92%] overflow-x-hidden border border-border/80 bg-panel/95 px-4 py-3 text-xs",
-          isDrawer
-            ? "rounded-3xl shadow-[0_12px_30px_rgba(12,18,24,0.08)]"
-            : "rounded-2xl shadow-none",
+          "min-w-0 w-full max-w-[46rem] overflow-x-hidden px-2 py-2 text-[13px] text-text",
+          isDrawer ? "sm:px-3" : "",
         ].join(" ")}
       >
-        <div className="mb-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.16em] text-muted">
-          <span>{t("Agent")}</span>
-          {turnTime ? <span>{turnTime}</span> : null}
-        </div>
         {group.messages.map((message, index) => {
           if (message.role === "tool") {
             return (
@@ -108,6 +101,7 @@ export default function AiAgentTurn({
               type="button"
               className={[
                 messageActionButtonClass,
+                "border-transparent bg-transparent px-2 text-[10px] shadow-none hover:border-border/55 hover:bg-surface/50",
                 copiedMessageKey === group.id
                   ? "border-success/45 bg-success/10 text-success hover:border-success/45 hover:bg-success/10 hover:text-success"
                   : "",

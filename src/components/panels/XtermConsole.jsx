@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { getTerminalWallpaperStyle, normalizeWallpaperSelection } from "../../constants/workbench";
 import { useI18n } from "../../lib/i18n";
 import { normalizeShellContextContent } from "../../lib/ops-agent-shell-context";
+import { recordTerminalResize, recordXtermWrite } from "../../lib/terminal-perf-debug";
 import XtermSelectionAction from "./xterm/XtermSelectionAction";
 
 const inputFlushDelayMs = 18;
@@ -84,6 +85,21 @@ export default function XtermConsole({
     const fitAddon = new FitAddon();
 
     term.loadAddon(fitAddon);
+    term.attachCustomKeyEventHandler((event) => {
+      const isSaveShortcut =
+        event.type === "keydown" &&
+        (event.key === "s" || event.key === "S") &&
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey;
+
+      if (!isSaveShortcut) {
+        return true;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
+    });
     term.open(hostRef.current);
     term.focus();
 
@@ -118,6 +134,7 @@ export default function XtermConsole({
         fitAddon.fit();
         const sessionId = activeSessionIdRef.current;
         if (sessionId && term.cols > 0 && term.rows > 0) {
+          recordTerminalResize(sessionId, term.cols, term.rows, "fit");
           onResizeRef.current?.(sessionId, term.cols, term.rows);
         }
       } catch (_err) {
@@ -129,6 +146,7 @@ export default function XtermConsole({
     const resizeDisposable = term.onResize(({ cols, rows }) => {
       const sessionId = activeSessionIdRef.current;
       if (sessionId && cols > 0 && rows > 0) {
+        recordTerminalResize(sessionId, cols, rows, "xterm");
         onResizeRef.current?.(sessionId, cols, rows);
       }
     });
@@ -180,6 +198,7 @@ export default function XtermConsole({
       }
       setSelectionText("");
       if (activeSessionId && term.cols > 0 && term.rows > 0) {
+        recordTerminalResize(activeSessionId, term.cols, term.rows, "session-change");
         onResizeRef.current?.(activeSessionId, term.cols, term.rows);
       }
     }
@@ -199,8 +218,8 @@ export default function XtermConsole({
     }
 
     term.write(delta);
+    recordXtermWrite(activeSessionId, delta.length, output.length);
     renderedLengthRef.current = output.length;
-    term.scrollToBottom();
   }, [activeSessionId, output]);
 
   const handleAttachSelection = () => {

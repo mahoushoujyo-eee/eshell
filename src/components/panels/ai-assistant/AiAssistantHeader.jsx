@@ -27,7 +27,7 @@ export default function AiAssistantHeader({
         isDrawer ? "px-4 py-3" : "bg-panel px-3 py-3",
       ].join(" ")}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="flex flex-1 items-center">
         <span
           className={[
             "inline-flex h-10 w-10 items-center justify-center rounded-2xl text-accent",
@@ -38,12 +38,6 @@ export default function AiAssistantHeader({
         >
           <Bot className="h-5 w-5" aria-hidden="true" />
         </span>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">{t("Ops Agent")}</div>
-          <div className="truncate text-[11px] uppercase tracking-[0.18em] text-muted">
-            {t("Live diagnostics and guided actions")}
-          </div>
-        </div>
       </div>
 
       <div className="flex items-center gap-1.5">
