@@ -4,61 +4,46 @@
   <img src="docs/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-eShell is a desktop operations workbench built with **Tauri 2 + React + Rust**.
-It combines SSH, PTY terminal, SFTP file operations, server status monitoring,
-script execution, and Ops Agent workflows in one application.
+**v1.3.2** — Desktop operations workbench built with **Tauri 2 + React + Rust**.
+
+eShell combines SSH, PTY terminal, SFTP file operations, server status monitoring,
+script execution, and Ops Agent workflows in one integrated application.
 
 ## Key Features
 
-- Multi-session SSH management
-- PTY terminal (`xterm.js`) with input and resize sync
-- English / Simplified Chinese UI toggle with persisted locale
-- SFTP browser with:
-  - directory tree and file preview/edit
-  - upload/download
-  - local download directory setting
-  - transfer queue overlay with progress
-  - manual transfer cancel (upload/download)
-- Server status panel (CPU, memory, NIC, disk / process switcher)
-- Script center (save + execute in active session)
-- Ops Agent:
-  - conversation management
+- **Multi-session SSH management** — configure and switch between multiple SSH profiles
+- **PTY terminal** (`xterm.js`) with input and resize sync; customizable wallpaper (built-in presets or custom upload with crop)
+- **Light / Dark theme toggle** from the sidebar
+- **English / Simplified Chinese UI** with persisted locale preference (`eshell:locale`)
+- **SFTP browser**:
+  - directory tree and file preview / edit
+  - upload and download with real-time progress
+  - configurable local download directory
+  - collapsible transfer queue overlay (direction, stage, progress, cancel)
+  - manual upload / download cancel
+- **Server status panel** — CPU, memory, network traffic, plus a switchable Processes / Disks detail view
+- **Script center** — save and execute scripts in the active session
+- **Platform-adaptive title bar** — macOS traffic-light controls on macOS; standard minimize / maximize / close on Windows and Linux
+- **Ops Agent**:
+  - conversation management (create, switch, delete)
+  - conversation-level approval mode (`Approval` / `Full Access`)
+  - streaming assistant replies via `ops-agent-stream`
+  - pending action approval flow for risky shell commands
+  - automatic ReAct loop resume after approval resolution
   - manual and automatic conversation compaction
-  - streaming answer updates
-  - pending action approval flow
-  - automatic resume after action resolution
   - shell context attachment from terminal selection
-  - detailed debug logging for request, stream, and compaction troubleshooting
-
-## Recent SFTP Upgrade (2026-04)
-
-- Added backend transfer event stream: `sftp-transfer`
-- Added upload API with progress: `sftp_upload_file_with_progress`
-- Added download-to-local API: `sftp_download_file_to_local`
-- Added default local download dir API: `sftp_default_download_dir`
-- Added transfer cancel API: `sftp_cancel_transfer`
-- Added transfer status `cancelled`
-- UI now uses a collapsible transfer overlay (next to `Refresh`) to avoid consuming panel space
-
-## Recent UX and Localization Update (2026-04)
-
-- Added app-level English / Simplified Chinese switching from the top toolbar
-- Locale preference now persists via `localStorage` key `eshell:locale`
-- Refined the server status panel so `Processes` and `Disks` no longer compete in one dense stack
-- Process memory now displays as RSS in `MB`, while summary memory remains `used / total` in `GB`
-- Adjusted the SFTP split layout to prioritize the right-side remote file list over the tree
-- Expanded Ops Agent debug logging coverage in `.eshell-data/ops_agent_debug.log`
+  - debug logging in `.eshell-data/ops_agent_debug.log`
 
 ## Tech Stack
 
-Frontend:
+**Frontend:**
 - React 19
 - Vite 7
 - Tailwind CSS 4
 - xterm.js
 - Vitest
 
-Backend:
+**Backend:**
 - Tauri 2
 - Rust
 - ssh2
@@ -70,47 +55,58 @@ Backend:
 ```text
 src/
   components/
+    app/           # workspace shell, AI dock, modals
+    layout/        # title bar, top toolbar, notice stack
+    panels/        # terminal, SFTP, status, AI assistant, file editor
+    sidebar/       # SSH / script / AI / wallpaper config modals
+  constants/
+    workbench.js   # wallpaper presets, panel constants
   hooks/
     useWorkbench.js
-    workbench/
+    workbench/     # operations, effects, session, errors, aiProfiles
   lib/
-  utils/
+    i18n.js        # English / Simplified Chinese localization
+    tauri-api.js   # frontend invoke wrappers
+    sftp-transfer.js
+    ops-agent-stream.js
+    ops-agent-message-rendering.js
+    ops-agent-shell-context.js
 
 src-tauri/src/
   commands/
-  server_ops/
-  ops_agent/
-  storage/
+  server_ops/      # shell, PTY, SFTP, status collection
+  ops_agent/       # chat runtime, tool orchestration, approvals, compaction
+  storage/         # persistent data (ssh / scripts / ai profiles)
   models.rs
   state.rs
 ```
 
 ## Local Development
 
-Prerequisites:
+**Prerequisites:**
 - Node.js >= 18
 - Rust stable
 - Tauri 2 prerequisites for your OS
 
-Install:
+**Install:**
 
 ```bash
 npm install
 ```
 
-Frontend dev:
+**Frontend dev:**
 
 ```bash
 npm run dev
 ```
 
-Desktop app dev:
+**Desktop app dev:**
 
 ```bash
 npm run tauri dev
 ```
 
-Build:
+**Build:**
 
 ```bash
 npm run build
@@ -141,7 +137,7 @@ cargo test
 
 ## Runtime Data
 
-By default, runtime data is stored in `.eshell-data/` under the project root:
+Runtime data is stored in `.eshell-data/` under the project root:
 
 ```text
 .eshell-data/
