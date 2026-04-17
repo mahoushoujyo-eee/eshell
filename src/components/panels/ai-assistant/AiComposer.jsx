@@ -97,7 +97,7 @@ export default function AiComposer({
           "focus-within:bg-[radial-gradient(circle_at_center,rgba(28,122,103,0.05),transparent_68%)]",
         ].join(" ")}
       >
-        <div className="overflow-hidden rounded-[22px] border border-border/50 bg-[linear-gradient(180deg,rgba(252,250,245,0.56),rgba(247,244,237,0.82))] shadow-[inset_0_1px_0_rgba(255,255,255,0.42)]">
+        <div className="relative overflow-visible rounded-[22px] border border-border/50 bg-[linear-gradient(180deg,rgba(252,250,245,0.56),rgba(247,244,237,0.82))] shadow-[inset_0_1px_0_rgba(255,255,255,0.42)]">
           <textarea
             ref={textareaRef}
             className="w-full resize-none border-0 bg-transparent px-4 py-3 text-sm leading-6 text-text outline-none placeholder:text-muted/72"
