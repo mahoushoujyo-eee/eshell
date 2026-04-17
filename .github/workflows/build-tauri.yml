@@ -21,9 +21,6 @@ jobs:
           - platform: ubuntu-latest
             artifact_name: eshell-linux-x64
             tauri_args: ""
-          - platform: macos-13
-            artifact_name: eshell-macos-x64
-            tauri_args: ""
           - platform: macos-latest
             artifact_name: eshell-macos-arm64
             tauri_args: ""
