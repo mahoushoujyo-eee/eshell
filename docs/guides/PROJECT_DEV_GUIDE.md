@@ -19,10 +19,10 @@ When adding or changing commands:
 1. Update backend command + model
 2. Register command in `lib.rs`
 3. Update `tauri-api.js`
-4. Update docs (`openapi.yaml` + feature docs)
+4. Update docs (`docs/specs/openapi.yaml` + feature docs)
 
 For Ops Agent changes, also update:
-- `docs/ops_agent.md`
+- `docs/guides/features/ops_agent.md`
 
 When changing user-visible frontend copy:
 - update `src/lib/i18n.js`
@@ -94,8 +94,8 @@ record that limitation explicitly in PR notes and keep `cargo check` green.
 
 For any feature-level change:
 - update `README.md` user-facing behavior
-- update `docs/openapi.yaml` command contract
+- update `docs/specs/openapi.yaml` command contract
 - update feature docs under `docs/` as needed
-- update `docs/server_status.md` for status-panel semantics or units
-- if the change affects Ops Agent flows, update `docs/ops_agent.md`
+- update `docs/guides/features/server_status.md` for status-panel semantics or units
+- if the change affects Ops Agent flows, update `docs/guides/features/ops_agent.md`
 - update `docs/releases/unreleased.md` for notable user-facing changes on the current branch

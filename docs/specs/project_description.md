@@ -79,7 +79,7 @@ Current transfer model is chunk-based and event-driven:
 - frontend reduces events into a transfer queue for UI rendering
 - user can cancel a running transfer from the transfer overlay
 
-See [SFTP Transfer Guide](./sftp_transfer.md).
+See [SFTP Transfer Guide](../guides/features/sftp_transfer.md).
 
 ## Ops Agent Execution Model
 
@@ -91,7 +91,7 @@ Current Ops Agent behavior is event-driven and conversation-centric:
 - long conversations may be compacted to stay inside `maxContextTokens`
 - backend debug logs now capture request assembly, provider I/O summaries, stream deltas, and compaction decisions
 
-See [Ops Agent Guide](./ops_agent.md).
+See [Ops Agent Guide](../guides/features/ops_agent.md).
 
 ## Status Monitoring Notes
 
@@ -101,4 +101,4 @@ The status panel now prioritizes readability over raw density:
 - process memory is shown in `MB`
 - overall memory remains `used / total` in `GB`
 
-See [Server Status Guide](./server_status.md).
+See [Server Status Guide](../guides/features/server_status.md).

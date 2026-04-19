@@ -36,7 +36,7 @@
 
 1. 前端构建仍有大包提示（`>500kB`），建议后续做按路由/功能拆包。
 2. Rust 测试中有 `1 ignored`，通常代表外部依赖或集成场景未默认执行，建议按需补充 CI 的可控集成验证。
-3. 当前工作区里 `docs/cc/` 与 `docs/server_status.md` 原本是未跟踪内容；本次提交仅纳入新增文档，不会把 ClaudeCode 源码镜像整包提交。
+3. 当前工作区里 `docs/cc/` 与 `docs/guides/features/server_status.md` 原本是未跟踪内容；本次提交仅纳入新增文档，不会把 ClaudeCode 源码镜像整包提交。
 
 ## 5. 建议的人工验收脚本（从用户视角）
 

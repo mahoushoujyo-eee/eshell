@@ -1,7 +1,7 @@
 # eShell
 
 <p align="center">
-  <img src="docs/Shell.png" alt="eShell Logo" width="180" />
+  <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
 **v1.3.2** — Desktop operations workbench built with **Tauri 2 + React + Rust**.
@@ -151,12 +151,13 @@ Runtime data is stored in `.eshell-data/` under the project root:
 
 ## Documentation Index
 
-- [Project Description](docs/project_description.md)
-- [Project Dev Guide](docs/PROJECT_DEV_GUIDE.md)
-- [Ops Agent Guide](docs/ops_agent.md)
-- [OpenAPI-style RPC Spec](docs/openapi.yaml)
-- [Server Status Guide](docs/server_status.md)
-- [SFTP Transfer Guide](docs/sftp_transfer.md)
+- [Docs Overview](docs/README.md)
+- [Project Description](docs/specs/project_description.md)
+- [Project Dev Guide](docs/guides/PROJECT_DEV_GUIDE.md)
+- [Ops Agent Guide](docs/guides/features/ops_agent.md)
+- [OpenAPI-style RPC Spec](docs/specs/openapi.yaml)
+- [Server Status Guide](docs/guides/features/server_status.md)
+- [SFTP Transfer Guide](docs/guides/features/sftp_transfer.md)
 - [Unreleased Notes](docs/releases/unreleased.md)
 - [Release Notes 1.3.0](docs/releases/v1.3.0.md)
 - [Release Notes 1.2.0](docs/releases/v1.2.0.md)
