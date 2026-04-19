@@ -2,17 +2,16 @@ use std::sync::Arc;
 
 use tauri::AppHandle;
 
+use crate::ops_agent::domain::types::OpsAgentMessage;
+use crate::ops_agent::infrastructure::logging::{append_debug_log, resolve_ops_agent_log_path};
+use crate::ops_agent::infrastructure::run_registry::OpsAgentRunHandle;
+use crate::ops_agent::transport::events::OpsAgentEventEmitter;
 use crate::state::AppState;
-
-use super::super::events::OpsAgentEventEmitter;
-use super::super::logging::append_debug_log;
-use super::super::run_registry::OpsAgentRunHandle;
-use super::super::types::OpsAgentMessage;
 use super::helpers::is_run_cancelled_error;
 use super::react_loop::process_chat_stream;
 use super::ProcessChatOutcome;
 
-pub(super) fn spawn_chat_run_task(
+pub(crate) fn spawn_chat_run_task(
     state: Arc<AppState>,
     app: AppHandle,
     run_id: String,
@@ -58,8 +57,13 @@ pub(super) fn spawn_chat_run_task(
                     Some(conversation_id_for_task.as_str()),
                     "run cancelled by user",
                 );
-                OpsAgentEventEmitter::new(app_for_task, run_id_for_task, conversation_id_for_task)
-                    .completed(String::new(), None);
+                OpsAgentEventEmitter::new(
+                    app_for_task,
+                    resolve_ops_agent_log_path(&state_for_task.storage.data_dir()),
+                    run_id_for_task,
+                    conversation_id_for_task,
+                )
+                .completed(String::new(), None);
             }
             Err(error) => {
                 append_debug_log(
@@ -72,14 +76,20 @@ pub(super) fn spawn_chat_run_task(
                 if is_run_cancelled_error(&error) {
                     OpsAgentEventEmitter::new(
                         app_for_task,
+                        resolve_ops_agent_log_path(&state_for_task.storage.data_dir()),
                         run_id_for_task,
                         conversation_id_for_task,
                     )
                     .completed(String::new(), None);
                     return;
                 }
-                OpsAgentEventEmitter::new(app_for_task, run_id_for_task, conversation_id_for_task)
-                    .error(error.to_string());
+                OpsAgentEventEmitter::new(
+                    app_for_task,
+                    resolve_ops_agent_log_path(&state_for_task.storage.data_dir()),
+                    run_id_for_task,
+                    conversation_id_for_task,
+                )
+                .error(error.to_string());
             }
         }
     });

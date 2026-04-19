@@ -32,6 +32,8 @@ script execution, and Ops Agent workflows in one integrated application.
   - automatic ReAct loop resume after approval resolution
   - manual and automatic conversation compaction
   - shell context attachment from terminal selection
+  - image upload with multimodal model input
+  - click-to-view image tags on sent user messages
   - debug logging in `.eshell-data/ops_agent_debug.log`
 
 ## Tech Stack
@@ -146,6 +148,7 @@ Runtime data is stored in `.eshell-data/` under the project root:
   ai_profiles.json
   ops_agent_conversation_list.json
   ops_agent_conversations/
+  ops_agent_attachments/
   ops_agent_debug.log
 ```
 
@@ -155,6 +158,7 @@ Runtime data is stored in `.eshell-data/` under the project root:
 - [Project Description](docs/specs/project_description.md)
 - [Project Dev Guide](docs/guides/PROJECT_DEV_GUIDE.md)
 - [Ops Agent Guide](docs/guides/features/ops_agent.md)
+- [Ops Agent Layered Architecture](docs/guides/architecture/ops_agent_layered_architecture.md)
 - [OpenAPI-style RPC Spec](docs/specs/openapi.yaml)
 - [Server Status Guide](docs/guides/features/server_status.md)
 - [SFTP Transfer Guide](docs/guides/features/sftp_transfer.md)

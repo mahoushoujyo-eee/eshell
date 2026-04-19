@@ -23,6 +23,7 @@ When adding or changing commands:
 
 For Ops Agent changes, also update:
 - `docs/guides/features/ops_agent.md`
+- `docs/guides/architecture/ops_agent_layered_architecture.md` when package boundaries, persistence layout, or request flow changes
 
 When changing user-visible frontend copy:
 - update `src/lib/i18n.js`
@@ -73,6 +74,7 @@ Current command set:
 ## 6. Logging and Observability
 
 - Ops Agent debug logs should remain rich enough to reconstruct request assembly, provider exchange, stream flow, and compaction decisions.
+- If attachment behavior changes, logs should still let us trace save / load / delete paths by conversation and run context.
 - New logs must include shared run / conversation context when available.
 - Log previews should be truncated rather than omitted entirely so failures remain diagnosable without dumping full payloads.
 
@@ -98,4 +100,5 @@ For any feature-level change:
 - update feature docs under `docs/` as needed
 - update `docs/guides/features/server_status.md` for status-panel semantics or units
 - if the change affects Ops Agent flows, update `docs/guides/features/ops_agent.md`
+- if the change affects Ops Agent layering, persistence files, or multimodal flow, update `docs/guides/architecture/ops_agent_layered_architecture.md`
 - update `docs/releases/unreleased.md` for notable user-facing changes on the current branch

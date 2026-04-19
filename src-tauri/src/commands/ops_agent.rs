@@ -3,14 +3,15 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::error::to_command_error;
-use crate::ops_agent::service as ops_agent_service;
-use crate::ops_agent::types::{
-    OpsAgentCancelRunInput, OpsAgentCancelRunResult, OpsAgentChatAccepted, OpsAgentChatInput,
-    OpsAgentCompactConversationInput, OpsAgentCompactConversationResult, OpsAgentConversation,
-    OpsAgentConversationSummary, OpsAgentCreateConversationInput,
-    OpsAgentDeleteConversationInput, OpsAgentGetConversationInput, OpsAgentListPendingActionsInput,
-    OpsAgentPendingAction, OpsAgentResolveActionInput, OpsAgentResolveActionResult,
-    OpsAgentSetActiveConversationInput,
+use crate::ops_agent::application as ops_agent_service;
+use crate::ops_agent::domain::types::{
+    OpsAgentAttachmentContent, OpsAgentCancelRunInput, OpsAgentCancelRunResult,
+    OpsAgentChatAccepted, OpsAgentChatInput, OpsAgentCompactConversationInput,
+    OpsAgentCompactConversationResult, OpsAgentConversation, OpsAgentConversationSummary,
+    OpsAgentCreateConversationInput, OpsAgentDeleteConversationInput,
+    OpsAgentGetAttachmentContentInput, OpsAgentGetConversationInput,
+    OpsAgentListPendingActionsInput, OpsAgentPendingAction, OpsAgentResolveActionInput,
+    OpsAgentResolveActionResult, OpsAgentSetActiveConversationInput,
 };
 use crate::state::AppState;
 
@@ -43,6 +44,16 @@ pub fn ops_agent_get_conversation(
     input: OpsAgentGetConversationInput,
 ) -> Result<OpsAgentConversation, String> {
     ops_agent_service::get_conversation(&state, &input.conversation_id).map_err(to_command_error)
+}
+
+/// Reads one stored OpsAgent image attachment as base64 for preview.
+#[tauri::command]
+pub fn ops_agent_get_attachment_content(
+    state: State<'_, Arc<AppState>>,
+    input: OpsAgentGetAttachmentContentInput,
+) -> Result<OpsAgentAttachmentContent, String> {
+    ops_agent_service::get_attachment_content(&state, &input.attachment_id)
+        .map_err(to_command_error)
 }
 
 /// Deletes one OpsAgent conversation.

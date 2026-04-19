@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::error::{AppError, AppResult};
 
-use super::types::{OpsAgentToolKind, PlannedAgentReply, PlannedToolAction};
+use crate::ops_agent::domain::types::{OpsAgentToolKind, PlannedAgentReply, PlannedToolAction};
 
 /// Provider protocol layer for ops_agent.
 /// - `openai_compat`: OpenAI-compatible request/response transport and parsing.
@@ -14,7 +14,8 @@ pub mod text_fallback;
 pub mod types;
 
 pub use types::{
-    ProviderChatMessage, ProviderChatMessageResponse, ProviderChatRequestOptions,
+    ProviderChatMessage, ProviderChatMessageContent, ProviderChatMessageResponse,
+    ProviderChatRequestOptions, ProviderImageUrlPart, ProviderMessageContentPart,
     ProviderToolChoice, ProviderToolDefinition,
 };
 

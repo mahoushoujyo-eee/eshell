@@ -8,8 +8,11 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::now_rfc3339;
+use crate::ops_agent::infrastructure::logging::{
+    append_debug_log_at_path, resolve_ops_agent_log_path, truncate_for_log,
+};
 
-use super::types::{
+use crate::ops_agent::domain::types::{
     OpsAgentActionStatus, OpsAgentApprovalDecision, OpsAgentConversation,
     OpsAgentConversationSummary, OpsAgentData, OpsAgentMessage, OpsAgentPendingAction,
     OpsAgentRiskLevel, OpsAgentRole, OpsAgentShellContext, OpsAgentToolKind,
@@ -44,6 +47,7 @@ impl OpsAgentConversationListData {
 }
 
 pub struct OpsAgentStore {
+    log_path: PathBuf,
     list_path: PathBuf,
     conversations_dir: PathBuf,
     data: RwLock<OpsAgentData>,
@@ -51,6 +55,7 @@ pub struct OpsAgentStore {
 
 impl OpsAgentStore {
     pub fn new(root: PathBuf) -> AppResult<Self> {
+        let log_path = resolve_ops_agent_log_path(&root);
         fs::create_dir_all(&root)?;
         let legacy_path = root.join(LEGACY_DATA_FILE);
 
@@ -62,6 +67,7 @@ impl OpsAgentStore {
         normalize_data(&mut data);
 
         let store = Self {
+            log_path,
             list_path,
             conversations_dir,
             data: RwLock::new(data),
@@ -72,6 +78,33 @@ impl OpsAgentStore {
             store.persist_all_locked(&guard)?;
         }
         remove_file_if_exists(&legacy_path)?;
+        store.log(
+            "infrastructure.store.initialized",
+            None,
+            None,
+            format!(
+                "conversations={} pending_actions={} active_conversation_id={}",
+                store
+                    .data
+                    .read()
+                    .expect("ops agent lock poisoned")
+                    .conversations
+                    .len(),
+                store
+                    .data
+                    .read()
+                    .expect("ops agent lock poisoned")
+                    .pending_actions
+                    .len(),
+                store
+                    .data
+                    .read()
+                    .expect("ops agent lock poisoned")
+                    .active_conversation_id
+                    .as_deref()
+                    .unwrap_or("-")
+            ),
+        );
 
         Ok(store)
     }
@@ -129,6 +162,17 @@ impl OpsAgentStore {
                 self.persist_conversation_locked(&snapshot)?;
             }
             self.persist_list_locked(&guard)?;
+            self.log(
+                "infrastructure.store.ensure_conversation_existing",
+                None,
+                Some(id),
+                format!(
+                    "session_id={} rebound={} message_count={}",
+                    snapshot.session_id.as_deref().unwrap_or("-"),
+                    should_persist_conversation,
+                    snapshot.messages.len()
+                ),
+            );
             return Ok(snapshot);
         }
 
@@ -156,6 +200,16 @@ impl OpsAgentStore {
 
         self.persist_conversation_locked(&conversation)?;
         self.persist_list_locked(&guard)?;
+        self.log(
+            "infrastructure.store.conversation_created",
+            None,
+            Some(conversation.id.as_str()),
+            format!(
+                "title={} session_id={}",
+                truncate_for_log(conversation.title.as_str(), 80),
+                conversation.session_id.as_deref().unwrap_or("-")
+            ),
+        );
         Ok(conversation)
     }
 
@@ -165,7 +219,14 @@ impl OpsAgentStore {
             return Err(AppError::NotFound(format!("ops agent conversation {id}")));
         }
         guard.active_conversation_id = Some(id.to_string());
-        self.persist_list_locked(&guard)
+        self.persist_list_locked(&guard)?;
+        self.log(
+            "infrastructure.store.active_conversation_set",
+            None,
+            Some(id),
+            "active conversation updated",
+        );
+        Ok(())
     }
 
     pub fn delete_conversation(&self, id: &str) -> AppResult<()> {
@@ -189,7 +250,18 @@ impl OpsAgentStore {
         }
 
         remove_file_if_exists(&self.conversation_path(id))?;
-        self.persist_list_locked(&guard)
+        self.persist_list_locked(&guard)?;
+        self.log(
+            "infrastructure.store.conversation_deleted",
+            None,
+            Some(id),
+            format!(
+                "remaining_conversations={} remaining_pending_actions={}",
+                guard.conversations.len(),
+                guard.pending_actions.len()
+            ),
+        );
+        Ok(())
     }
 
     pub fn append_message(
@@ -199,11 +271,13 @@ impl OpsAgentStore {
         content: &str,
         tool_kind: Option<OpsAgentToolKind>,
         shell_context: Option<OpsAgentShellContext>,
+        attachment_ids: Vec<String>,
     ) -> AppResult<OpsAgentMessage> {
         let trimmed = content.trim();
-        if trimmed.is_empty() {
+        let attachment_ids = normalize_attachment_ids(attachment_ids);
+        if trimmed.is_empty() && attachment_ids.is_empty() {
             return Err(AppError::Validation(
-                "message content cannot be empty".to_string(),
+                "message content cannot be empty unless image attachments are present".to_string(),
             ));
         }
 
@@ -237,11 +311,14 @@ impl OpsAgentStore {
                 created_at: now_rfc3339(),
                 tool_kind,
                 shell_context,
+                attachment_ids,
             };
 
             conversation.messages.push(message.clone());
             if should_auto_title {
-                conversation.title = derive_title_from_first_user_prompt(trimmed);
+                conversation.title = derive_title_from_first_user_prompt(
+                    derive_title_seed(message.content.as_str(), message.attachment_ids.len()).as_str(),
+                );
             }
             conversation.updated_at = now_rfc3339();
             (message, conversation.clone())
@@ -250,6 +327,24 @@ impl OpsAgentStore {
         guard.active_conversation_id = Some(conversation_id.to_string());
         self.persist_conversation_locked(&snapshot)?;
         self.persist_list_locked(&guard)?;
+        self.log(
+            "infrastructure.store.message_appended",
+            None,
+            Some(conversation_id),
+            format!(
+                "message_id={} role={:?} chars={} tool_kind={} shell_context={} attachment_count={}",
+                message.id,
+                message.role,
+                message.content.chars().count(),
+                message
+                    .tool_kind
+                    .as_ref()
+                    .map(|item| item.as_str())
+                    .unwrap_or("-"),
+                message.shell_context.is_some(),
+                message.attachment_ids.len()
+            ),
+        );
         Ok(message)
     }
 
@@ -272,6 +367,12 @@ impl OpsAgentStore {
         guard.active_conversation_id = Some(conversation_id.to_string());
         self.persist_conversation_locked(&snapshot)?;
         self.persist_list_locked(&guard)?;
+        self.log(
+            "infrastructure.store.messages_replaced",
+            None,
+            Some(conversation_id),
+            format!("message_count={}", snapshot.messages.len()),
+        );
         Ok(snapshot)
     }
 
@@ -356,6 +457,20 @@ impl OpsAgentStore {
         guard.pending_actions.push(action.clone());
 
         self.persist_list_locked(&guard)?;
+        self.log(
+            "infrastructure.store.pending_action_created",
+            None,
+            Some(conversation_id),
+            format!(
+                "action_id={} tool={} risk={} session_id={} command={} reason={}",
+                action.id,
+                action.tool_kind,
+                risk_level_label(&action.risk_level),
+                action.session_id.as_deref().unwrap_or("-"),
+                truncate_for_log(action.command.as_str(), 160),
+                truncate_for_log(action.reason.as_str(), 160),
+            ),
+        );
         Ok(action)
     }
 
@@ -464,6 +579,30 @@ impl OpsAgentStore {
             self.persist_conversation_locked(&conversation)?;
         }
         self.persist_list_locked(&guard)?;
+        self.log(
+            "infrastructure.store.pending_action_updated",
+            None,
+            Some(snapshot.conversation_id.as_str()),
+            format!(
+                "action_id={} status={:?} approval_decision={} exit_code={} output_chars={}",
+                snapshot.id,
+                snapshot.status,
+                snapshot
+                    .approval_decision
+                    .as_ref()
+                    .map(approval_decision_label)
+                    .unwrap_or("-"),
+                snapshot
+                    .execution_exit_code
+                    .map(|item| item.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                snapshot
+                    .execution_output
+                    .as_ref()
+                    .map(|item| item.chars().count())
+                    .unwrap_or(0),
+            ),
+        );
         Ok(snapshot)
     }
 
@@ -521,6 +660,16 @@ impl OpsAgentStore {
         self.conversations_dir
             .join(format!("{conversation_id}.json"))
     }
+
+    fn log(
+        &self,
+        level: &str,
+        run_id: Option<&str>,
+        conversation_id: Option<&str>,
+        message: impl AsRef<str>,
+    ) {
+        append_debug_log_at_path(&self.log_path, level, run_id, conversation_id, message);
+    }
 }
 
 fn derive_conversation_title(title: Option<&str>) -> String {
@@ -544,6 +693,34 @@ fn normalize_session_id(session_id: Option<&str>) -> Option<String> {
         None
     } else {
         Some(trimmed.to_string())
+    }
+}
+
+fn normalize_attachment_ids(attachment_ids: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+    for attachment_id in attachment_ids {
+        let trimmed = attachment_id.trim();
+        if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+            continue;
+        }
+        normalized.push(trimmed.to_string());
+    }
+    normalized
+}
+
+fn approval_decision_label(value: &OpsAgentApprovalDecision) -> &'static str {
+    match value {
+        OpsAgentApprovalDecision::Approved => "approved",
+        OpsAgentApprovalDecision::Rejected => "rejected",
+    }
+}
+
+fn risk_level_label(value: &OpsAgentRiskLevel) -> &'static str {
+    match value {
+        OpsAgentRiskLevel::Low => "low",
+        OpsAgentRiskLevel::Medium => "medium",
+        OpsAgentRiskLevel::High => "high",
     }
 }
 
@@ -571,6 +748,19 @@ fn derive_title_from_first_user_prompt(prompt: &str) -> String {
         out.push_str("...");
     }
     out
+}
+
+fn derive_title_seed(content: &str, attachment_count: usize) -> String {
+    let trimmed = content.trim();
+    if !trimmed.is_empty() {
+        trimmed.to_string()
+    } else if attachment_count == 1 {
+        "Image upload".to_string()
+    } else if attachment_count > 1 {
+        format!("{attachment_count} image upload")
+    } else {
+        DEFAULT_CONVERSATION_TITLE.to_string()
+    }
 }
 
 fn normalize_data(data: &mut OpsAgentData) {
@@ -743,6 +933,7 @@ mod tests {
                 "check cpu",
                 None,
                 None,
+                Vec::new(),
             )
             .expect("append user");
         store
@@ -752,6 +943,7 @@ mod tests {
                 "running read_shell",
                 Some(OpsAgentToolKind::read_shell()),
                 None,
+                Vec::new(),
             )
             .expect("append assistant");
 
@@ -797,6 +989,7 @@ mod tests {
                 "abcdefghijklmnopqrstuvwxyz",
                 None,
                 None,
+                Vec::new(),
             )
             .expect("append user");
 
@@ -826,6 +1019,7 @@ mod tests {
                     preview: String::new(),
                     char_count: 0,
                 }),
+                Vec::new(),
             )
             .expect("append user");
 
@@ -875,6 +1069,7 @@ mod tests {
                 created_at: now.clone(),
                 tool_kind: None,
                 shell_context: None,
+                attachment_ids: Vec::new(),
             }],
             created_at: now.clone(),
             updated_at: now,

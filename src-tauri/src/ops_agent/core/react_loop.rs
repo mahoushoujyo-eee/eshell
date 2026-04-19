@@ -6,19 +6,18 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::ops_agent::domain::types::{
+    OpsAgentMessage, OpsAgentPendingAction, OpsAgentRole, OpsAgentToolCall,
+    OpsAgentToolCallStatus, OpsAgentToolKind, PlannedAgentReply,
+};
+use crate::ops_agent::infrastructure::logging::{
+    append_debug_log, resolve_ops_agent_log_path, OpsAgentLogContext,
+};
+use crate::ops_agent::infrastructure::run_registry::OpsAgentRunHandle;
+use crate::ops_agent::tools::OpsAgentToolOutcome;
+use crate::ops_agent::transport::events::OpsAgentEventEmitter;
 use crate::state::AppState;
 
-use super::super::compact;
-use super::super::context::load_session_context;
-use super::super::events::OpsAgentEventEmitter;
-use super::super::logging::{append_debug_log, OpsAgentLogContext};
-use super::super::openai;
-use super::super::run_registry::OpsAgentRunHandle;
-use super::super::tools::OpsAgentToolOutcome;
-use super::super::types::{
-    OpsAgentMessage, OpsAgentPendingAction, OpsAgentRole, OpsAgentToolCall,
-    OpsAgentToolCallStatus,
-};
 use super::helpers::{
     emit_static_reply, ensure_run_not_cancelled, is_run_cancelled_error, normalized_reply,
     truncate_for_log,
@@ -40,7 +39,12 @@ pub(super) async fn process_chat_stream(
     seed_turn_tool_history: Vec<OpsAgentMessage>,
 ) -> AppResult<ProcessChatOutcome> {
     let run_id_for_log = run_id.clone();
-    let emitter = OpsAgentEventEmitter::new(app, run_id, conversation_id.clone());
+    let emitter = OpsAgentEventEmitter::new(
+        app,
+        resolve_ops_agent_log_path(&state.storage.data_dir()),
+        run_id,
+        conversation_id.clone(),
+    );
     emitter.started();
     append_debug_log(
         state.as_ref(),
@@ -58,7 +62,7 @@ pub(super) async fn process_chat_stream(
     }
 
     let config = state.storage.get_ai_config();
-    if let Some(compaction) = compact::auto_compact_conversation_if_needed(
+    if let Some(compaction) = super::compaction::auto_compact_conversation_if_needed(
         state.as_ref(),
         &conversation_id,
         session_id.as_deref(),
@@ -80,7 +84,7 @@ pub(super) async fn process_chat_stream(
     let conversation = state.ops_agent.get_conversation(&conversation_id)?;
     let (history, current_user_message) =
         split_history_for_current_message(conversation.messages, &current_user_message_id)?;
-    let session_context = load_session_context(&state, session_id.as_deref());
+    let session_context = super::prompting::load_session_context(&state, session_id.as_deref());
     let tool_hints = state.ops_agent_tools.prompt_hints();
     let mut working_history = history;
     if !seed_turn_tool_history.is_empty() {
@@ -181,7 +185,7 @@ pub(super) async fn process_chat_stream(
         let tool = state.ops_agent_tools.get(&plan.tool.kind).ok_or_else(|| {
             AppError::Validation(format!("tool {} is not registered", plan.tool.kind))
         })?;
-        let command = if plan.tool.kind == super::super::types::OpsAgentToolKind::ui_context() {
+        let command = if plan.tool.kind == OpsAgentToolKind::ui_context() {
             plan.tool.command.clone().unwrap_or_default()
         } else if let Some(command) = plan.tool.command.clone() {
             command
@@ -233,7 +237,7 @@ pub(super) async fn process_chat_stream(
         });
         let tool_started_at = Instant::now();
         let outcome = tool
-            .execute(super::super::tools::OpsAgentToolRequest {
+            .execute(crate::ops_agent::tools::OpsAgentToolRequest {
                 state: Arc::clone(&state),
                 conversation_id: conversation_id.clone(),
                 current_user_message_id: Some(current_user_message.id.clone()),
@@ -290,6 +294,7 @@ pub(super) async fn process_chat_stream(
                     &execution.message,
                     Some(execution.tool_kind.clone()),
                     None,
+                    Vec::new(),
                 )?;
                 working_history.push(tool_message);
 
@@ -402,6 +407,7 @@ fn finalize_chat_completion(
         &assistant_answer,
         None,
         None,
+        Vec::new(),
     )?;
     emitter.completed(assistant_answer, pending_action);
     Ok(ProcessChatOutcome::Completed)
@@ -419,12 +425,13 @@ fn finalize_chat_failure(
         &assistant_message,
         None,
         None,
+        Vec::new(),
     )?;
     emitter.completed(assistant_message, None);
     Ok(ProcessChatOutcome::Completed)
 }
 
-pub(super) fn split_history_for_current_message(
+pub(crate) fn split_history_for_current_message(
     messages: Vec<OpsAgentMessage>,
     current_message_id: &str,
 ) -> AppResult<(Vec<OpsAgentMessage>, OpsAgentMessage)> {
@@ -458,9 +465,9 @@ async fn request_plan_with_retry(
     config: &crate::models::AiConfig,
     history: &[OpsAgentMessage],
     current_message: &OpsAgentMessage,
-    session_context: &super::super::context::OpsAgentSessionContext,
-    tool_hints: &[super::super::context::OpsAgentToolPromptHint],
-) -> AppResult<super::super::types::PlannedAgentReply> {
+    session_context: &super::prompting::OpsAgentSessionContext,
+    tool_hints: &[super::prompting::OpsAgentToolPromptHint],
+) -> AppResult<PlannedAgentReply> {
     execute_ai_request_with_retry(
         state,
         emitter,
@@ -472,7 +479,8 @@ async fn request_plan_with_retry(
         None,
         "规划",
         || {
-            openai::plan_reply(
+            super::llm::plan_reply(
+                state,
                 config,
                 history,
                 current_message,
@@ -500,7 +508,7 @@ async fn stream_answer_with_retry(
     config: &crate::models::AiConfig,
     history: &[OpsAgentMessage],
     current_message: &OpsAgentMessage,
-    session_context: &super::super::context::OpsAgentSessionContext,
+    session_context: &super::prompting::OpsAgentSessionContext,
     planner_reply: Option<&str>,
 ) -> AppResult<String> {
     execute_ai_request_with_retry(
@@ -514,7 +522,8 @@ async fn stream_answer_with_retry(
         Some(mode_label),
         "回复",
         || {
-            openai::stream_final_answer(
+            super::llm::stream_final_answer(
+                state,
                 config,
                 history,
                 current_message,

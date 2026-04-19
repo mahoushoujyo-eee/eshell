@@ -17,6 +17,7 @@ export default function AppAiDock({
     aiQuestion,
     setAiQuestion,
     aiShellContext,
+    aiImageAttachments,
     aiConversations,
     activeAiConversationId,
     activeAiConversation,
@@ -36,6 +37,9 @@ export default function AppAiDock({
     askAi,
     cancelAiStreaming,
     saveAiApprovalMode,
+    attachAiImages,
+    removeAiImageAttachment,
+    clearAiImageAttachments,
     clearAiShellContext,
     setShowAiPanel,
   } = workbench;
@@ -83,6 +87,10 @@ export default function AppAiDock({
             aiQuestion={aiQuestion}
             setAiQuestion={setAiQuestion}
             shellContext={aiShellContext}
+            aiImageAttachments={aiImageAttachments}
+            onAttachAiImages={attachAiImages}
+            onRemoveAiImageAttachment={removeAiImageAttachment}
+            onClearAiImageAttachments={clearAiImageAttachments}
             onClearShellContext={clearAiShellContext}
             isStreaming={isAiStreaming}
             streamingText={aiStreamingText}

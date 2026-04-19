@@ -5,8 +5,8 @@ use serde_json::{json, Value};
 
 use crate::error::{AppError, AppResult};
 use crate::models::AiConfig;
-use crate::ops_agent::logging::{truncate_for_log, OpsAgentLogContext};
-use crate::ops_agent::stream::{SseEvent, SseEventDecoder};
+use crate::ops_agent::infrastructure::logging::{truncate_for_log, OpsAgentLogContext};
+use crate::ops_agent::transport::stream::{SseEvent, SseEventDecoder};
 
 use super::types::{
     ProviderChatMessage, ProviderChatMessageResponse, ProviderChatRequestOptions,
@@ -520,13 +520,18 @@ fn log_request(
         log_context.append(
             "ai.provider.request_message",
             format!(
-                "kind={} index={}/{} role={} chars={} preview={}",
+                "kind={} index={}/{} role={} chars={} part_count={} image_count={} preview={}",
                 request_kind,
                 index + 1,
                 messages.len(),
                 message.role,
-                message.content.chars().count(),
-                truncate_for_log(message.content.as_str(), PROVIDER_LOG_MESSAGE_PREVIEW_CHARS),
+                message.content.log_chars(),
+                message.content.part_count(),
+                message.content.image_count(),
+                truncate_for_log(
+                    message.content.text_preview().as_str(),
+                    PROVIDER_LOG_MESSAGE_PREVIEW_CHARS
+                ),
             ),
         );
     }

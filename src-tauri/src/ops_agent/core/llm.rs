@@ -4,18 +4,19 @@ use serde_json::json;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{AiApprovalMode, AiConfig};
+use crate::state::AppState;
 
-use super::context::{
+use super::prompting::{
     build_answer_system_prompt, build_planner_system_prompt, build_tool_summary_prompt,
     format_tool_result_user_message, OpsAgentSessionContext, OpsAgentToolPromptHint,
 };
-use super::logging::{truncate_for_log, OpsAgentLogContext};
-use super::providers::{
+use crate::ops_agent::domain::types::{OpsAgentMessage, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply};
+use crate::ops_agent::infrastructure::logging::{truncate_for_log, OpsAgentLogContext};
+use crate::ops_agent::providers::{
     openai_compat, parse_planned_reply_from_native_tool_calls, text_fallback, ProviderChatMessage,
-    ProviderChatMessageResponse, ProviderChatRequestOptions, ProviderToolChoice,
-    ProviderToolDefinition,
+    ProviderChatMessageContent, ProviderChatMessageResponse, ProviderChatRequestOptions,
+    ProviderImageUrlPart, ProviderMessageContentPart, ProviderToolChoice, ProviderToolDefinition,
 };
-use super::types::{OpsAgentMessage, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply};
 
 const OPS_AGENT_AI_PLAN_TIMEOUT_SECS: u64 = 45;
 const OPS_AGENT_AI_STREAM_TIMEOUT_SECS: u64 = 240;
@@ -24,6 +25,7 @@ const AI_LOG_ARGUMENT_PREVIEW_CHARS: usize = 220;
 const AI_LOG_LAST_OUTPUT_PREVIEW_CHARS: usize = 180;
 
 pub async fn plan_reply(
+    state: &AppState,
     config: &AiConfig,
     history: &[OpsAgentMessage],
     current_message: &OpsAgentMessage,
@@ -54,15 +56,17 @@ pub async fn plan_reply(
     };
     messages.push(ProviderChatMessage {
         role: "system".to_string(),
-        content: build_planner_system_prompt(
+        content: ProviderChatMessageContent::text(build_planner_system_prompt(
             &config.system_prompt,
             session_context,
             tool_hints,
             shell_execution_policy,
-        ),
+        )),
     });
-    messages.extend(history.iter().map(convert_history_message));
-    messages.push(convert_history_message(current_message));
+    for message in history {
+        messages.push(convert_history_message(state, message)?);
+    }
+    messages.push(convert_history_message(state, current_message)?);
 
     let registered_tools = tool_hints
         .iter()
@@ -154,6 +158,7 @@ pub async fn plan_reply(
 }
 
 pub async fn stream_final_answer<F>(
+    state: &AppState,
     config: &AiConfig,
     history: &[OpsAgentMessage],
     current_message: &OpsAgentMessage,
@@ -180,10 +185,16 @@ where
     let mut messages = Vec::new();
     messages.push(ProviderChatMessage {
         role: "system".to_string(),
-        content: build_answer_system_prompt(&config.system_prompt, session_context, planner_reply),
+        content: ProviderChatMessageContent::text(build_answer_system_prompt(
+            &config.system_prompt,
+            session_context,
+            planner_reply,
+        )),
     });
-    messages.extend(history.iter().map(convert_history_message));
-    messages.push(convert_history_message(current_message));
+    for message in history {
+        messages.push(convert_history_message(state, message)?);
+    }
+    messages.push(convert_history_message(state, current_message)?);
 
     openai_compat::stream_message(
         config,
@@ -224,13 +235,13 @@ pub async fn compact_history_summary(
     let messages = vec![
         ProviderChatMessage {
             role: "system".to_string(),
-            content: "You compress prior ops troubleshooting conversations so the session can continue inside a limited context window.\nSummarize only durable information that should survive compaction:\n- user goals and constraints\n- important environment facts, hosts, file paths, and config values\n- diagnoses, findings, and failed or successful actions\n- pending approvals, open questions, and next steps\nKeep it concise and structured in markdown bullets. Do not repeat low-signal chatter or verbatim logs.".to_string(),
+            content: ProviderChatMessageContent::text("You compress prior ops troubleshooting conversations so the session can continue inside a limited context window.\nSummarize only durable information that should survive compaction:\n- user goals and constraints\n- important environment facts, hosts, file paths, and config values\n- diagnoses, findings, and failed or successful actions\n- pending approvals, open questions, and next steps\nKeep it concise and structured in markdown bullets. Do not repeat low-signal chatter or verbatim logs.".to_string()),
         },
         ProviderChatMessage {
             role: "user".to_string(),
-            content: format!(
+            content: ProviderChatMessageContent::text(format!(
                 "Compress the following earlier conversation history into a compact summary for future turns:\n\n{transcript}"
-            ),
+            )),
         },
     ];
 
@@ -246,6 +257,7 @@ pub async fn compact_history_summary(
 
 #[allow(dead_code)]
 pub async fn stream_tool_summary<F>(
+    state: &AppState,
     config: &AiConfig,
     history: &[OpsAgentMessage],
     session_context: &OpsAgentSessionContext,
@@ -264,12 +276,22 @@ where
     let mut messages = Vec::new();
     messages.push(ProviderChatMessage {
         role: "system".to_string(),
-        content: build_tool_summary_prompt(&config.system_prompt, session_context),
+        content: ProviderChatMessageContent::text(build_tool_summary_prompt(
+            &config.system_prompt,
+            session_context,
+        )),
     });
-    messages.extend(history.iter().map(convert_history_message));
+    for message in history {
+        messages.push(convert_history_message(state, message)?);
+    }
     messages.push(ProviderChatMessage {
         role: "user".to_string(),
-        content: format_tool_result_user_message(tool_kind, command, output, exit_code),
+        content: ProviderChatMessageContent::text(format_tool_result_user_message(
+            tool_kind,
+            command,
+            output,
+            exit_code,
+        )),
     });
 
     openai_compat::stream_message(
@@ -297,7 +319,7 @@ fn validate_ai_config(config: &AiConfig) -> AppResult<()> {
     Ok(())
 }
 
-fn convert_history_message(item: &OpsAgentMessage) -> ProviderChatMessage {
+fn convert_history_message(state: &AppState, item: &OpsAgentMessage) -> AppResult<ProviderChatMessage> {
     let role = match item.role {
         OpsAgentRole::System => "system",
         OpsAgentRole::User => "user",
@@ -305,29 +327,66 @@ fn convert_history_message(item: &OpsAgentMessage) -> ProviderChatMessage {
         OpsAgentRole::Tool => "user",
     };
     let content = if item.role == OpsAgentRole::Tool {
-        format!("[tool-result]\n{}", item.content)
+        ProviderChatMessageContent::text(format!("[tool-result]\n{}", item.content))
     } else if item.role == OpsAgentRole::User {
-        format_user_history_message(item)
+        build_user_history_content(state, item)?
     } else {
-        item.content.clone()
+        ProviderChatMessageContent::text(item.content.clone())
     };
 
-    ProviderChatMessage {
+    Ok(ProviderChatMessage {
         role: role.to_string(),
         content,
-    }
+    })
 }
 
 fn format_user_history_message(item: &OpsAgentMessage) -> String {
     let question = item.content.trim().to_string();
-    let Some(shell_context) = &item.shell_context else {
-        return question;
-    };
+    let mut sections = Vec::new();
+    if let Some(shell_context) = &item.shell_context {
+        sections.push(format!(
+            "Attached shell context from session \"{}\":\n{}",
+            shell_context.session_name, shell_context.content
+        ));
+    }
+    if !item.attachment_ids.is_empty() {
+        sections.push(format!("Attached images: {}.", item.attachment_ids.len()));
+    }
+    if !question.is_empty() {
+        sections.push(format!("User request:\n{}", question));
+    }
+    sections.join("\n\n")
+}
 
-    format!(
-        "Attached shell context from session \"{}\":\n{}\n\nUser request:\n{}",
-        shell_context.session_name, shell_context.content, question
-    )
+fn build_user_history_content(
+    state: &AppState,
+    item: &OpsAgentMessage,
+) -> AppResult<ProviderChatMessageContent> {
+    let text = format_user_history_message(item);
+    if item.attachment_ids.is_empty() {
+        return Ok(ProviderChatMessageContent::text(text));
+    }
+
+    let mut parts = Vec::new();
+    if !text.trim().is_empty() {
+        parts.push(ProviderMessageContentPart::Text { text });
+    }
+
+    for attachment_id in &item.attachment_ids {
+        let attachment = state
+            .ops_agent_attachments
+            .get_attachment_content(attachment_id)?;
+        parts.push(ProviderMessageContentPart::ImageUrl {
+            image_url: ProviderImageUrlPart {
+                url: format!(
+                    "data:{};base64,{}",
+                    attachment.content_type, attachment.content_base64
+                ),
+            },
+        });
+    }
+
+    Ok(ProviderChatMessageContent::Parts(parts))
 }
 
 fn build_planner_tool_definitions(
@@ -443,12 +502,13 @@ fn log_request_context(
     log_context.append(
         context_level.as_str(),
         format!(
-            "model={} history_messages={} current_message_id={} current_chars={} current_preview={} shell_context_attached={} shell_context_chars={} planner_reply_chars={} planner_reply_preview={} session_id={} current_dir={} last_output_chars={} temperature={} max_tokens={} max_context_tokens={} tool_hints={}",
+            "model={} history_messages={} current_message_id={} current_chars={} current_preview={} attachment_count={} shell_context_attached={} shell_context_chars={} planner_reply_chars={} planner_reply_preview={} session_id={} current_dir={} last_output_chars={} temperature={} max_tokens={} max_context_tokens={} tool_hints={}",
             config.model,
             history.len(),
             current_message.id,
             current_message.content.chars().count(),
             truncate_for_log(current_message.content.as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS),
+            current_message.attachment_ids.len(),
             shell_context.is_some(),
             shell_context_char_count(shell_context),
             planner_reply.chars().count(),
@@ -554,7 +614,7 @@ fn log_provider_response(
 }
 
 fn shell_context_char_count(
-    shell_context: Option<&super::types::OpsAgentShellContext>,
+    shell_context: Option<&crate::ops_agent::domain::types::OpsAgentShellContext>,
 ) -> usize {
     shell_context
         .map(|value| {

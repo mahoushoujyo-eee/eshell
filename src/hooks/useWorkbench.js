@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_AI,
   DEFAULT_WALLPAPER,
@@ -73,6 +73,7 @@ export function useWorkbench() {
   const [aiProfileForm, setAiProfileForm] = useState(DEFAULT_AI_PROFILE_FORM);
   const [aiQuestion, setAiQuestion] = useState("");
   const [aiShellContext, setAiShellContext] = useState(null);
+  const [aiImageAttachments, setAiImageAttachments] = useState([]);
   const [aiConversations, setAiConversations] = useState([]);
   const [activeAiConversationId, setActiveAiConversationId] = useState(null);
   const [activeAiConversation, setActiveAiConversation] = useState(null);
@@ -87,6 +88,7 @@ export function useWorkbench() {
   const sessionAliasRef = useRef(new Map());
   const statusRequestTokenRef = useRef(new Map());
   const aiStreamRef = useRef(EMPTY_OPS_AGENT_STREAM);
+  const aiImageAttachmentsRef = useRef([]);
   const ptyInputSenderRef = useRef(null);
   const onErrorRef = useRef(() => {});
   const runWithSessionReconnectRef = useRef(null);
@@ -218,6 +220,10 @@ export function useWorkbench() {
     pushUiNotice(message);
   }, [pushUiNotice]);
 
+  useEffect(() => {
+    aiImageAttachmentsRef.current = aiImageAttachments;
+  }, [aiImageAttachments]);
+
   const {
     appendLog,
     appendPtyOutput,
@@ -262,6 +268,9 @@ export function useWorkbench() {
     handleOpenFileContentChange,
     handleDownloadDirectoryChange,
     attachAiShellContext,
+    attachAiImages,
+    removeAiImageAttachment,
+    clearAiImageAttachments,
     clearAiShellContext,
   } = useWorkbenchOperations({
     sshConfigs,
@@ -277,6 +286,7 @@ export function useWorkbench() {
     aiProfileForm,
     aiQuestion,
     aiShellContext,
+    aiImageAttachments,
     aiStream,
     activeAiConversationId,
     setLogs,
@@ -308,6 +318,7 @@ export function useWorkbench() {
     setResolvingAiActionId,
     setAiQuestion,
     setAiShellContext,
+    setAiImageAttachments,
     setAiStream,
     setAiConversationError,
     clearAiConversationError,
@@ -325,6 +336,20 @@ export function useWorkbench() {
     runBusy,
     onError,
   });
+
+  useEffect(
+    () => () => {
+      aiImageAttachmentsRef.current.forEach((attachment) => {
+        if (
+          typeof attachment?.previewUrl === "string" &&
+          attachment.previewUrl.startsWith("blob:")
+        ) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+      });
+    },
+    [],
+  );
 
   useWorkbenchEffects({
     theme,
@@ -422,6 +447,7 @@ export function useWorkbench() {
     aiQuestion,
     setAiQuestion,
     aiShellContext,
+    aiImageAttachments,
     aiConversations,
     activeAiConversationId,
     activeAiConversation,
@@ -456,6 +482,9 @@ export function useWorkbench() {
     askAi,
     cancelAiStreaming,
     attachAiShellContext,
+    attachAiImages,
+    removeAiImageAttachment,
+    clearAiImageAttachments,
     clearAiShellContext,
     requestSftpDir,
     refreshSftp,

@@ -1,7 +1,7 @@
 use crate::models::ShellSession;
 use crate::state::AppState;
 
-use super::types::OpsAgentToolKind;
+use crate::ops_agent::domain::types::OpsAgentToolKind;
 
 const LAST_OUTPUT_PREVIEW_CHARS: usize = 240;
 

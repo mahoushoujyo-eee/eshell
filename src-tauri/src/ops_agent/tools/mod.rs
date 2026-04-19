@@ -8,8 +8,8 @@ use std::sync::Arc;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-use super::context::OpsAgentToolPromptHint;
-use super::types::{OpsAgentPendingAction, OpsAgentToolKind};
+use crate::ops_agent::core::prompting::OpsAgentToolPromptHint;
+use crate::ops_agent::domain::types::{OpsAgentPendingAction, OpsAgentToolKind};
 
 pub use shell::{ShellTool, UiContextTool};
 

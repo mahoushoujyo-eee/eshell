@@ -4,16 +4,14 @@ use tauri::AppHandle;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::state::AppState;
-
-use super::super::logging::append_debug_log;
-use super::super::tools::OpsAgentToolResolveRequest;
-use super::super::types::{
+use crate::ops_agent::core::runtime::spawn_chat_run_task;
+use crate::ops_agent::domain::types::{
     OpsAgentActionStatus, OpsAgentMessage, OpsAgentPendingAction, OpsAgentResolveActionInput,
     OpsAgentResolveActionResult, OpsAgentRole,
 };
-use super::helpers::normalize_session_id;
-use super::runtime::spawn_chat_run_task;
+use crate::ops_agent::infrastructure::logging::append_debug_log;
+use crate::ops_agent::tools::OpsAgentToolResolveRequest;
+use crate::state::AppState;
 
 pub async fn resolve_pending_action(
     state: Arc<AppState>,
@@ -49,6 +47,7 @@ pub async fn resolve_pending_action(
     }
 
     if !input.approve {
+        let can_resume = app.is_some();
         let updated = state
             .ops_agent
             .mark_action_rejected(&input.action_id, resolution_comment.clone())?;
@@ -59,6 +58,7 @@ pub async fn resolve_pending_action(
                 comment,
                 None,
                 None,
+                Vec::new(),
             )?),
             None => None,
         };
@@ -72,6 +72,18 @@ pub async fn resolve_pending_action(
                 resume_user_message.as_ref(),
             );
         }
+        append_debug_log(
+            state.as_ref(),
+            "application.approval.completed",
+            None,
+            Some(updated.conversation_id.as_str()),
+            format!(
+                "action_id={} approve=false status={:?} resume_triggered={}",
+                updated.id,
+                updated.status,
+                can_resume
+            ),
+        );
         return Ok(OpsAgentResolveActionResult {
             action: updated,
             note: "Action rejected".to_string(),
@@ -114,6 +126,7 @@ pub async fn resolve_pending_action(
         &resolution.message,
         Some(resolution.action.tool_kind.clone()),
         None,
+        Vec::new(),
     )?;
 
     let resume_user_message = match resolution_comment.as_deref() {
@@ -123,10 +136,12 @@ pub async fn resolve_pending_action(
             comment,
             None,
             None,
+            Vec::new(),
         )?),
         None => None,
     };
 
+    let can_resume = app.is_some();
     if let Some(app) = app {
         maybe_resume_run_after_action_resolution(
             Arc::clone(&state),
@@ -144,6 +159,19 @@ pub async fn resolve_pending_action(
         OpsAgentActionStatus::Rejected => "Action rejected",
         OpsAgentActionStatus::Pending => "Action remains pending",
     };
+    append_debug_log(
+        state.as_ref(),
+        "application.approval.completed",
+        None,
+        Some(resolution.action.conversation_id.as_str()),
+        format!(
+                "action_id={} approve=true status={:?} note={} resume_triggered={}",
+                resolution.action.id,
+                resolution.action.status,
+                note,
+                can_resume
+            ),
+        );
 
     Ok(OpsAgentResolveActionResult {
         action: resolution.action,
@@ -296,6 +324,15 @@ fn maybe_resume_run_after_action_resolution(
 }
 
 fn normalize_resolution_comment(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn normalize_session_id(value: Option<&str>) -> Option<String> {
     let trimmed = value?.trim();
     if trimmed.is_empty() {
         None

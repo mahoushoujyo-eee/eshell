@@ -4,12 +4,12 @@ use crate::error::AppResult;
 use crate::models::{now_rfc3339, AiConfig};
 use crate::state::AppState;
 
-use super::context::{build_planner_system_prompt, load_session_context};
-use super::logging::{truncate_for_log, OpsAgentLogContext};
-use super::openai;
-use super::types::{
+use super::llm;
+use super::prompting::{build_planner_system_prompt, load_session_context};
+use crate::ops_agent::domain::types::{
     OpsAgentCompactConversationResult, OpsAgentConversation, OpsAgentMessage, OpsAgentRole,
 };
+use crate::ops_agent::infrastructure::logging::{truncate_for_log, OpsAgentLogContext};
 
 const COMPACT_MIN_MESSAGES: usize = 3;
 const COMPACT_MIN_MESSAGES_TO_KEEP: usize = 2;
@@ -159,7 +159,7 @@ pub async fn compact_conversation_history(
             transcript.chars().count()
         ),
     );
-    let summary = match openai::compact_history_summary(
+    let summary = match llm::compact_history_summary(
         config,
         &transcript,
         COMPACT_SUMMARY_MAX_TOKENS,
@@ -208,6 +208,7 @@ pub async fn compact_conversation_history(
         created_at: now_rfc3339(),
         tool_kind: None,
         shell_context: None,
+        attachment_ids: Vec::new(),
     };
     let summary_message = OpsAgentMessage {
         id: Uuid::new_v4().to_string(),
@@ -227,6 +228,7 @@ pub async fn compact_conversation_history(
         created_at: now_rfc3339(),
         tool_kind: None,
         shell_context: None,
+        attachment_ids: Vec::new(),
     };
     let summarized_message_count = messages_to_summarize.len();
     let kept_message_count = messages_to_keep.len();
@@ -236,6 +238,16 @@ pub async fn compact_conversation_history(
     let updated = state
         .ops_agent
         .replace_messages(&conversation.id, compacted_messages)?;
+    let removed_attachment_ids = collect_removed_attachment_ids(&conversation, &updated);
+    if !removed_attachment_ids.is_empty() {
+        state
+            .ops_agent_attachments
+            .delete_attachments(&removed_attachment_ids)?;
+        log_context.append(
+            "compact.attachments_deleted",
+            format!("attachment_count={}", removed_attachment_ids.len()),
+        );
+    }
     let estimated_tokens_after = estimate_conversation_tokens(state, config, &updated, session_id);
     log_context.append(
         "compact.completed",
@@ -348,6 +360,9 @@ fn render_message_for_estimation(message: &OpsAgentMessage) -> String {
         base.push_str("\nShell context:\n");
         base.push_str(&shell_context.content);
     }
+    if !message.attachment_ids.is_empty() {
+        base.push_str(format!("\nAttached images: {}", message.attachment_ids.len()).as_str());
+    }
     base
 }
 
@@ -374,6 +389,9 @@ fn render_message_for_compaction(message: &OpsAgentMessage) -> String {
             &shell_context.content,
             COMPACT_SHELL_CONTEXT_PREVIEW_CHARS,
         ));
+    }
+    if !message.attachment_ids.is_empty() {
+        text.push_str(format!("\nAttached images: {}", message.attachment_ids.len()).as_str());
     }
 
     text
@@ -412,6 +430,24 @@ fn truncate_text(value: &str, max_chars: usize) -> String {
     let mut preview = trimmed.chars().take(max_chars).collect::<String>();
     preview.push_str("...");
     preview
+}
+
+fn collect_removed_attachment_ids(
+    previous: &OpsAgentConversation,
+    updated: &OpsAgentConversation,
+) -> Vec<String> {
+    let kept_ids = updated
+        .messages
+        .iter()
+        .flat_map(|message| message.attachment_ids.iter().cloned())
+        .collect::<std::collections::HashSet<_>>();
+
+    previous
+        .messages
+        .iter()
+        .flat_map(|message| message.attachment_ids.iter().cloned())
+        .filter(|attachment_id| !kept_ids.contains(attachment_id))
+        .collect::<Vec<_>>()
 }
 
 fn rough_token_estimate(value: &str) -> usize {

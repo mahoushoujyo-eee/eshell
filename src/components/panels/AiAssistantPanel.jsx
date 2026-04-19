@@ -27,6 +27,10 @@ export default function AiAssistantPanel({
   aiQuestion,
   setAiQuestion,
   shellContext,
+  aiImageAttachments,
+  onAttachAiImages,
+  onRemoveAiImageAttachment,
+  onClearAiImageAttachments,
   onClearShellContext,
   isStreaming,
   streamingText,
@@ -198,6 +202,10 @@ export default function AiAssistantPanel({
             onSelectAiProfile={onSelectAiProfile}
             approvalMode={approvalMode}
             shellContext={shellContext}
+            aiImageAttachments={aiImageAttachments}
+            onAttachAiImages={onAttachAiImages}
+            onRemoveAiImageAttachment={onRemoveAiImageAttachment}
+            onClearAiImageAttachments={onClearAiImageAttachments}
             onClearShellContext={onClearShellContext}
             aiQuestion={aiQuestion}
             setAiQuestion={setAiQuestion}

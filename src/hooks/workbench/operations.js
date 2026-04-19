@@ -39,6 +39,7 @@ export function useWorkbenchOperations({
   aiProfileForm,
   aiQuestion,
   aiShellContext,
+  aiImageAttachments,
   aiStream,
   activeAiConversationId,
   setLogs,
@@ -70,6 +71,7 @@ export function useWorkbenchOperations({
   setResolvingAiActionId,
   setAiQuestion,
   setAiShellContext,
+  setAiImageAttachments,
   setAiStream,
   setAiConversationError,
   clearAiConversationError,
@@ -1294,7 +1296,12 @@ export function useWorkbenchOperations({
     async (event) => {
       event.preventDefault();
       const question = aiQuestion.trim();
-      if (!question || aiStream.runId) {
+      const imageAttachments = aiImageAttachments.map((attachment) => ({
+        fileName: attachment.fileName || null,
+        contentType: attachment.contentType,
+        contentBase64: attachment.contentBase64,
+      }));
+      if ((!question && imageAttachments.length === 0) || aiStream.runId) {
         return;
       }
       const shellContext = aiShellContext || null;
@@ -1307,10 +1314,22 @@ export function useWorkbenchOperations({
             sessionId: activeSessionId || null,
             question,
             shellContext,
+            imageAttachments,
           }),
         );
         clearAiConversationError(accepted.conversationId || null);
         setAiShellContext(null);
+        setAiImageAttachments((prev) => {
+          prev.forEach((attachment) => {
+            if (
+              typeof attachment.previewUrl === "string" &&
+              attachment.previewUrl.startsWith("blob:")
+            ) {
+              URL.revokeObjectURL(attachment.previewUrl);
+            }
+          });
+          return [];
+        });
         const nextStream = {
           runId: accepted.runId,
           conversationId: accepted.conversationId,
@@ -1333,6 +1352,7 @@ export function useWorkbenchOperations({
     [
       activeAiConversationId,
       activeSessionId,
+      aiImageAttachments,
       aiShellContext,
       aiQuestion,
       aiStream.runId,
@@ -1342,6 +1362,7 @@ export function useWorkbenchOperations({
       reloadAiPendingActions,
       runBusy,
       setAiConversationError,
+      setAiImageAttachments,
     ],
   );
 
@@ -1416,6 +1437,80 @@ export function useWorkbenchOperations({
     setAiShellContext(attachment);
   }, []);
 
+  const attachAiImages = useCallback(
+    async (fileList) => {
+      const files = Array.from(fileList || []).filter(
+        (file) => file && typeof file === "object" && String(file.type || "").startsWith("image/"),
+      );
+      if (files.length === 0) {
+        return;
+      }
+
+      try {
+        const attachments = await Promise.all(
+          files.map(async (file) => {
+            const buffer = await file.arrayBuffer();
+            return {
+              localId:
+                globalThis.crypto?.randomUUID?.() ||
+                `image-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              fileName: file.name || "",
+              contentType: file.type || "image/*",
+              contentBase64: arrayBufferToBase64(buffer),
+              sizeBytes: Number(file.size) || 0,
+              previewUrl: URL.createObjectURL(file),
+            };
+          }),
+        );
+
+        setAiImageAttachments((prev) => [...prev, ...attachments]);
+      } catch (err) {
+        onError(err);
+      }
+    },
+    [onError, setAiImageAttachments],
+  );
+
+  const removeAiImageAttachment = useCallback(
+    (localId) => {
+      if (!localId) {
+        return;
+      }
+
+      setAiImageAttachments((prev) => {
+        const next = [];
+        prev.forEach((attachment) => {
+          if (attachment.localId === localId) {
+            if (
+              typeof attachment.previewUrl === "string" &&
+              attachment.previewUrl.startsWith("blob:")
+            ) {
+              URL.revokeObjectURL(attachment.previewUrl);
+            }
+            return;
+          }
+          next.push(attachment);
+        });
+        return next;
+      });
+    },
+    [setAiImageAttachments],
+  );
+
+  const clearAiImageAttachments = useCallback(() => {
+    setAiImageAttachments((prev) => {
+      prev.forEach((attachment) => {
+        if (
+          typeof attachment.previewUrl === "string" &&
+          attachment.previewUrl.startsWith("blob:")
+        ) {
+          URL.revokeObjectURL(attachment.previewUrl);
+        }
+      });
+      return [];
+    });
+  }, [setAiImageAttachments]);
+
   const clearAiShellContext = useCallback(() => {
     setAiShellContext(null);
   }, []);
@@ -1464,6 +1559,9 @@ export function useWorkbenchOperations({
     handleOpenFileContentChange,
     handleDownloadDirectoryChange,
     attachAiShellContext,
+    attachAiImages,
+    removeAiImageAttachment,
+    clearAiImageAttachments,
     clearAiShellContext,
   };
 }

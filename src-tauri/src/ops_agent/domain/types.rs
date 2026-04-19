@@ -121,6 +121,8 @@ pub struct OpsAgentMessage {
     pub tool_kind: Option<OpsAgentToolKind>,
     #[serde(default)]
     pub shell_context: Option<OpsAgentShellContext>,
+    #[serde(default)]
+    pub attachment_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,7 +228,19 @@ pub struct OpsAgentChatInput {
     pub conversation_id: Option<String>,
     pub session_id: Option<String>,
     pub question: String,
+    #[serde(default)]
     pub shell_context: Option<OpsAgentShellContext>,
+    #[serde(default)]
+    pub image_attachments: Vec<OpsAgentImageAttachmentInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentImageAttachmentInput {
+    #[serde(default)]
+    pub file_name: Option<String>,
+    pub content_type: String,
+    pub content_base64: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -305,6 +319,23 @@ pub struct OpsAgentCancelRunInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OpsAgentGetAttachmentContentInput {
+    pub attachment_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentAttachmentContent {
+    pub id: String,
+    pub file_name: Option<String>,
+    pub content_type: String,
+    pub content_base64: String,
+    pub size_bytes: usize,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OpsAgentCancelRunResult {
     pub run_id: String,
     pub cancelled: bool,
@@ -334,7 +365,15 @@ pub struct PlannedAgentReply {
 impl OpsAgentConversationSummary {
     pub fn from_conversation(conversation: &OpsAgentConversation) -> Self {
         let last_message_preview = conversation.messages.last().map(|item| {
-            let mut preview = item.content.trim().replace('\n', " ");
+            let mut preview = if item.content.trim().is_empty() && !item.attachment_ids.is_empty() {
+                attachment_preview_label(item.attachment_ids.len())
+            } else {
+                item.content.trim().replace('\n', " ")
+            };
+            if !item.content.trim().is_empty() && !item.attachment_ids.is_empty() {
+                preview.push(' ');
+                preview.push_str(attachment_preview_label(item.attachment_ids.len()).as_str());
+            }
             if preview.chars().count() > 120 {
                 preview = preview.chars().take(120).collect::<String>();
                 preview.push_str("...");
@@ -446,6 +485,14 @@ fn build_shell_context_preview(content: &str) -> String {
     preview
 }
 
+fn attachment_preview_label(count: usize) -> String {
+    if count == 1 {
+        "[1 image]".to_string()
+    } else {
+        format!("[{count} images]")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,6 +528,7 @@ mod tests {
 
         assert!(message.tool_kind.is_none());
         assert!(message.shell_context.is_none());
+        assert!(message.attachment_ids.is_empty());
     }
 
     #[test]

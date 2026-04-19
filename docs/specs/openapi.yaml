@@ -499,6 +499,21 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/OpsAgentConversation" }
+  /rpc/ops_agent_get_attachment_content:
+    post:
+      tags: [ops-agent]
+      summary: Get stored Ops Agent image attachment content
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OpsAgentAttachmentRefRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OpsAgentAttachmentContent" }
   /rpc/ops_agent_delete_conversation:
     post:
       tags: [ops-agent]
@@ -974,7 +989,21 @@ components:
             conversationId: { type: string, nullable: true }
             sessionId: { type: string, nullable: true }
             question: { type: string }
-            shellContext: { type: object, nullable: true, additionalProperties: true }
+            shellContext:
+              allOf:
+                - $ref: "#/components/schemas/OpsAgentShellContext"
+              nullable: true
+            imageAttachments:
+              type: array
+              items: { $ref: "#/components/schemas/OpsAgentImageAttachmentInput" }
+    OpsAgentAttachmentRefRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [attachmentId]
+          properties:
+            attachmentId: { type: string }
     OpsAgentListPendingActionsRequest:
       type: object
       properties:
@@ -1000,18 +1029,88 @@ components:
           type: object
           required: [runId]
           properties: { runId: { type: string } }
+    OpsAgentShellContext:
+      type: object
+      properties:
+        sessionId: { type: string, nullable: true }
+        sessionName: { type: string }
+        content: { type: string }
+        preview: { type: string }
+        charCount: { type: integer }
+    OpsAgentImageAttachmentInput:
+      type: object
+      required: [contentType, contentBase64]
+      properties:
+        fileName: { type: string, nullable: true }
+        contentType: { type: string }
+        contentBase64: { type: string }
+    OpsAgentMessage:
+      type: object
+      required: [id, role, content, createdAt]
+      properties:
+        id: { type: string }
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content: { type: string }
+        createdAt: { type: string }
+        toolKind: { type: string, nullable: true }
+        shellContext:
+          allOf:
+            - $ref: "#/components/schemas/OpsAgentShellContext"
+          nullable: true
+        attachmentIds:
+          type: array
+          items: { type: string }
     OpsAgentConversationSummary:
       type: object
-      additionalProperties: true
+      required: [id, title, messageCount, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        sessionId: { type: string, nullable: true }
+        messageCount: { type: integer }
+        lastMessagePreview: { type: string, nullable: true }
+        createdAt: { type: string }
+        updatedAt: { type: string }
     OpsAgentConversation:
       type: object
-      additionalProperties: true
+      required: [id, title, messages, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        sessionId: { type: string, nullable: true }
+        messages:
+          type: array
+          items: { $ref: "#/components/schemas/OpsAgentMessage" }
+        createdAt: { type: string }
+        updatedAt: { type: string }
     OpsAgentCompactConversationResult:
       type: object
-      additionalProperties: true
+      required: [conversation, compacted, note, estimatedTokensBefore, estimatedTokensAfter]
+      properties:
+        conversation: { $ref: "#/components/schemas/OpsAgentConversation" }
+        compacted: { type: boolean }
+        note: { type: string }
+        estimatedTokensBefore: { type: integer }
+        estimatedTokensAfter: { type: integer }
     OpsAgentChatAccepted:
       type: object
-      additionalProperties: true
+      required: [runId, conversationId, startedAt]
+      properties:
+        runId: { type: string }
+        conversationId: { type: string }
+        startedAt: { type: string }
+    OpsAgentAttachmentContent:
+      type: object
+      required: [id, contentType, contentBase64, sizeBytes, createdAt]
+      properties:
+        id: { type: string }
+        fileName: { type: string, nullable: true }
+        contentType: { type: string }
+        contentBase64: { type: string }
+        sizeBytes: { type: integer }
+        createdAt: { type: string }
     OpsAgentPendingAction:
       type: object
       additionalProperties: true
@@ -1024,7 +1123,7 @@ components:
     OpsAgentStreamEvent:
       type: object
       additionalProperties: true
-      description: stage is one of started/delta/tool_read/requires_approval/completed/error. Cancelled runs currently end via completed with an empty answer payload.
+      description: stage is one of started/delta/tool_call/tool_read/requires_approval/completed/error. Cancelled runs currently end via completed with an empty answer payload.
     PtyOutputEvent:
       type: object
       properties:
