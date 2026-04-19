@@ -4,14 +4,14 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**v1.3.2** — Desktop operations workbench built with **Tauri 2 + React + Rust**.
+**v1.3.5** - Desktop operations workbench built with **Tauri 2 + React + Rust**.
 
 eShell combines SSH, PTY terminal, SFTP file operations, server status monitoring,
 script execution, and Ops Agent workflows in one integrated application.
 
 ## Key Features
 
-- **Multi-session SSH management** — configure and switch between multiple SSH profiles
+- **Multi-session SSH management** - configure and switch between multiple SSH profiles
 - **PTY terminal** (`xterm.js`) with input and resize sync; customizable wallpaper (built-in presets or custom upload with crop)
 - **Light / Dark theme toggle** from the sidebar
 - **English / Simplified Chinese UI** with persisted locale preference (`eshell:locale`)
@@ -21,12 +21,20 @@ script execution, and Ops Agent workflows in one integrated application.
   - configurable local download directory
   - collapsible transfer queue overlay (direction, stage, progress, cancel)
   - manual upload / download cancel
-- **Server status panel** — CPU, memory, network traffic, plus a switchable Processes / Disks detail view
-- **Script center** — save and execute scripts in the active session
-- **Platform-adaptive title bar** — macOS traffic-light controls on macOS; standard minimize / maximize / close on Windows and Linux
+- **Server status panel** - CPU, memory, network traffic, plus a switchable Processes / Disks detail view
+- **Script center** - save and execute scripts in the active session
+- **AI profile management**:
+  - multiple saved model profiles
+  - explicit provider protocol selection per profile
+  - global active profile switching from the AI chat footer
+- **Platform-adaptive title bar** - macOS traffic-light controls on macOS; standard minimize / maximize / close on Windows and Linux
 - **Ops Agent**:
   - conversation management (create, switch, delete)
   - conversation-level approval mode (`Approval` / `Full Access`)
+  - multi-provider model access:
+    - `openai_chat_completions`
+    - `openai_responses`
+    - `anthropic_messages`
   - streaming assistant replies via `ops-agent-stream`
   - pending action approval flow for risky shell commands
   - automatic ReAct loop resume after approval resolution
@@ -34,6 +42,7 @@ script execution, and Ops Agent workflows in one integrated application.
   - shell context attachment from terminal selection
   - image upload with multimodal model input
   - click-to-view image tags on sent user messages
+  - provider-aware model selector with local OpenAI / Anthropic icons
   - debug logging in `.eshell-data/ops_agent_debug.log`
 
 ## Tech Stack
@@ -57,6 +66,7 @@ script execution, and Ops Agent workflows in one integrated application.
 ```text
 src/
   components/
+    ai/            # provider icons and shared AI UI primitives
     app/           # workspace shell, AI dock, modals
     layout/        # title bar, top toolbar, notice stack
     panels/        # terminal, SFTP, status, AI assistant, file editor
@@ -67,6 +77,7 @@ src/
     useWorkbench.js
     workbench/     # operations, effects, session, errors, aiProfiles
   lib/
+    aiProviderTypes.js
     i18n.js        # English / Simplified Chinese localization
     tauri-api.js   # frontend invoke wrappers
     sftp-transfer.js
@@ -77,7 +88,8 @@ src/
 src-tauri/src/
   commands/
   server_ops/      # shell, PTY, SFTP, status collection
-  ops_agent/       # chat runtime, tool orchestration, approvals, compaction
+  ops_agent/       # chat runtime, provider dispatch, tool orchestration, approvals, compaction
+    providers/     # openai_compat, openai_responses, anthropic
   storage/         # persistent data (ssh / scripts / ai profiles)
   models.rs
   state.rs
@@ -139,7 +151,13 @@ cargo test
 
 ## Runtime Data
 
-Runtime data is stored in `.eshell-data/` under the project root:
+Runtime data is stored in `.eshell-data/` under the Tauri process working directory.
+
+During local development from this repository, that usually means:
+
+- `src-tauri/.eshell-data/` when you run `npm run tauri dev` from the project root
+
+Typical contents:
 
 ```text
 .eshell-data/
@@ -151,6 +169,12 @@ Runtime data is stored in `.eshell-data/` under the project root:
   ops_agent_attachments/
   ops_agent_debug.log
 ```
+
+Notes:
+
+- `ai_profiles.json` is the single source of truth for AI profile persistence
+- legacy `ai_config.json` is migrated on startup when present
+- `ops_agent_attachments/` stores detached image payloads; conversation JSON only stores `attachmentIds`
 
 ## Documentation Index
 
