@@ -127,12 +127,12 @@ export function ToolMessageChip({ toolKind, expanded = false, onToggle }) {
   return (
     <button
       type="button"
-      className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-2xl border border-[#efc77a] bg-[#fff3d8] px-2.5 py-1.5 text-left text-[11px] text-[#5f3e00] shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition-colors hover:border-[#e1b95d] hover:bg-[#ffecc3]"
+      className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-2xl border border-warning/35 bg-warning/10 px-2.5 py-1.5 text-left text-[11px] text-warning shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:border-warning/55 hover:bg-warning/14"
       onClick={onToggle}
       aria-expanded={expanded}
       title={expanded ? t("Hide tool details") : t("Show tool details")}
     >
-      <span className="rounded-full bg-[#f5d48e] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[#714800]">
+      <span className="rounded-full bg-warning/18 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-warning">
         {toolLabel(toolKind)}
       </span>
       {expanded ? (

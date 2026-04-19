@@ -6,19 +6,20 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::AppResult;
+use crate::ops_agent::core::helpers::normalized_reply;
+use crate::ops_agent::core::react_loop::split_history_for_current_message;
+use crate::ops_agent::core::OPS_AGENT_MAX_REACT_STEPS;
+use crate::ops_agent::domain::types::{
+    OpsAgentActionStatus, OpsAgentMessage, OpsAgentPendingAction, OpsAgentResolveActionInput,
+    OpsAgentRiskLevel, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply, PlannedToolAction,
+};
 use crate::ops_agent::tools::{
     OpsAgentTool, OpsAgentToolDefinition, OpsAgentToolExecution, OpsAgentToolOutcome,
     OpsAgentToolRegistry, OpsAgentToolRequest, OpsAgentToolResolution, OpsAgentToolResolveRequest,
 };
-use crate::ops_agent::types::{
-    OpsAgentActionStatus, OpsAgentMessage, OpsAgentPendingAction, OpsAgentResolveActionInput,
-    OpsAgentRiskLevel, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply, PlannedToolAction,
-};
 use crate::state::AppState;
 
-use super::helpers::normalized_reply;
-use super::react_loop::split_history_for_current_message;
-use super::{resolve_pending_action, OPS_AGENT_MAX_REACT_STEPS};
+use super::resolve_pending_action;
 
 type TestToolFuture<T> = Pin<Box<dyn Future<Output = AppResult<T>> + Send + 'static>>;
 
@@ -231,6 +232,7 @@ where
         question,
         None,
         None,
+        Vec::new(),
     )?;
     let conversation = state.ops_agent.get_conversation(conversation_id)?;
     let (mut history, current_user_message) =
@@ -247,6 +249,7 @@ where
                 &final_answer,
                 None,
                 None,
+                Vec::new(),
             )?;
             return Ok((final_answer, None));
         }
@@ -275,6 +278,7 @@ where
                     &execution.message,
                     Some(execution.tool_kind),
                     None,
+                    Vec::new(),
                 )?;
                 history.push(tool_message);
             }
@@ -289,6 +293,7 @@ where
                     &prompt,
                     None,
                     None,
+                    Vec::new(),
                 )?;
                 return Ok((prompt, Some(action)));
             }
@@ -303,6 +308,7 @@ where
         &limit_message,
         None,
         None,
+        Vec::new(),
     )?;
     Ok((limit_message, None))
 }
@@ -438,7 +444,7 @@ fn react_loop_can_queue_mock_approval_action() {
     );
     assert_eq!(
         resolved.action.approval_decision,
-        Some(crate::ops_agent::types::OpsAgentApprovalDecision::Approved)
+        Some(crate::ops_agent::domain::types::OpsAgentApprovalDecision::Approved)
     );
 }
 
@@ -486,7 +492,7 @@ fn rejecting_pending_action_persists_rejection_decision() {
 
     assert_eq!(
         resolved.action.approval_decision,
-        Some(crate::ops_agent::types::OpsAgentApprovalDecision::Rejected)
+        Some(crate::ops_agent::domain::types::OpsAgentApprovalDecision::Rejected)
     );
 }
 
@@ -615,6 +621,6 @@ fn resolve_pending_action_uses_requested_session_override_for_tool_resolution() 
     assert!(last_tool_message.content.contains("session-2"));
     assert_eq!(
         resolved.action.approval_decision,
-        Some(crate::ops_agent::types::OpsAgentApprovalDecision::Approved)
+        Some(crate::ops_agent::domain::types::OpsAgentApprovalDecision::Approved)
     );
 }

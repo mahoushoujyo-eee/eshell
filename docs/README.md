@@ -7,6 +7,7 @@
 - `assets/`: documentation images and static assets
 - `debug/`: temporary debug output captured during investigation
 - `guides/`: development and feature behavior guides
+- `guides/architecture/`: stable architecture maps and package-boundary references
 - `guides/features/`: feature-specific guides such as Ops Agent, server status, and SFTP transfer
 - `prompts/`: prompts used to generate or evolve the project
 - `reports/`: remediation checklists, TODOs, and other progress records
@@ -22,3 +23,4 @@
 - API contracts and scope definitions go in `specs/`.
 - Temporary notes, checklists, and one-off records go in `reports/` or `scratch/`.
 - Large external references stay under `refer_proj/`.
+- Temporary debug dumps, scratch captures, and one-off TODO notes should be deleted after their conclusions are folded into stable docs.

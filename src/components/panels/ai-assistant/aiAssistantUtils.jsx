@@ -131,7 +131,7 @@ export const toolStateLabel = (toolState) => {
 
 export const toolStateBadgeClass = (toolState) => {
   if (toolState === "awaiting_approval") {
-    return "border-[#e1b95d] bg-[#ffecc3] text-[#8a5a00]";
+    return "border-warning/35 bg-warning/12 text-warning";
   }
   if (toolState === "executed") {
     return "border-success/45 bg-success/10 text-success";
@@ -160,7 +160,7 @@ export const pendingRiskBadgeClass = (riskLevel) => {
     return "border-danger/45 bg-danger/15 text-danger";
   }
   if (riskLevel === "medium") {
-    return "border-[#e1b95d] bg-[#ffecc3] text-[#8a5a00]";
+    return "border-warning/35 bg-warning/12 text-warning";
   }
   if (riskLevel === "low") {
     return "border-success/45 bg-success/10 text-success";

@@ -1,12 +1,7 @@
-pub mod compact;
-pub mod context;
-pub mod events;
-pub mod logging;
-pub mod openai;
+pub mod application;
+pub mod core;
+pub mod domain;
+pub mod infrastructure;
 pub mod providers;
-pub mod run_registry;
-pub mod service;
-pub mod store;
-pub mod stream;
 pub mod tools;
-pub mod types;
+pub mod transport;

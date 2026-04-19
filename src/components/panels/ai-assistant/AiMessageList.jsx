@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useI18n } from "../../../lib/i18n";
 import { groupOpsAgentMessages } from "../../../lib/ops-agent-message-rendering";
+import { api } from "../../../lib/tauri-api";
 import AiAgentTurn from "./AiAgentTurn";
+import AiImageViewer from "./AiImageViewer";
 import { copyText } from "./aiAssistantUtils";
 import AiUserMessage from "./AiUserMessage";
 
@@ -32,9 +34,11 @@ export default function AiMessageList({
   const [expandedToolMessageIds, setExpandedToolMessageIds] = useState(() => ({}));
   const [expandedThinkKeys, setExpandedThinkKeys] = useState(() => ({}));
   const [copiedMessageKey, setCopiedMessageKey] = useState(null);
+  const [imageViewer, setImageViewer] = useState(null);
   const copyFeedbackTimerRef = useRef(null);
   const shouldStickToBottomRef = useRef(true);
   const activeConversationIdRef = useRef(activeConversationId);
+  const attachmentCacheRef = useRef(new Map());
 
   useLayoutEffect(() => {
     const node = messageScrollRef.current;
@@ -58,6 +62,8 @@ export default function AiMessageList({
     setExpandedToolMessageIds({});
     setExpandedThinkKeys({});
     setCopiedMessageKey(null);
+    setImageViewer(null);
+    attachmentCacheRef.current.clear();
   }, [activeConversationId]);
 
   useEffect(() => {
@@ -102,6 +108,64 @@ export default function AiMessageList({
       }, 1800);
     } catch (error) {
       console.error("copy ai message failed", error);
+    }
+  };
+
+  const handleOpenImageAttachment = async (attachmentId, label) => {
+    if (!attachmentId) {
+      return;
+    }
+
+    const cachedAttachment = attachmentCacheRef.current.get(attachmentId);
+    if (cachedAttachment) {
+      setImageViewer({
+        attachmentId,
+        label,
+        loading: false,
+        error: "",
+        attachment: cachedAttachment,
+      });
+      return;
+    }
+
+    setImageViewer({
+      attachmentId,
+      label,
+      loading: true,
+      error: "",
+      attachment: null,
+    });
+
+    try {
+      const attachment = await api.opsAgentGetAttachmentContent(attachmentId);
+      attachmentCacheRef.current.set(attachmentId, attachment);
+      setImageViewer((current) =>
+        current?.attachmentId === attachmentId
+          ? {
+              attachmentId,
+              label,
+              loading: false,
+              error: "",
+              attachment,
+            }
+          : current,
+      );
+    } catch (error) {
+      const errorMessage =
+        typeof error === "string"
+          ? error
+          : error?.message || t("Failed to load image");
+      setImageViewer((current) =>
+        current?.attachmentId === attachmentId
+          ? {
+              attachmentId,
+              label,
+              loading: false,
+              error: errorMessage,
+              attachment: null,
+            }
+          : current,
+      );
     }
   };
 
@@ -152,6 +216,8 @@ export default function AiMessageList({
                 group={group}
                 isDrawer={isDrawer}
                 expandedShellMessageIds={expandedShellMessageIds}
+                openingAttachmentId={imageViewer?.loading ? imageViewer.attachmentId : ""}
+                onOpenImageAttachment={handleOpenImageAttachment}
                 onToggleShellContextMessage={(messageId) =>
                   setExpandedShellMessageIds((current) => ({
                     ...current,
@@ -163,6 +229,7 @@ export default function AiMessageList({
           )}
         </div>
       )}
+      <AiImageViewer viewerState={imageViewer} onClose={() => setImageViewer(null)} />
     </div>
   );
 }

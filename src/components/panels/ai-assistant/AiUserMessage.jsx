@@ -1,3 +1,4 @@
+import { Image as ImageIcon } from "lucide-react";
 import { normalizeShellContextAttachment } from "../../../lib/ops-agent-shell-context";
 import { useI18n } from "../../../lib/i18n";
 import { ShellContextChip } from "./AiAssistantControls";
@@ -8,10 +9,13 @@ export default function AiUserMessage({
   isDrawer,
   expandedShellMessageIds,
   onToggleShellContextMessage,
+  onOpenImageAttachment,
+  openingAttachmentId,
 }) {
   const { t } = useI18n();
   const message = group.message;
   const shellContext = normalizeShellContextAttachment(message.shellContext);
+  const attachmentIds = Array.isArray(message.attachmentIds) ? message.attachmentIds : [];
   const shellContextExpanded = Boolean(expandedShellMessageIds[message.id]);
 
   return (
@@ -45,7 +49,29 @@ export default function AiUserMessage({
             </pre>
           </div>
         ) : null}
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12px]">{message.content}</pre>
+        {attachmentIds.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {attachmentIds.map((attachmentId, index) => (
+              <button
+                key={attachmentId}
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/18 bg-black/12 px-3 py-1 text-[11px] text-white/92 transition-colors hover:bg-black/18 disabled:cursor-wait disabled:opacity-80"
+                onClick={() =>
+                  onOpenImageAttachment(attachmentId, `${t("Image")} ${index + 1}`)
+                }
+                disabled={openingAttachmentId === attachmentId}
+              >
+                <ImageIcon className="h-3.5 w-3.5" />
+                <span>{`${t("Image")} ${index + 1}`}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {message.content.trim() ? (
+          <pre className="whitespace-pre-wrap break-words font-mono text-[12px]">
+            {message.content}
+          </pre>
+        ) : null}
       </article>
     </div>
   );

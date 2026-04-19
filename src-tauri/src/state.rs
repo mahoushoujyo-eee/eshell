@@ -5,8 +5,9 @@ use std::sync::RwLock;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{ServerStatus, ShellSession};
-use crate::ops_agent::run_registry::OpsAgentRunRegistry;
-use crate::ops_agent::store::OpsAgentStore;
+use crate::ops_agent::infrastructure::attachments::OpsAgentAttachmentStore;
+use crate::ops_agent::infrastructure::run_registry::OpsAgentRunRegistry;
+use crate::ops_agent::infrastructure::store::OpsAgentStore;
 use crate::ops_agent::tools::{default_ops_agent_tool_registry, OpsAgentToolRegistry};
 use crate::storage::Storage;
 
@@ -26,6 +27,7 @@ pub enum PtyCommand {
 pub struct AppState {
     pub storage: Storage,
     pub ops_agent: OpsAgentStore,
+    pub ops_agent_attachments: OpsAgentAttachmentStore,
     pub ops_agent_tools: OpsAgentToolRegistry,
     pub ops_agent_runs: OpsAgentRunRegistry,
     sessions: RwLock<HashMap<String, ShellSession>>,
@@ -47,7 +49,8 @@ impl AppState {
     ) -> AppResult<Self> {
         Ok(Self {
             storage: Storage::new(storage_root.clone())?,
-            ops_agent: OpsAgentStore::new(storage_root)?,
+            ops_agent: OpsAgentStore::new(storage_root.clone())?,
+            ops_agent_attachments: OpsAgentAttachmentStore::new(storage_root)?,
             ops_agent_tools,
             ops_agent_runs: OpsAgentRunRegistry::new(),
             sessions: RwLock::new(HashMap::new()),

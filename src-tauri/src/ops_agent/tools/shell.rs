@@ -3,10 +3,10 @@ use std::sync::Arc;
 use crate::error::{AppError, AppResult};
 use crate::models::AiApprovalMode;
 use crate::models::CommandExecutionResult;
-use crate::ops_agent::logging::append_debug_log;
-use crate::ops_agent::types::{
+use crate::ops_agent::domain::types::{
     OpsAgentActionStatus, OpsAgentRiskLevel, OpsAgentRole, OpsAgentToolKind,
 };
+use crate::ops_agent::infrastructure::logging::append_debug_log;
 use crate::server_ops;
 
 use super::{

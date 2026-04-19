@@ -1,6 +1,6 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::models::now_rfc3339;
@@ -47,11 +47,26 @@ pub fn append_debug_log(
     conversation_id: Option<&str>,
     message: impl AsRef<str>,
 ) {
+    append_debug_log_at_path(
+        resolve_log_path(state).as_path(),
+        level,
+        run_id,
+        conversation_id,
+        message,
+    );
+}
+
+pub fn append_debug_log_at_path(
+    log_path: &Path,
+    level: &str,
+    run_id: Option<&str>,
+    conversation_id: Option<&str>,
+    message: impl AsRef<str>,
+) {
     let _guard = OPS_AGENT_LOG_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    let log_path = resolve_log_path(state);
     if let Some(parent) = log_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -72,8 +87,12 @@ pub fn append_debug_log(
     let _ = file.write_all(line.as_bytes());
 }
 
+pub fn resolve_ops_agent_log_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(OPS_AGENT_LOG_FILE)
+}
+
 fn resolve_log_path(state: &AppState) -> PathBuf {
-    state.storage.data_dir().join(OPS_AGENT_LOG_FILE)
+    resolve_ops_agent_log_path(&state.storage.data_dir())
 }
 
 pub fn truncate_for_log(text: &str, max_chars: usize) -> String {

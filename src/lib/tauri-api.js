@@ -78,6 +78,8 @@ export const api = {
     invoke("ops_agent_create_conversation", { input: { title, sessionId } }),
   opsAgentGetConversation: (conversationId) =>
     invoke("ops_agent_get_conversation", { input: { conversationId } }),
+  opsAgentGetAttachmentContent: (attachmentId) =>
+    invoke("ops_agent_get_attachment_content", { input: { attachmentId } }),
   opsAgentDeleteConversation: (conversationId) =>
     invoke("ops_agent_delete_conversation", { input: { conversationId } }),
   opsAgentSetActiveConversation: (conversationId) =>

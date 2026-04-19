@@ -32,6 +32,7 @@ Implemented:
 - status monitoring panel with disk / process view switching
 - script management and execution
 - Ops Agent chat and pending-action approval
+- Ops Agent image upload, detached attachment persistence, and image preview
 - Ops Agent manual and automatic conversation compaction
 - Ops Agent run cancellation and post-approval resume flow
 - English / Simplified Chinese UI switching with persisted locale preference
@@ -53,6 +54,7 @@ Important files:
 - `ai_profiles.json`
 - `ops_agent_conversation_list.json`
 - `ops_agent_conversations/*.json`
+- `ops_agent_attachments/*`
 - `ops_agent_debug.log`
 
 Runtime-only state examples:
@@ -86,6 +88,8 @@ See [SFTP Transfer Guide](../guides/features/sftp_transfer.md).
 Current Ops Agent behavior is event-driven and conversation-centric:
 - chat runs stream over `ops-agent-stream`
 - only one active run is allowed per conversation
+- user turns may include shell context plus one or more image attachments
+- image bytes are persisted separately from conversation JSON and referenced by attachment id
 - risky shell actions become pending approvals instead of immediate failures
 - approval resolution can resume the interrupted tool loop automatically
 - long conversations may be compacted to stay inside `maxContextTokens`

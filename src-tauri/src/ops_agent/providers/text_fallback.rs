@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use serde::Deserialize;
 
 use crate::error::AppResult;
-use crate::ops_agent::context::OpsAgentToolPromptHint;
-use crate::ops_agent::types::{OpsAgentToolKind, PlannedAgentReply, PlannedToolAction};
+use crate::ops_agent::core::prompting::OpsAgentToolPromptHint;
+use crate::ops_agent::domain::types::{OpsAgentToolKind, PlannedAgentReply, PlannedToolAction};
 
 use super::normalize_tool_kind_alias;
 

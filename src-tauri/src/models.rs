@@ -14,6 +14,10 @@ pub fn default_ai_approval_mode() -> AiApprovalMode {
     AiApprovalMode::RequireApproval
 }
 
+pub fn default_ai_api_type() -> AiApiType {
+    AiApiType::OpenAiChatCompletions
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SshConfig {
@@ -317,9 +321,36 @@ impl Default for AiApprovalMode {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AiApiType {
+    #[serde(rename = "openai_chat_completions")]
+    OpenAiChatCompletions,
+    #[serde(rename = "openai_responses")]
+    OpenAiResponses,
+    #[serde(rename = "anthropic_messages")]
+    AnthropicMessages,
+}
+
+impl Default for AiApiType {
+    fn default() -> Self {
+        default_ai_api_type()
+    }
+}
+
+impl AiApiType {
+    pub fn default_base_url(&self) -> &'static str {
+        match self {
+            Self::OpenAiChatCompletions | Self::OpenAiResponses => "https://api.openai.com/v1",
+            Self::AnthropicMessages => "https://api.anthropic.com",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConfig {
+    #[serde(default = "default_ai_api_type")]
+    pub api_type: AiApiType,
     pub base_url: String,
     pub api_key: String,
     pub model: String,
@@ -335,8 +366,10 @@ pub struct AiConfig {
 
 impl Default for AiConfig {
     fn default() -> Self {
+        let api_type = default_ai_api_type();
         Self {
-            base_url: "https://api.openai.com/v1".to_string(),
+            api_type: api_type.clone(),
+            base_url: api_type.default_base_url().to_string(),
             api_key: String::new(),
             model: "gpt-4o-mini".to_string(),
             system_prompt: "You are a Linux operations assistant. Return concise answers and include safe shell commands when needed.".to_string(),
@@ -352,6 +385,8 @@ impl Default for AiConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConfigInput {
+    #[serde(default = "default_ai_api_type")]
+    pub api_type: AiApiType,
     pub base_url: String,
     pub api_key: String,
     pub model: String,
@@ -369,6 +404,8 @@ pub struct AiConfigInput {
 pub struct AiProfile {
     pub id: String,
     pub name: String,
+    #[serde(default = "default_ai_api_type")]
+    pub api_type: AiApiType,
     pub base_url: String,
     pub api_key: String,
     pub model: String,
@@ -386,6 +423,8 @@ pub struct AiProfile {
 pub struct AiProfileInput {
     pub id: Option<String>,
     pub name: String,
+    #[serde(default = "default_ai_api_type")]
+    pub api_type: AiApiType,
     pub base_url: String,
     pub api_key: String,
     pub model: String,
@@ -416,21 +455,6 @@ pub struct SetActiveAiProfileInput {
 pub struct SetAiApprovalModeInput {
     #[serde(default = "default_ai_approval_mode")]
     pub approval_mode: AiApprovalMode,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum AiRole {
-    System,
-    User,
-    Assistant,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiChatMessage {
-    pub role: AiRole,
-    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

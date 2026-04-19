@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::{
-    AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput, AiProfilesState, ScriptInput,
-    SshConfigInput,
+    AiApiType, AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput, AiProfilesState,
+    ScriptInput, SshConfigInput,
 };
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -132,6 +132,7 @@ fn ai_profile_crud_works() {
         .save_ai_profile(AiProfileInput {
             id: None,
             name: "SeedProfile".to_string(),
+            api_type: profile_seed.api_type.clone(),
             base_url: profile_seed.base_url.clone(),
             api_key: profile_seed.api_key.clone(),
             model: profile_seed.model.clone(),
@@ -173,6 +174,7 @@ fn save_ai_config_updates_active_profile() {
     let storage = Storage::new(temp_dir("ai-config")).expect("create storage");
     let updated = storage
         .save_ai_config(AiConfigInput {
+            api_type: profile_seed.api_type.clone(),
             base_url: format!("{expected_base_url}/"),
             api_key: profile_seed.api_key.clone(),
             model: profile_seed.model.clone(),
@@ -190,6 +192,7 @@ fn save_ai_config_updates_active_profile() {
         .and_then(|id| state.profiles.into_iter().find(|item| item.id == id))
         .expect("active profile");
     assert_eq!(updated.base_url, expected_base_url);
+    assert_eq!(updated.api_type, profile_seed.api_type);
     assert_eq!(active.model, profile_seed.model);
     assert_eq!(active.api_key, profile_seed.api_key);
     assert_eq!(state.approval_mode, AiApprovalMode::AutoExecute);
@@ -267,6 +270,7 @@ fn get_ai_config_prefers_requested_active_profile() {
     assert_eq!(config.max_context_tokens, profile_seed.max_context_tokens);
     assert_eq!(config.temperature, profile_seed.temperature);
     assert_eq!(config.system_prompt, profile_seed.system_prompt);
+    assert_eq!(config.api_type, profile_seed.api_type);
     assert_eq!(config.approval_mode, AiApprovalMode::RequireApproval);
 }
 
@@ -305,6 +309,7 @@ fn legacy_ai_profiles_without_max_context_tokens_get_default_value() {
 
     let profiles = storage.list_ai_profiles();
     assert_eq!(profiles.profiles[0].max_context_tokens, 100_000);
+    assert_eq!(profiles.profiles[0].api_type, AiApiType::OpenAiChatCompletions);
     assert_eq!(profiles.approval_mode, AiApprovalMode::RequireApproval);
 }
 
@@ -356,6 +361,7 @@ fn save_ai_approval_mode_updates_global_setting_only() {
         .save_ai_profile(AiProfileInput {
             id: None,
             name: "SeedProfile".to_string(),
+            api_type: profile_seed.api_type.clone(),
             base_url: profile_seed.base_url.clone(),
             api_key: profile_seed.api_key.clone(),
             model: profile_seed.model.clone(),

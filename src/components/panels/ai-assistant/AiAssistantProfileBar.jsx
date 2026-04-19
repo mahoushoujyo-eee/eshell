@@ -1,4 +1,6 @@
 import { Bot } from "lucide-react";
+import ProviderIcon from "../../ai/ProviderIcon";
+import { getAiProviderMeta } from "../../../lib/aiProviderTypes";
 import { useI18n } from "../../../lib/i18n";
 
 export default function AiAssistantProfileBar({
@@ -8,6 +10,9 @@ export default function AiAssistantProfileBar({
   onSelectAiProfile,
 }) {
   const { t } = useI18n();
+  const activeProfile =
+    aiProfiles.find((profile) => profile.id === activeAiProfileId) || null;
+  const activeProvider = getAiProviderMeta(activeProfile?.apiType);
 
   if (hasManagedShell) {
     return null;
@@ -19,6 +24,12 @@ export default function AiAssistantProfileBar({
         <Bot className="h-4 w-4 text-accent" aria-hidden="true" />
         {t("Ops Agent")}
       </div>
+      {activeProfile ? (
+        <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-surface/80 px-2.5 py-1 text-[11px] text-muted">
+          <ProviderIcon apiType={activeProfile.apiType} className="h-6 w-6" />
+          <span>{activeProvider.shortLabel}</span>
+        </div>
+      ) : null}
       <select
         className={[
           "min-w-0 border border-border/75 bg-surface/75 px-3 py-2 text-xs outline-none",
@@ -33,7 +44,7 @@ export default function AiAssistantProfileBar({
         ) : (
           aiProfiles.map((profile) => (
             <option key={profile.id} value={profile.id}>
-              {profile.name} / {profile.model}
+              {profile.name} / {profile.model} / {getAiProviderMeta(profile.apiType).shortLabel}
             </option>
           ))
         )}

@@ -1,14 +1,21 @@
 # Ops Agent Guide
 
-This document describes the current Ops Agent behavior in eShell.
+This document describes the current Ops Agent behavior in eShell, including the latest image-based multimodal chat flow.
+
+Architecture reference:
+
+- layered package map: [docs/guides/architecture/ops_agent_layered_architecture.md](/E:/cctest/eshell-codex/eshell-codex/docs/guides/architecture/ops_agent_layered_architecture.md)
 
 ## 1. UX Behavior
 
 From the Ops Agent panel, the user can:
+
 - create, switch, and delete conversations
 - bind a conversation to the active shell session
 - stream assistant replies in real time
 - attach selected shell output as user-provided context
+- upload one or more images together with a user message
+- click image tags in already-sent user messages to view stored image content
 - manually compact the active conversation from the header action
 - review and resolve approval-gated actions
 - view localized UI copy in English or Simplified Chinese
@@ -18,9 +25,11 @@ The panel exposes conversation compaction as a manual action, while the backend 
 ## 2. Backend Surface
 
 Tauri commands:
+
 - `ops_agent_list_conversations`
 - `ops_agent_create_conversation`
 - `ops_agent_get_conversation`
+- `ops_agent_get_attachment_content`
 - `ops_agent_delete_conversation`
 - `ops_agent_set_active_conversation`
 - `ops_agent_compact_conversation`
@@ -30,59 +39,117 @@ Tauri commands:
 - `ops_agent_cancel_run`
 
 Event channel:
+
 - `ops-agent-stream`
 
 Frontend integration points:
+
 - `src/lib/tauri-api.js`
 - `src/lib/ops-agent-stream.js`
 - `src/hooks/workbench/operations.js`
 
-## 3. Chat Run Lifecycle
+## 3. Message and Attachment Model
 
-1. `ops_agent_chat_stream_start` validates the request, ensures or creates the target conversation, appends the user message, and registers one active run for that conversation.
-2. The backend emits `started` on `ops-agent-stream`.
-3. Before the planner loop runs, the backend estimates prompt size. If the conversation is already above `AiConfig.maxContextTokens`, it attempts automatic history compaction.
-4. The ReAct loop runs with a hard limit of `8` tool-planning steps.
-5. Each step either:
+The current message model distinguishes between:
+
+- text content stored directly on the message
+- optional shell context attached to user messages
+- image attachment ids stored on the message as `attachmentIds`
+
+Important rules:
+
+- incoming chat requests may contain `imageAttachments`, each with `fileName`, `contentType`, and `contentBase64`
+- conversation JSON does not store raw image bytes
+- stored message records only keep `attachmentIds`
+- raw image bytes and metadata are stored separately under `.eshell-data/ops_agent_attachments/`
+- the frontend fetches image content on demand through `ops_agent_get_attachment_content`
+
+This keeps conversation files small and avoids duplicating large base64 payloads inside message history.
+
+## 4. Chat Run Lifecycle
+
+1. `ops_agent_chat_stream_start` validates the request.
+2. The backend accepts:
+   - text-only messages
+   - text + shell context
+   - text + images
+   - image-only messages where `question` is an empty string
+3. If `imageAttachments` are present, the backend saves them into the attachment store before the run starts.
+4. The backend ensures or creates the target conversation, appends the user message, and stores only attachment ids on that message.
+5. The backend registers one active run for that conversation.
+6. The backend emits `started` on `ops-agent-stream`.
+7. Before the planner loop runs, the backend estimates prompt size. If the conversation is already above `AiConfig.maxContextTokens`, it attempts automatic history compaction.
+8. The ReAct loop runs with a hard limit of `8` tool-planning steps.
+9. Each step either:
    - returns a final assistant reply without tool use
    - executes a registered tool and appends a `Tool` message
    - creates a pending action that must be approved in the UI
-6. On successful completion, the backend appends the final assistant message and emits `completed`.
-7. On failure, the backend emits `error`.
-8. On user cancellation, the run registry is marked cancelled and the backend emits `completed` with an empty answer so the frontend can clear the active streaming state.
+10. When user history is serialized for the provider, the backend resolves `attachmentIds` back into local image content and emits a multimodal provider message.
+11. On successful completion, the backend appends the final assistant message and emits `completed`.
+12. On failure, the backend emits `error`.
+13. On user cancellation, the run registry is marked cancelled and the backend emits `completed` with an empty answer so the frontend can clear the active streaming state.
 
 Important code paths:
-- `src-tauri/src/ops_agent/service/chat.rs`
-- `src-tauri/src/ops_agent/service/react_loop.rs`
-- `src-tauri/src/ops_agent/service/runtime.rs`
-- `src-tauri/src/ops_agent/run_registry.rs`
 
-## 4. Stream Event Semantics
+- `src-tauri/src/ops_agent/application/chat.rs`
+- `src-tauri/src/ops_agent/core/llm.rs`
+- `src-tauri/src/ops_agent/core/react_loop.rs`
+- `src-tauri/src/ops_agent/core/runtime.rs`
+- `src-tauri/src/ops_agent/infrastructure/attachments.rs`
+- `src-tauri/src/ops_agent/infrastructure/run_registry.rs`
+
+## 5. Multimodal Provider Flow
+
+The provider layer no longer assumes that every chat message is plain text.
+
+Current behavior:
+
+- user messages without images are serialized as text
+- user messages with images are serialized as multimodal message parts
+- text, shell context summary, and attachment summary remain in the text part
+- each referenced image becomes an `image_url` part with a local `data:` URL payload
+
+This means images are not only stored locally for UI preview. They also participate in model input during planning and answer generation.
+
+Important code paths:
+
+- `src-tauri/src/ops_agent/providers/types.rs`
+- `src-tauri/src/ops_agent/providers/openai_compat.rs`
+- `src-tauri/src/ops_agent/core/llm.rs`
+
+## 6. Stream Event Semantics
 
 Event name:
+
 - `ops-agent-stream`
 
 Payload fields (camelCase):
+
 - `runId`
 - `conversationId`
 - `stage`
 - `chunk`
 - `fullAnswer`
+- `toolCall`
 - `pendingAction`
 - `error`
 - `createdAt`
 
 Stage values:
+
 - `started`
 - `delta`
+- `tool_call`
 - `tool_read`
 - `requires_approval`
 - `completed`
 - `error`
 
 Stage behavior:
+
 - `started`: marks the active run and resets frontend stream text.
 - `delta`: appends streamed answer chunks.
+- `tool_call`: streams tool planning state before execution or approval.
 - `tool_read`: tells the frontend to reload the conversation because the backend appended a tool message.
 - `requires_approval`: carries a pending action payload for approval UI.
 - `completed`: ends the run and may carry `fullAnswer` plus the last pending action snapshot.
@@ -90,43 +157,50 @@ Stage behavior:
 
 There is no dedicated `cancelled` stream stage today. Cancellation is surfaced as a completed run with empty answer text.
 
-## 5. Tooling and Approval Model
+## 7. Tooling and Approval Model
 
 The default tool registry currently exposes:
+
 - `shell`
 - `ui_context`
 
 Compatibility aliases `read_shell` and `write_shell` map to the unified `shell` tool.
 
 Behavior summary:
+
 - safe or read-only shell actions can execute immediately
 - risky shell actions are converted into pending actions instead of failing outright
 - pending actions are stored with `pending`, `executed`, `failed`, or `rejected` status
 
 When the user resolves an action through `ops_agent_resolve_action`:
+
 - rejected actions add an assistant notice and stop there
 - executed or failed actions append a tool message
 - if the original user turn can be reconstructed, the backend resumes the interrupted ReAct flow automatically from that conversation turn
 
 Important code paths:
+
 - `src-tauri/src/ops_agent/tools/mod.rs`
 - `src-tauri/src/ops_agent/tools/shell.rs`
-- `src-tauri/src/ops_agent/service/resolve.rs`
-- `src-tauri/src/ops_agent/store.rs`
+- `src-tauri/src/ops_agent/application/approval.rs`
+- `src-tauri/src/ops_agent/infrastructure/store.rs`
 
-## 6. Conversation Compaction
+## 8. Conversation Compaction
 
 Compaction exists to keep a long-running conversation inside the configured context window.
 
 Manual compaction:
+
 - frontend invokes `ops_agent_compact_conversation`
 - backend rewrites the conversation history immediately
 
 Automatic compaction:
+
 - triggered at chat-run start when the estimated prompt size is above `AiConfig.maxContextTokens`
 - runs before the planner loop continues
 
 Compaction strategy:
+
 - keep a token-based tail of recent messages
 - always keep at least the most recent `2` messages
 - summarize the older prefix using the configured model
@@ -135,8 +209,10 @@ Compaction strategy:
   - one `System` boundary message
   - one `Assistant` summary message
   - the preserved recent tail
+- if compacted-away messages referenced images that are no longer kept, the backend also deletes those orphaned attachment files
 
 Result fields returned by the RPC:
+
 - `conversation`
 - `compacted`
 - `note`
@@ -144,42 +220,61 @@ Result fields returned by the RPC:
 - `estimatedTokensAfter`
 
 Important code paths:
-- `src-tauri/src/ops_agent/compact.rs`
-- `src-tauri/src/ops_agent/service/compact.rs`
 
-## 7. Persistence and Logs
+- `src-tauri/src/ops_agent/core/compaction.rs`
+- `src-tauri/src/ops_agent/application/compaction.rs`
+
+## 9. Persistence and Logs
 
 Persistent files under `.eshell-data/`:
+
 - `ops_agent_conversation_list.json`
 - `ops_agent_conversations/<conversation-id>.json`
+- `ops_agent_attachments/<attachment-id>.bin`
+- `ops_agent_attachments/<attachment-id>.json`
 - `ops_agent_debug.log`
 
 Persistence rules:
+
 - conversation summaries, active conversation id, and pending actions are stored in the list file
 - full message history for each conversation is stored as a separate JSON document
+- image bytes are stored separately from conversation JSON
+- user messages only reference images through `attachmentIds`
 - pending actions are not stored inside individual conversation files
 
 Runtime-only state:
+
 - run registry and cancellation flags
 - current streaming run ownership per conversation
 
 Debug log coverage in `ops_agent_debug.log`:
+
 - shared log context includes `run_id` and `conversation_id` when available
-- high-level request assembly logs capture user message previews, shell context previews, and native tool-call parsing outcomes
+- layer prefixes remain explicit:
+  - `application.*` for use-case entry and completion
+  - `infrastructure.*` for store mutations, attachment persistence, and state edges
+  - `transport.*` for stream event emission
+- attachment lifecycle logs now cover save / load / delete operations
+- high-level request assembly logs capture user message previews, shell context previews, attachment counts, and native tool-call parsing outcomes
 - provider logs capture outbound request metadata, message previews, tool schema previews, non-2xx response previews, and JSON parse failures
 - stream logs capture chunk/event progression plus final stream statistics
-- compaction logs capture trigger reason, preserved tail sizing, summary source, and estimated token deltas
+- compaction logs capture trigger reason, preserved tail sizing, summary source, estimated token deltas, and orphaned attachment cleanup
 
 Important code paths:
-- `src-tauri/src/ops_agent/store.rs`
-- `src-tauri/src/ops_agent/logging.rs`
-- `src-tauri/src/ops_agent/openai.rs`
+
+- `src-tauri/src/ops_agent/infrastructure/store.rs`
+- `src-tauri/src/ops_agent/infrastructure/attachments.rs`
+- `src-tauri/src/ops_agent/infrastructure/logging.rs`
+- `src-tauri/src/ops_agent/core/llm.rs`
 - `src-tauri/src/ops_agent/providers/openai_compat.rs`
-- `src-tauri/src/ops_agent/compact.rs`
-- `src-tauri/src/ops_agent/run_registry.rs`
+- `src-tauri/src/ops_agent/core/compaction.rs`
+- `src-tauri/src/ops_agent/infrastructure/run_registry.rs`
 
-## 8. Current Limitations
+## 10. Current Limitations
 
+- Only image attachments are supported today. There is no generalized file attachment model yet.
+- Stored attachments are local-first files under `.eshell-data` and are not encrypted.
+- Frontend image preview is on-demand by attachment id; there is no inline full-resolution history preload.
 - Chat runs are not resumable after app restart.
 - Stream cancellation does not have its own stage; consumers must treat empty `completed` events as a cancelled-or-empty terminal state.
 - Compaction is destructive by design: older raw messages are replaced by a summary.
