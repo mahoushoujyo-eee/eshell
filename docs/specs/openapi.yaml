@@ -905,8 +905,9 @@ components:
       properties:
         input:
           type: object
-          required: [baseUrl, apiKey, model, systemPrompt, temperature, maxTokens, maxContextTokens]
+          required: [apiType, baseUrl, apiKey, model, systemPrompt, temperature, maxTokens, maxContextTokens, approvalMode]
           properties:
+            apiType: { $ref: "#/components/schemas/AiApiType" }
             baseUrl: { type: string }
             apiKey: { type: string }
             model: { type: string }
@@ -914,15 +915,17 @@ components:
             temperature: { type: number }
             maxTokens: { type: integer }
             maxContextTokens: { type: integer }
+            approvalMode: { $ref: "#/components/schemas/AiApprovalMode" }
     AiProfileRequest:
       type: object
       properties:
         input:
           type: object
-          required: [name, baseUrl, apiKey, model, systemPrompt, temperature, maxTokens, maxContextTokens]
+          required: [name, apiType, baseUrl, apiKey, model, systemPrompt, temperature, maxTokens, maxContextTokens]
           properties:
             id: { type: string, nullable: true }
             name: { type: string }
+            apiType: { $ref: "#/components/schemas/AiApiType" }
             baseUrl: { type: string }
             apiKey: { type: string }
             model: { type: string }
@@ -949,10 +952,54 @@ components:
             includeLastOutput: { type: boolean }
     AiConfig:
       type: object
-      additionalProperties: true
+      required: [apiType, baseUrl, apiKey, model, systemPrompt, temperature, maxTokens, maxContextTokens, approvalMode, updatedAt]
+      properties:
+        apiType: { $ref: "#/components/schemas/AiApiType" }
+        baseUrl: { type: string }
+        apiKey: { type: string }
+        model: { type: string }
+        systemPrompt: { type: string }
+        temperature: { type: number }
+        maxTokens: { type: integer }
+        maxContextTokens: { type: integer }
+        approvalMode: { $ref: "#/components/schemas/AiApprovalMode" }
+        updatedAt: { type: string, format: date-time }
+    AiProfile:
+      type: object
+      required: [id, name, apiType, baseUrl, apiKey, model, systemPrompt, temperature, maxTokens, maxContextTokens, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        apiType: { $ref: "#/components/schemas/AiApiType" }
+        baseUrl: { type: string }
+        apiKey: { type: string }
+        model: { type: string }
+        systemPrompt: { type: string }
+        temperature: { type: number }
+        maxTokens: { type: integer }
+        maxContextTokens: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     AiProfilesState:
       type: object
-      additionalProperties: true
+      required: [profiles, approvalMode]
+      properties:
+        profiles:
+          type: array
+          items: { $ref: "#/components/schemas/AiProfile" }
+        activeProfileId: { type: string, nullable: true }
+        approvalMode: { $ref: "#/components/schemas/AiApprovalMode" }
+    AiApiType:
+      type: string
+      enum:
+        - openai_chat_completions
+        - openai_responses
+        - anthropic_messages
+    AiApprovalMode:
+      type: string
+      enum:
+        - require_approval
+        - auto_execute
     AiAnswer:
       type: object
       additionalProperties: true

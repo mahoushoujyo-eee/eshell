@@ -1,278 +1,269 @@
 # Ops Agent Layered Architecture
 
-这份文档描述当前 eShell 中 `ops_agent` 的实际分层，并补上最近新增的图片多模态输入与附件存储链路。
+This document describes the current layered layout of `src-tauri/src/ops_agent/` after the provider abstraction work, multimodal input support, and attachment persistence split.
 
-参考映射仍然采用“5 层 + 1 个支撑层”的方式：
+Reference layers:
 
-1. 交互层 `Interaction`
-2. 编排层 `Orchestration`
-3. 核心循环层 `Core Loop`
-4. 工具层 `Tools`
-5. 通信层 `Communication`
-6. 支撑层 `Infrastructure`
+1. Interaction
+2. Application
+3. Core
+4. Tools
+5. Provider / Transport
+6. Infrastructure
+7. Domain
 
-## 1. 当前包结构
+## 1. Package Map
 
 ```text
 src-tauri/src/ops_agent/
-├─ application/
-│  ├─ mod.rs
-│  ├─ attachments.rs
-│  ├─ approval.rs
-│  ├─ chat.rs
-│  ├─ compaction.rs
-│  └─ tests.rs
-├─ core/
-│  ├─ mod.rs
-│  ├─ compaction.rs
-│  ├─ helpers.rs
-│  ├─ llm.rs
-│  ├─ prompting.rs
-│  ├─ react_loop.rs
-│  └─ runtime.rs
-├─ domain/
-│  ├─ mod.rs
-│  └─ types.rs
-├─ infrastructure/
-│  ├─ mod.rs
-│  ├─ attachments.rs
-│  ├─ logging.rs
-│  ├─ run_registry.rs
-│  └─ store.rs
-├─ providers/
-│  ├─ mod.rs
-│  ├─ openai_compat.rs
-│  ├─ text_fallback.rs
-│  └─ types.rs
-├─ tools/
-│  ├─ mod.rs
-│  └─ shell.rs
-├─ transport/
-│  ├─ mod.rs
-│  ├─ events.rs
-│  └─ stream.rs
-└─ mod.rs
+|- application/
+|  |- approval.rs
+|  |- attachments.rs
+|  |- chat.rs
+|  |- compaction.rs
+|  |- mod.rs
+|  `- tests.rs
+|- core/
+|  |- compaction.rs
+|  |- helpers.rs
+|  |- llm.rs
+|  |- mod.rs
+|  |- prompting.rs
+|  |- react_loop.rs
+|  `- runtime.rs
+|- domain/
+|  |- mod.rs
+|  `- types.rs
+|- infrastructure/
+|  |- attachments.rs
+|  |- logging.rs
+|  |- mod.rs
+|  |- run_registry.rs
+|  `- store.rs
+|- providers/
+|  |- anthropic.rs
+|  |- mod.rs
+|  |- openai_compat.rs
+|  |- openai_responses.rs
+|  |- text_fallback.rs
+|  `- types.rs
+|- tools/
+|  |- mod.rs
+|  `- shell.rs
+|- transport/
+|  |- events.rs
+|  |- mod.rs
+|  `- stream.rs
+`- mod.rs
 ```
 
-## 2. 分层映射
+## 2. Layer Responsibilities
 
-### 交互层 `Interaction`
+### Interaction
 
-职责：
+Responsibilities:
 
-- 接收用户文本、shell 上下文、图片输入
-- 展示流式回复、工具状态、审批卡片
-- 展示已发送消息中的图片标签并按需查看图片内容
+- receives user text, shell context, and image attachments
+- renders stream deltas, tool states, and approval cards
+- lets the user switch the active AI profile
+- lets the user choose provider protocol type in the profile editor
 
-当前实现：
+Main entry points:
 
-- 前端 UI：`src/components/panels/ai-assistant/*`
-- Tauri 命令入口：`src-tauri/src/commands/ops_agent.rs`
-- 前端桥接：`src/lib/tauri-api.js`、`src/lib/ops-agent-stream.js`
+- `src/components/panels/ai-assistant/*`
+- `src/components/sidebar/AiConfigModal.jsx`
+- `src/hooks/workbench/operations.js`
+- `src/hooks/workbench/aiProfiles.js`
+- `src/lib/tauri-api.js`
 
-说明：
+### Application
 
-- 图片不会先走独立上传服务，而是和一次聊天请求一起通过 `base64` 进入后端。
-- 图片查看走单独的读取命令 `ops_agent_get_attachment_content`，避免会话 JSON 内嵌大块二进制数据。
+Responsibilities:
 
-### 编排层 `Orchestration`
+- conversation CRUD
+- starting and resuming chat runs
+- attachment readback for image preview
+- approval resolution
+- manual conversation compaction
 
-职责：
+Main files:
 
-- 会话 CRUD
-- 启动 chat run
-- 处理审批回调
-- 处理手动 compaction
-- 处理附件读取这种用例级入口
+- `application/chat.rs`
+- `application/approval.rs`
+- `application/attachments.rs`
+- `application/compaction.rs`
 
-当前实现：
+### Core
 
-- `src-tauri/src/ops_agent/application/chat.rs`
-- `src-tauri/src/ops_agent/application/approval.rs`
-- `src-tauri/src/ops_agent/application/compaction.rs`
-- `src-tauri/src/ops_agent/application/attachments.rs`
+Responsibilities:
 
-说明：
+- prompt assembly
+- request planning and final-answer generation
+- retry handling
+- auto-compaction
+- run lifecycle orchestration
 
-- `chat.rs` 现在除了创建/绑定会话、启动 run，还负责把前端传来的图片 payload 先落到附件存储层，再把 `attachmentIds` 写入消息。
-- `attachments.rs` 只负责“按附件 id 读取内容给前端预览”这个用例，不参与 ReAct 循环。
+Main files:
 
-### 核心循环层 `Core Loop`
+- `core/prompting.rs`
+- `core/llm.rs`
+- `core/react_loop.rs`
+- `core/runtime.rs`
+- `core/compaction.rs`
 
-职责：
+Important runtime detail:
 
-- Prompt 组装
-- LLM 规划与回答
-- ReAct loop
-- 自动 compaction
-- runtime 与取消/重试/结束逻辑
+- `react_loop.rs` reads `AiConfig` once at run start
+- changing the active AI profile during streaming affects the next request only
 
-当前实现：
+### Tools
 
-- `src-tauri/src/ops_agent/core/prompting.rs`
-- `src-tauri/src/ops_agent/core/llm.rs`
-- `src-tauri/src/ops_agent/core/react_loop.rs`
-- `src-tauri/src/ops_agent/core/compaction.rs`
-- `src-tauri/src/ops_agent/core/runtime.rs`
+Responsibilities:
 
-说明：
+- tool registry
+- tool execution
+- risk classification and approval gating
 
-- `core/llm.rs` 现在负责把用户消息从“文本 + shellContext + attachmentIds”转换成 provider 需要的图文混合消息。
-- 对用户消息来说，真正进入模型上下文的是：
-  - 文本请求
-  - shell 上下文文本
-  - 从本地附件存储层读取后拼成的 `data:` URL 图片内容
+Main files:
 
-### 工具层 `Tools`
+- `tools/mod.rs`
+- `tools/shell.rs`
 
-职责：
+### Provider / Transport
 
-- 工具注册
-- 工具契约
-- 工具执行
-- 审批前后统一封装
+Responsibilities:
 
-当前实现：
+- translate internal chat history into vendor-specific wire format
+- issue blocking or streaming HTTP calls
+- parse tool calls and streamed text deltas
+- normalize provider responses back to shared internal structures
 
-- `src-tauri/src/ops_agent/tools/mod.rs`
-- `src-tauri/src/ops_agent/tools/shell.rs`
+Main files:
 
-说明：
+- `providers/mod.rs`
+- `providers/types.rs`
+- `providers/openai_compat.rs`
+- `providers/openai_responses.rs`
+- `providers/anthropic.rs`
+- `transport/events.rs`
+- `transport/stream.rs`
 
-- 当前仍然以 `shell` 为主，`read_shell` / `write_shell` 只是兼容别名。
-- 多模态输入不是工具能力，而是用户消息输入能力，所以不放到 `tools/`。
+Provider dispatch is selected by `AiConfig.apiType`:
 
-### 通信层 `Communication`
+- `openai_chat_completions`
+- `openai_responses`
+- `anthropic_messages`
 
-职责：
+### Infrastructure
 
-- Provider 协议适配
-- SSE 流解析
-- Tauri 事件发射
+Responsibilities:
 
-当前实现：
+- conversation persistence
+- detached attachment persistence
+- debug logging
+- active run registry
+- AI profile persistence
 
-- `src-tauri/src/ops_agent/providers/openai_compat.rs`
-- `src-tauri/src/ops_agent/providers/text_fallback.rs`
-- `src-tauri/src/ops_agent/providers/types.rs`
-- `src-tauri/src/ops_agent/transport/events.rs`
-- `src-tauri/src/ops_agent/transport/stream.rs`
+Main files:
 
-说明：
+- `infrastructure/store.rs`
+- `infrastructure/attachments.rs`
+- `infrastructure/logging.rs`
+- `infrastructure/run_registry.rs`
+- `src-tauri/src/storage/ai_profiles.rs`
 
-- `providers/types.rs` 已从单纯字符串消息升级为可表示图文混合内容的协议模型。
-- `openai_compat.rs` 负责把这些内容序列化成 OpenAI 兼容接口可接受的 `messages`。
+### Domain
 
-## 3. 支撑层 `Infrastructure`
+Responsibilities:
 
-职责：
+- stable shared data structures
+- layer-neutral message, conversation, attachment, and tool-call types
 
-- 会话持久化
-- 附件文件持久化
-- 调试日志
-- 运行注册表
+Main files:
 
-当前实现：
+- `domain/types.rs`
 
-- `src-tauri/src/ops_agent/infrastructure/store.rs`
-- `src-tauri/src/ops_agent/infrastructure/attachments.rs`
-- `src-tauri/src/ops_agent/infrastructure/logging.rs`
-- `src-tauri/src/ops_agent/infrastructure/run_registry.rs`
+## 3. Provider Abstraction
 
-说明：
+`providers/mod.rs` is now the provider interface boundary for `ops_agent`.
 
-- `store.rs` 只保存会话元信息和消息正文；消息里只保留 `attachmentIds`。
-- `attachments.rs` 单独管理图片文件和元数据，存储目录是 `.eshell-data/ops_agent_attachments/`。
-- `logging.rs` 继续作为跨层共享日志工具，附件保存、读取、删除都写入 `ops_agent_debug.log`。
+Shared contract:
 
-## 4. 领域层 `Domain`
+- input: `Vec<ProviderChatMessage>`
+- options: `ProviderChatRequestOptions`
+- output: `ProviderChatMessageResponse`
 
-职责：
+Current implementations:
 
-- 定义稳定的数据结构
-- 承载跨层共享的纯数据模型
+- `openai_compat.rs` for Chat Completions compatible vendors
+- `openai_responses.rs` for OpenAI Responses compatible vendors
+- `anthropic.rs` for Anthropic Messages compatible vendors
 
-当前实现：
+This keeps `core/llm.rs` and `core/react_loop.rs` independent from vendor wire format.
 
-- `src-tauri/src/ops_agent/domain/types.rs`
+## 4. Multimodal Message Path
 
-当前关键模型：
+Flow:
 
-- `OpsAgentMessage`
-- `OpsAgentConversation`
-- `OpsAgentChatInput`
-- `OpsAgentImageAttachmentInput`
-- `OpsAgentAttachmentContent`
+1. The frontend sends `imageAttachments` in the chat request.
+2. `application/chat.rs` stores binary payloads through `infrastructure/attachments.rs`.
+3. Conversation history stores only `attachmentIds`.
+4. `core/llm.rs` reads those attachments back when preparing provider history.
+5. Provider transports serialize them into image-capable request parts.
 
-说明：
+Important consequence:
 
-- `OpsAgentMessage` 新增 `attachmentIds`
-- `OpsAgentChatInput` 新增 `imageAttachments`
-- 前端上传的图片 payload 与持久化后的附件引用被明确区分开
+- attachments are detached in persistence, but rehydrated into model input at request time
 
-## 5. 图片多模态链路
+## 5. AI Profile Model
 
-### 发送链路
+AI profile persistence lives outside `ops_agent`, but it directly affects provider dispatch.
 
-1. 前端在 `AiComposer` 中选择图片文件。
-2. 前端把图片转成 `base64`，作为 `imageAttachments` 一起传给 `ops_agent_chat_stream_start`。
-3. `application/chat.rs` 调用 `infrastructure/attachments.rs` 保存图片文件和元数据。
-4. 会话消息只保存 `attachmentIds`，不保存图片原始内容。
-5. `core/llm.rs` 在构造 provider 消息时，按 `attachmentIds` 回读本地图片并组装成图文混合消息。
+Stored fields now include:
 
-### 查看链路
+- `id`
+- `name`
+- `apiType`
+- `baseUrl`
+- `apiKey`
+- `model`
+- `systemPrompt`
+- `temperature`
+- `maxTokens`
+- `maxContextTokens`
 
-1. 前端消息区显示图片标签，而不是直接把图片内容内嵌在会话 JSON 中。
-2. 用户点击标签后，前端调用 `ops_agent_get_attachment_content`。
-3. `application/attachments.rs` 从附件存储层读取 `base64` 和 `contentType`。
-4. 前端用返回内容构造图片预览弹层。
+Global fields in `AiProfilesState`:
 
-### 清理链路
+- `activeProfileId`
+- `approvalMode`
 
-- 删除会话时，会删除该会话引用到的附件文件。
-- 历史压缩时，如果旧消息被压缩掉且附件不再被保留消息引用，也会删除附件文件。
+Current limitation:
 
-## 6. 持久化布局
+- profile selection is global to the app, not pinned per conversation
 
-当前 `.eshell-data/` 里的 Ops Agent 相关内容：
+## 6. Logging Boundaries
 
-```text
-.eshell-data/
-├─ ops_agent_conversation_list.json
-├─ ops_agent_conversations/
-│  └─ <conversation-id>.json
-├─ ops_agent_attachments/
-│  ├─ <attachment-id>.bin
-│  └─ <attachment-id>.json
-└─ ops_agent_debug.log
-```
+Debug logs in `.eshell-data/ops_agent_debug.log` should make it possible to reconstruct:
 
-约束：
+- request assembly
+- provider selection and request kind
+- stream progress
+- compaction decisions
+- attachment save/load/delete lifecycle
 
-- 会话 JSON 中只保存消息文本、shell 上下文、`attachmentIds`
-- 图片原始内容只在附件目录里保存
-- 前端查看图片时按需读取，不依赖会话文件内嵌
-
-## 7. 日志分层
-
-当前建议使用的日志前缀：
+Useful prefixes:
 
 - `application.*`
-- `infrastructure.*`
+- `run.*`
+- `react.*`
+- `ai.provider.*`
 - `transport.*`
+- `compact.*`
+- `infrastructure.attachments.*`
 
-图片链路新增重点前缀：
+## 7. Dependency Direction
 
-- `application.attachments.read`
-- `infrastructure.attachments.saved`
-- `infrastructure.attachments.loaded`
-- `infrastructure.attachments.deleted`
-
-这些日志和已有的 `chat.*`、`ai.provider.*`、`compact.*` 结合后，已经可以把“上传图片 -> 落盘 -> 进入模型 -> 点击查看 -> 删除清理”整条链路串起来排查。
-
-## 8. 依赖方向
-
-建议继续保持下面这个方向，不要反转：
+Recommended dependency direction:
 
 ```text
 frontend / commands
@@ -284,28 +275,19 @@ frontend / commands
   -> domain
 ```
 
-具体约束：
+Rules:
 
-- `application` 可以依赖 `core/tools/infrastructure/domain`
-- `core` 可以依赖 `providers/transport/infrastructure/domain`
-- `tools` 不要依赖 `application`
-- `providers` 不要依赖 `application/tools/store`
-- `domain` 只放数据结构和纯规则
+- `application` may depend on `core`, `tools`, `infrastructure`, and `domain`
+- `core` may depend on `providers`, `transport`, `infrastructure`, and `domain`
+- `providers` should not depend on `application`
+- `tools` should not depend on `application`
+- `domain` should stay free of transport or storage code
 
-## 9. 当前整理解决了什么
+## 8. Follow-up Refactors
 
-- `ops_agent` 根目录不再堆所有职责
-- provider 适配和 ReAct 核心循环彻底拆开
-- 会话持久化与附件持久化拆开
-- 图片内容不再污染会话 JSON
-- 前端查看图片走按需读取，而不是全量加载
-- 日志覆盖从“纯文本聊天”扩展到“图文输入 + 本地附件持久化”
+Likely next cleanup steps:
 
-## 10. 下一步建议
-
-如果继续整理，我建议按这个顺序做：
-
-1. 把 `tools/shell.rs` 再拆成 `validator / risk / executor`
-2. 把 `core/llm.rs` 再拆成 `planner / answerer / history_serializer`
-3. 为附件增加大小限制、数量限制和更明确的清理策略
-4. 如果后续要支持非图片附件，再单独抽一个 `attachments/` 子域，而不是把所有类型继续塞回 `types.rs`
+1. Split `tools/shell.rs` into validation, risk, and execution slices.
+2. Split `core/llm.rs` into history serialization, planner request, and final-answer request helpers.
+3. Add attachment count and size limits at the application boundary.
+4. If non-image attachments are added later, extract a dedicated attachment subdomain instead of widening generic message types indefinitely.

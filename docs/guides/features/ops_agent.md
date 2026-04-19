@@ -13,6 +13,8 @@ From the Ops Agent panel, the user can:
 - create, switch, and delete conversations
 - bind a conversation to the active shell session
 - stream assistant replies in real time
+- switch the active AI profile from the chat footer
+- choose provider protocol type when editing an AI profile
 - attach selected shell output as user-provided context
 - upload one or more images together with a user message
 - click image tags in already-sent user messages to view stored image content
@@ -48,7 +50,53 @@ Frontend integration points:
 - `src/lib/ops-agent-stream.js`
 - `src/hooks/workbench/operations.js`
 
-## 3. Message and Attachment Model
+Profile and config persistence:
+
+- `src-tauri/.eshell-data/ai_profiles.json`
+
+Important code paths:
+
+- `src-tauri/src/storage/ai_profiles.rs`
+- `src-tauri/src/models.rs`
+- `src/hooks/workbench/aiProfiles.js`
+- `src/components/sidebar/AiConfigModal.jsx`
+- `src/components/panels/ai-assistant/AiComposer.jsx`
+
+## 3. Provider and Profile Configuration
+
+AI configuration is now split into two concerns:
+
+- a global active profile id
+- one or more saved AI profiles
+
+Each profile now carries an `apiType` in addition to `baseUrl`, `apiKey`, and `model`.
+
+Supported `apiType` values:
+
+- `openai_chat_completions`
+- `openai_responses`
+- `anthropic_messages`
+
+Default base URLs:
+
+- `openai_chat_completions` -> `https://api.openai.com/v1`
+- `openai_responses` -> `https://api.openai.com/v1`
+- `anthropic_messages` -> `https://api.anthropic.com`
+
+Current behavior:
+
+- the active profile is global, not conversation-scoped
+- switching profiles updates the next request, not the already-running request
+- an in-flight chat run reads `AiConfig` once at run start and keeps that snapshot for the whole run
+- approval mode remains global and is stored beside the profile list, not inside each profile
+
+UI behavior:
+
+- the profile editor lets the user choose provider type explicitly
+- provider iconography is shown in the profile editor, profile bar, and model selector
+- chat footer no longer renders a duplicate provider badge next to the model selector
+
+## 4. Message and Attachment Model
 
 The current message model distinguishes between:
 
@@ -66,7 +114,7 @@ Important rules:
 
 This keeps conversation files small and avoids duplicating large base64 payloads inside message history.
 
-## 4. Chat Run Lifecycle
+## 5. Chat Run Lifecycle
 
 1. `ops_agent_chat_stream_start` validates the request.
 2. The backend accepts:
@@ -88,6 +136,7 @@ This keeps conversation files small and avoids duplicating large base64 payloads
 11. On successful completion, the backend appends the final assistant message and emits `completed`.
 12. On failure, the backend emits `error`.
 13. On user cancellation, the run registry is marked cancelled and the backend emits `completed` with an empty answer so the frontend can clear the active streaming state.
+14. If the user changes the active profile while a run is already streaming, that change does not alter the current run; it applies to the next chat request.
 
 Important code paths:
 
@@ -98,16 +147,32 @@ Important code paths:
 - `src-tauri/src/ops_agent/infrastructure/attachments.rs`
 - `src-tauri/src/ops_agent/infrastructure/run_registry.rs`
 
-## 5. Multimodal Provider Flow
+## 6. Provider Protocol Flow
 
-The provider layer no longer assumes that every chat message is plain text.
+The provider layer no longer assumes that every chat message is plain text or that every vendor speaks the same protocol.
 
 Current behavior:
 
+- `providers/mod.rs` selects a transport implementation from `AiConfig.apiType`
+- all providers receive the same internal `ProviderChatMessage` structure
 - user messages without images are serialized as text
 - user messages with images are serialized as multimodal message parts
 - text, shell context summary, and attachment summary remain in the text part
 - each referenced image becomes an `image_url` part with a local `data:` URL payload
+
+Supported transports:
+
+- `openai_compat.rs`: OpenAI Chat Completions compatible `messages` protocol
+- `openai_responses.rs`: OpenAI Responses `input` protocol
+- `anthropic.rs`: Anthropic Messages `messages` protocol
+
+Important protocol details:
+
+- OpenAI Chat Completions keeps assistant and user history in a classic `messages` array
+- OpenAI Responses uses role-aware content-part types
+- assistant history text for OpenAI Responses must be serialized as `output_text`
+- user history text for OpenAI Responses must be serialized as `input_text`
+- Anthropic transport maps image parts and tool calls to the Messages API shape
 
 This means images are not only stored locally for UI preview. They also participate in model input during planning and answer generation.
 
@@ -115,9 +180,12 @@ Important code paths:
 
 - `src-tauri/src/ops_agent/providers/types.rs`
 - `src-tauri/src/ops_agent/providers/openai_compat.rs`
+- `src-tauri/src/ops_agent/providers/openai_responses.rs`
+- `src-tauri/src/ops_agent/providers/anthropic.rs`
+- `src-tauri/src/ops_agent/providers/mod.rs`
 - `src-tauri/src/ops_agent/core/llm.rs`
 
-## 6. Stream Event Semantics
+## 7. Stream Event Semantics
 
 Event name:
 
@@ -157,7 +225,7 @@ Stage behavior:
 
 There is no dedicated `cancelled` stream stage today. Cancellation is surfaced as a completed run with empty answer text.
 
-## 7. Tooling and Approval Model
+## 8. Tooling and Approval Model
 
 The default tool registry currently exposes:
 
@@ -185,7 +253,7 @@ Important code paths:
 - `src-tauri/src/ops_agent/application/approval.rs`
 - `src-tauri/src/ops_agent/infrastructure/store.rs`
 
-## 8. Conversation Compaction
+## 9. Conversation Compaction
 
 Compaction exists to keep a long-running conversation inside the configured context window.
 
@@ -224,7 +292,7 @@ Important code paths:
 - `src-tauri/src/ops_agent/core/compaction.rs`
 - `src-tauri/src/ops_agent/application/compaction.rs`
 
-## 9. Persistence and Logs
+## 10. Persistence and Logs
 
 Persistent files under `.eshell-data/`:
 
@@ -256,7 +324,7 @@ Debug log coverage in `ops_agent_debug.log`:
   - `transport.*` for stream event emission
 - attachment lifecycle logs now cover save / load / delete operations
 - high-level request assembly logs capture user message previews, shell context previews, attachment counts, and native tool-call parsing outcomes
-- provider logs capture outbound request metadata, message previews, tool schema previews, non-2xx response previews, and JSON parse failures
+- provider logs capture `api_type`, outbound request metadata, message previews, tool schema previews, non-2xx response previews, and JSON parse failures
 - stream logs capture chunk/event progression plus final stream statistics
 - compaction logs capture trigger reason, preserved tail sizing, summary source, estimated token deltas, and orphaned attachment cleanup
 
@@ -267,10 +335,12 @@ Important code paths:
 - `src-tauri/src/ops_agent/infrastructure/logging.rs`
 - `src-tauri/src/ops_agent/core/llm.rs`
 - `src-tauri/src/ops_agent/providers/openai_compat.rs`
+- `src-tauri/src/ops_agent/providers/openai_responses.rs`
+- `src-tauri/src/ops_agent/providers/anthropic.rs`
 - `src-tauri/src/ops_agent/core/compaction.rs`
 - `src-tauri/src/ops_agent/infrastructure/run_registry.rs`
 
-## 10. Current Limitations
+## 11. Current Limitations
 
 - Only image attachments are supported today. There is no generalized file attachment model yet.
 - Stored attachments are local-first files under `.eshell-data` and are not encrypted.
@@ -279,3 +349,4 @@ Important code paths:
 - Stream cancellation does not have its own stage; consumers must treat empty `completed` events as a cancelled-or-empty terminal state.
 - Compaction is destructive by design: older raw messages are replaced by a summary.
 - Summary quality depends on the configured model and fallback heuristics.
+- AI profile selection is still global. A conversation does not yet pin its own provider or model snapshot.
