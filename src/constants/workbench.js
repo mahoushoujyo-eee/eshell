@@ -86,6 +86,7 @@ export const EMPTY_SCRIPT = {
 };
 
 export const DEFAULT_AI = {
+  apiType: "openai_chat_completions",
   baseUrl: "https://api.openai.com/v1",
   apiKey: "",
   model: "gpt-4o-mini",

@@ -128,37 +128,37 @@ export function ToolMessageSection({
             </span>
           ) : null}
         </div>
-        <span className="pt-1 text-[10px] uppercase tracking-[0.16em] text-[#8a5a00]/80">
+        <span className="pt-1 text-[10px] uppercase tracking-[0.16em] text-warning/75">
           {formatTime(message.createdAt)}
         </span>
       </div>
       {pendingAction ? (
-        <div className="mt-2 rounded-2xl border border-[#efc77a] bg-[#fff8e8] px-3 py-2 text-[11px] text-[#714800]">
+        <div className="mt-2 rounded-2xl border border-warning/35 bg-warning/8 px-3 py-2 text-[11px] text-text">
           <div className="font-medium">{t("Execute command request")}</div>
-          <pre className="mt-2 whitespace-pre-wrap break-words rounded-xl border border-[#efc77a] bg-white/55 px-2.5 py-2 font-mono text-[12px] text-[#5f3e00]">
+          <pre className="mt-2 whitespace-pre-wrap break-words rounded-xl border border-warning/25 bg-panel/78 px-2.5 py-2 font-mono text-[12px] text-text">
             {pendingAction.command}
           </pre>
           {pendingAction.reason ? (
-            <div className="mt-2 text-[#8a5a00]">
+            <div className="mt-2 text-muted">
               {t("Reason")}: {t(pendingAction.reason)}
             </div>
           ) : null}
           {approvalDecisionLabel ? (
-            <div className="mt-2 text-[#8a5a00]">
+            <div className="mt-2 text-muted">
               {t("Decision")}: {approvalDecisionLabel}
             </div>
           ) : null}
           {pendingAction.approvalComment ? (
-            <div className="mt-2 text-[#8a5a00]">
+            <div className="mt-2 text-muted">
               {t("Reviewer note")}: {pendingAction.approvalComment}
             </div>
           ) : null}
           {expanded && pendingAction.executionOutput ? (
             <div className="mt-2">
-              <div className="mb-1 text-[#8a5a00]">
+              <div className="mb-1 text-muted">
                 {pendingAction.status === "failed" ? t("Execution error") : t("Execution result")}
               </div>
-              <pre className="whitespace-pre-wrap break-words rounded-xl border border-[#efc77a] bg-white/55 px-2.5 py-2 font-mono text-[12px] text-[#5f3e00]">
+              <pre className="whitespace-pre-wrap break-words rounded-xl border border-warning/25 bg-panel/78 px-2.5 py-2 font-mono text-[12px] text-text">
                 {pendingAction.executionOutput}
               </pre>
             </div>
@@ -168,7 +168,7 @@ export function ToolMessageSection({
               value={resolutionComment}
               disabled={pendingBusy}
               placeholder={t("Add guidance for the agent after this decision (optional)")}
-              className="mt-2 min-h-18 w-full rounded-xl border border-[#efc77a] bg-white/70 px-2.5 py-2 text-[12px] text-[#5f3e00] outline-none placeholder:text-[#8a5a00]/60 disabled:opacity-50"
+              className="mt-2 min-h-18 w-full rounded-xl border border-warning/25 bg-panel/82 px-2.5 py-2 text-[12px] text-text outline-none placeholder:text-muted/70 disabled:opacity-50"
               onChange={(event) => setResolutionComment(event.target.value)}
             />
           ) : null}
@@ -201,7 +201,7 @@ export function ToolMessageSection({
         </div>
       ) : null}
       {expanded && !pendingAction ? (
-        <pre className="mt-2 whitespace-pre-wrap break-words rounded-2xl border border-[#efc77a] bg-[#fff8e8] px-3 py-2 font-mono text-[12px] text-[#5f3e00]">
+        <pre className="mt-2 whitespace-pre-wrap break-words rounded-2xl border border-warning/25 bg-panel/78 px-3 py-2 font-mono text-[12px] text-text">
           {message.content}
         </pre>
       ) : null}

@@ -20,8 +20,8 @@ export default function AiPendingActionsPanel({
   }
 
   return (
-    <div className="shrink-0 border-b border-border/70 bg-[#fff7e8] px-3 py-2">
-      <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-[#8a5a00]">
+    <div className="shrink-0 border-b border-warning/20 bg-warning/8 px-3 py-2">
+      <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-warning">
         <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
         {t("Pending tool approvals")}
       </div>
@@ -33,10 +33,10 @@ export default function AiPendingActionsPanel({
           return (
             <div
               key={action.id}
-              className="rounded-2xl border border-[#efc77a] bg-[#fff3d8] p-2 text-[11px]"
+              className="rounded-2xl border border-warning/30 bg-warning/10 p-2 text-[11px]"
             >
               <div className="mb-1 flex items-center gap-2">
-                <div className="min-w-0 flex-1 truncate font-mono text-[11px] text-[#5f3e00]">
+                <div className="min-w-0 flex-1 truncate font-mono text-[11px] text-text">
                   {action.command}
                 </div>
                 <span
@@ -48,12 +48,12 @@ export default function AiPendingActionsPanel({
                   {t(riskLevel)}
                 </span>
               </div>
-              <div className="mb-2 truncate text-[#8a5a00]">{t(action.reason || "no reason")}</div>
+              <div className="mb-2 truncate text-muted">{t(action.reason || "no reason")}</div>
               <textarea
                 value={comment}
                 disabled={busy}
                 placeholder={t("Add guidance for the agent after this decision (optional)")}
-                className="mb-2 min-h-18 w-full rounded-xl border border-[#efc77a] bg-white/75 px-2.5 py-2 text-[12px] text-[#5f3e00] outline-none placeholder:text-[#8a5a00]/60 disabled:opacity-50"
+                className="mb-2 min-h-18 w-full rounded-xl border border-warning/25 bg-panel/82 px-2.5 py-2 text-[12px] text-text outline-none placeholder:text-muted/70 disabled:opacity-50"
                 onChange={(event) =>
                   setCommentsByActionId((current) => ({
                     ...current,

@@ -1,4 +1,8 @@
 import { DEFAULT_AI } from "../../constants/workbench";
+import {
+  getDefaultBaseUrlForApiType,
+  normalizeAiApiType,
+} from "../../lib/aiProviderTypes";
 
 const parseNumber = (value, fallback) => {
   const next = Number(value);
@@ -6,7 +10,11 @@ const parseNumber = (value, fallback) => {
 };
 
 export const normalizeAiConfig = (config) => ({
-  baseUrl: config?.baseUrl || DEFAULT_AI.baseUrl,
+  apiType: normalizeAiApiType(config?.apiType),
+  baseUrl:
+    config?.baseUrl ||
+    getDefaultBaseUrlForApiType(normalizeAiApiType(config?.apiType)) ||
+    DEFAULT_AI.baseUrl,
   apiKey: config?.apiKey || "",
   model: config?.model || DEFAULT_AI.model,
   systemPrompt: config?.systemPrompt || DEFAULT_AI.systemPrompt,
@@ -25,7 +33,11 @@ export const normalizeAiConfig = (config) => ({
 const normalizeAiProfile = (profile) => ({
   id: profile?.id || "",
   name: (profile?.name || "").trim() || "Default",
-  baseUrl: profile?.baseUrl || DEFAULT_AI.baseUrl,
+  apiType: normalizeAiApiType(profile?.apiType),
+  baseUrl:
+    profile?.baseUrl ||
+    getDefaultBaseUrlForApiType(normalizeAiApiType(profile?.apiType)) ||
+    DEFAULT_AI.baseUrl,
   apiKey: profile?.apiKey || "",
   model: profile?.model || DEFAULT_AI.model,
   systemPrompt: profile?.systemPrompt || DEFAULT_AI.systemPrompt,
@@ -57,6 +69,7 @@ export const normalizeAiProfilesState = (state) => {
 export const toAiProfileInput = (profile) => ({
   id: profile.id || null,
   name: (profile.name || "").trim(),
+  apiType: normalizeAiApiType(profile.apiType),
   baseUrl: profile.baseUrl,
   apiKey: profile.apiKey,
   model: profile.model,
@@ -69,6 +82,7 @@ export const toAiProfileInput = (profile) => ({
 export const DEFAULT_AI_PROFILE_FORM = {
   id: null,
   name: "Default",
+  apiType: DEFAULT_AI.apiType,
   baseUrl: DEFAULT_AI.baseUrl,
   apiKey: DEFAULT_AI.apiKey,
   model: DEFAULT_AI.model,

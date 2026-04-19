@@ -7,7 +7,7 @@ use crate::error::to_command_error;
 use crate::models::{AiAnswer, AiAskInput};
 use crate::state::AppState;
 
-/// Sends question to configured OpenAI-compatible provider.
+/// Sends question to the configured AI provider.
 #[tauri::command]
 pub async fn ai_ask(
     state: State<'_, Arc<AppState>>,

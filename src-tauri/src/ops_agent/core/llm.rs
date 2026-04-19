@@ -13,9 +13,10 @@ use super::prompting::{
 use crate::ops_agent::domain::types::{OpsAgentMessage, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply};
 use crate::ops_agent::infrastructure::logging::{truncate_for_log, OpsAgentLogContext};
 use crate::ops_agent::providers::{
-    openai_compat, parse_planned_reply_from_native_tool_calls, text_fallback, ProviderChatMessage,
-    ProviderChatMessageContent, ProviderChatMessageResponse, ProviderChatRequestOptions,
-    ProviderImageUrlPart, ProviderMessageContentPart, ProviderToolChoice, ProviderToolDefinition,
+    parse_planned_reply_from_native_tool_calls, request_message, stream_message, text_fallback,
+    ProviderChatMessage, ProviderChatMessageContent, ProviderChatMessageResponse,
+    ProviderChatRequestOptions, ProviderImageUrlPart, ProviderMessageContentPart,
+    ProviderToolChoice, ProviderToolDefinition,
 };
 
 const OPS_AGENT_AI_PLAN_TIMEOUT_SECS: u64 = 45;
@@ -72,7 +73,7 @@ pub async fn plan_reply(
         .iter()
         .map(|item| item.kind.to_string())
         .collect::<std::collections::HashSet<_>>();
-    let response = openai_compat::request_message(
+    let response = request_message(
         config,
         messages,
         ProviderChatRequestOptions {
@@ -196,7 +197,7 @@ where
     }
     messages.push(convert_history_message(state, current_message)?);
 
-    openai_compat::stream_message(
+    stream_message(
         config,
         messages,
         ProviderChatRequestOptions::default(),
@@ -294,7 +295,7 @@ where
         )),
     });
 
-    openai_compat::stream_message(
+    stream_message(
         config,
         messages,
         ProviderChatRequestOptions::default(),
@@ -452,7 +453,7 @@ async fn request_text_completion(
     log_context: Option<OpsAgentLogContext<'_>>,
     request_kind: &str,
 ) -> AppResult<String> {
-    let response = openai_compat::request_message(
+    let response = request_message(
         config,
         messages,
         ProviderChatRequestOptions::default(),
@@ -502,7 +503,8 @@ fn log_request_context(
     log_context.append(
         context_level.as_str(),
         format!(
-            "model={} history_messages={} current_message_id={} current_chars={} current_preview={} attachment_count={} shell_context_attached={} shell_context_chars={} planner_reply_chars={} planner_reply_preview={} session_id={} current_dir={} last_output_chars={} temperature={} max_tokens={} max_context_tokens={} tool_hints={}",
+            "api_type={:?} model={} history_messages={} current_message_id={} current_chars={} current_preview={} attachment_count={} shell_context_attached={} shell_context_chars={} planner_reply_chars={} planner_reply_preview={} session_id={} current_dir={} last_output_chars={} temperature={} max_tokens={} max_context_tokens={} tool_hints={}",
+            config.api_type,
             config.model,
             history.len(),
             current_message.id,

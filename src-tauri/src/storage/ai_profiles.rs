@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    now_rfc3339, AiApprovalMode, AiConfig, AiConfigInput, AiProfile, AiProfileInput,
+    now_rfc3339, AiApiType, AiApprovalMode, AiConfig, AiConfigInput, AiProfile, AiProfileInput,
     AiProfilesState,
 };
 
@@ -26,6 +26,7 @@ impl Storage {
     pub fn save_ai_profile(&self, input: AiProfileInput) -> AppResult<AiProfilesState> {
         validate_ai_payload(
             Some(input.name.as_str()),
+            &input.api_type,
             &input.base_url,
             &input.model,
             input.temperature,
@@ -56,6 +57,7 @@ impl Storage {
                 let updated = AiProfile {
                     id: existing.id.clone(),
                     name: input.name.trim().to_string(),
+                    api_type: input.api_type,
                     base_url: normalize_base_url(&input.base_url),
                     api_key: input.api_key.trim().to_string(),
                     model: input.model.trim().to_string(),
@@ -73,6 +75,7 @@ impl Storage {
                 let created = AiProfile {
                     id: Uuid::new_v4().to_string(),
                     name: input.name.trim().to_string(),
+                    api_type: input.api_type,
                     base_url: normalize_base_url(&input.base_url),
                     api_key: input.api_key.trim().to_string(),
                     model: input.model.trim().to_string(),
@@ -154,7 +157,13 @@ impl Storage {
 
     /// Updates active profile using old single-config API for compatibility.
     pub fn save_ai_config(&self, input: AiConfigInput) -> AppResult<AiConfig> {
-        validate_ai_payload(None, &input.base_url, &input.model, input.temperature)?;
+        validate_ai_payload(
+            None,
+            &input.api_type,
+            &input.base_url,
+            &input.model,
+            input.temperature,
+        )?;
         if input.max_tokens == 0 {
             return Err(AppError::Validation(
                 "maxTokens must be greater than 0".to_string(),
@@ -184,6 +193,7 @@ impl Storage {
         let updated = AiProfile {
             id: existing.id.clone(),
             name: existing.name.clone(),
+            api_type: input.api_type,
             base_url: normalize_base_url(&input.base_url),
             api_key: input.api_key.trim().to_string(),
             model: input.model.trim().to_string(),
@@ -267,6 +277,7 @@ fn extract_legacy_approval_mode(profile: &Value) -> Option<AiApprovalMode> {
 
 fn validate_ai_payload(
     name: Option<&str>,
+    _api_type: &AiApiType,
     base_url: &str,
     model: &str,
     temperature: f64,
@@ -307,7 +318,7 @@ fn normalize_profile(profile: &mut AiProfile) {
     profile.base_url = {
         let next = normalize_base_url(&profile.base_url);
         if next.is_empty() {
-            defaults.base_url
+            profile.api_type.default_base_url().to_string()
         } else {
             next
         }
@@ -349,6 +360,7 @@ fn profile_from_config(config: &AiConfig, name: &str) -> AiProfile {
         } else {
             name.trim().to_string()
         },
+        api_type: config.api_type.clone(),
         base_url: normalize_base_url(&config.base_url),
         api_key: config.api_key.clone(),
         model: config.model.clone(),
@@ -363,6 +375,7 @@ fn profile_from_config(config: &AiConfig, name: &str) -> AiProfile {
 
 fn config_from_profile(profile: &AiProfile, approval_mode: AiApprovalMode) -> AiConfig {
     AiConfig {
+        api_type: profile.api_type.clone(),
         base_url: profile.base_url.clone(),
         api_key: profile.api_key.clone(),
         model: profile.model.clone(),

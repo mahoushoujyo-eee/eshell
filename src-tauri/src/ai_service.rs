@@ -1,39 +1,11 @@
-use serde::{Deserialize, Serialize};
-
 use crate::error::{AppError, AppResult};
-use crate::models::{AiAnswer, AiAskInput, AiChatMessage, AiConfig, AiRole};
+use crate::models::{AiAnswer, AiAskInput, AiConfig};
+use crate::ops_agent::providers::{
+    request_message, ProviderChatMessage, ProviderChatMessageContent, ProviderChatRequestOptions,
+};
 use crate::state::AppState;
 
-#[derive(Debug, Serialize)]
-struct ChatCompletionsRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    temperature: f64,
-    max_tokens: u32,
-}
-
-#[derive(Debug, Serialize)]
-struct ChatMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatCompletionsResponse {
-    choices: Vec<Choice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Choice {
-    message: ChoiceMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChoiceMessage {
-    content: String,
-}
-
-/// Executes an OpenAI-compatible chat completion request and extracts answer + command hint.
+/// Executes a configured provider request and extracts answer + command hint.
 pub async fn ask_ai(state: &AppState, input: AiAskInput) -> AppResult<AiAnswer> {
     if input.question.trim().is_empty() {
         return Err(AppError::Validation("question cannot be empty".to_string()));
@@ -55,13 +27,13 @@ pub async fn ask_ai(state: &AppState, input: AiAskInput) -> AppResult<AiAnswer> 
     }
 
     let messages = vec![
-        AiChatMessage {
-            role: AiRole::System,
-            content: config.system_prompt.clone(),
+        ProviderChatMessage {
+            role: "system".to_string(),
+            content: ProviderChatMessageContent::text(config.system_prompt.clone()),
         },
-        AiChatMessage {
-            role: AiRole::User,
-            content: user_content,
+        ProviderChatMessage {
+            role: "user".to_string(),
+            content: ProviderChatMessageContent::text(user_content),
         },
     ];
 
@@ -72,43 +44,20 @@ pub async fn ask_ai(state: &AppState, input: AiAskInput) -> AppResult<AiAnswer> 
     })
 }
 
-async fn request_completion(config: &AiConfig, messages: &[AiChatMessage]) -> AppResult<String> {
-    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
-    let payload = ChatCompletionsRequest {
-        model: config.model.clone(),
-        messages: messages
-            .iter()
-            .map(|item| ChatMessage {
-                role: ai_role_to_wire(&item.role).to_string(),
-                content: item.content.clone(),
-            })
-            .collect(),
-        temperature: config.temperature,
-        max_tokens: config.max_tokens,
-    };
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(endpoint)
-        .bearer_auth(&config.api_key)
-        .json(&payload)
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(AppError::Runtime(format!(
-            "AI request failed: status={status}, body={body}"
-        )));
-    }
-
-    let body: ChatCompletionsResponse = response.json().await?;
-    let answer = body
-        .choices
-        .first()
-        .map(|item| item.message.content.clone())
-        .unwrap_or_default();
+async fn request_completion(
+    config: &AiConfig,
+    messages: &[ProviderChatMessage],
+) -> AppResult<String> {
+    let response = request_message(
+        config,
+        messages.to_vec(),
+        ProviderChatRequestOptions::default(),
+        std::time::Duration::from_secs(45),
+        None,
+        "legacy_ai_ask",
+    )
+    .await?;
+    let answer = response.content;
     if answer.trim().is_empty() {
         return Err(AppError::Runtime(
             "AI response did not contain usable content".to_string(),
@@ -129,14 +78,6 @@ fn ensure_ai_config_is_usable(config: &AiConfig) -> AppResult<()> {
         return Err(AppError::Validation("model cannot be empty".to_string()));
     }
     Ok(())
-}
-
-fn ai_role_to_wire(role: &AiRole) -> &'static str {
-    match role {
-        AiRole::System => "system",
-        AiRole::User => "user",
-        AiRole::Assistant => "assistant",
-    }
 }
 
 fn extract_suggested_command(text: &str) -> Option<String> {
@@ -182,7 +123,9 @@ fn extract_suggested_command(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{now_rfc3339, AiAskInput, AiProfile, AiProfileInput, ShellSession};
+    use crate::models::{
+        now_rfc3339, AiApiType, AiAskInput, AiProfile, AiProfileInput, ShellSession,
+    };
     use crate::state::AppState;
     use serde_json::Value;
     use std::env;
@@ -340,6 +283,7 @@ mod tests {
             .save_ai_profile(AiProfileInput {
                 id: None,
                 name: "ArkDefault".to_string(),
+                api_type: AiApiType::OpenAiChatCompletions,
                 base_url,
                 api_key: "test-api-key".to_string(),
                 model: "doubao-seed-2-0-lite-260215".to_string(),

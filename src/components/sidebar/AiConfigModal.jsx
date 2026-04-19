@@ -1,10 +1,19 @@
 import { ArrowLeft, Bot, Check, Key, Link, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import ProviderIcon from "../ai/ProviderIcon";
+import {
+  AI_API_TYPES,
+  getAiProviderMeta,
+  getDefaultBaseUrlForApiType,
+  isKnownAiBaseUrl,
+  normalizeAiApiType,
+} from "../../lib/aiProviderTypes";
 import { useI18n } from "../../lib/i18n";
 
 const EMPTY_AI_FORM = {
   id: null,
   name: "Default",
+  apiType: "openai_chat_completions",
   baseUrl: "https://api.openai.com/v1",
   apiKey: "",
   model: "gpt-4o-mini",
@@ -47,6 +56,25 @@ export default function AiConfigModal({
   const openEditForm = (item) => {
     setAiProfileForm(item);
     setMode("form");
+  };
+
+  const handleApiTypeChange = (nextType) => {
+    const normalizedType = normalizeAiApiType(nextType);
+    setAiProfileForm((prev) => {
+      const currentBaseUrl = (prev.baseUrl || "").trim();
+      const previousType = normalizeAiApiType(prev.apiType);
+      const shouldReplaceBaseUrl =
+        !currentBaseUrl ||
+        isKnownAiBaseUrl(currentBaseUrl) ||
+        currentBaseUrl === getDefaultBaseUrlForApiType(previousType);
+      return {
+        ...prev,
+        apiType: normalizedType,
+        baseUrl: shouldReplaceBaseUrl
+          ? getDefaultBaseUrlForApiType(normalizedType)
+          : prev.baseUrl,
+      };
+    });
   };
 
   const submitProfile = async (event) => {
@@ -103,10 +131,29 @@ export default function AiConfigModal({
               ) : (
                 aiProfiles.map((item) => {
                   const isActive = item.id === activeAiProfileId;
+                  const provider = getAiProviderMeta(item.apiType);
                   return (
                     <div key={item.id} className="rounded-lg border border-border/70 bg-surface px-3 py-2 text-xs">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium">{item.name}</div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <ProviderIcon apiType={item.apiType} className="h-8 w-8" />
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">{item.name}</div>
+                              <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted">
+                                <span
+                                  className={[
+                                    "inline-flex rounded-full border px-1.5 py-0.5",
+                                    provider.badgeClass,
+                                  ].join(" ")}
+                                >
+                                  {provider.shortLabel}
+                                </span>
+                                <span className="truncate">{provider.label}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                         {isActive && (
                           <span className="inline-flex items-center gap-1 rounded border border-success/40 bg-success/10 px-1.5 py-0.5 text-[10px] text-success">
                             <Check className="h-3 w-3" aria-hidden="true" />
@@ -114,7 +161,7 @@ export default function AiConfigModal({
                           </span>
                         )}
                       </div>
-                      <div className="mt-0.5 truncate text-muted">
+                      <div className="mt-2 truncate text-muted">
                         {item.model} - {item.baseUrl}
                       </div>
                       <div className="mt-2 flex gap-1">
@@ -167,12 +214,36 @@ export default function AiConfigModal({
             </div>
 
             <form className="space-y-2" onSubmit={submitProfile}>
+              <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-surface px-3 py-2">
+                <ProviderIcon apiType={aiProfileForm.apiType} className="h-10 w-10" />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {getAiProviderMeta(aiProfileForm.apiType).label}
+                  </div>
+                  <div className="truncate text-[11px] text-muted">
+                    {getDefaultBaseUrlForApiType(aiProfileForm.apiType)}
+                  </div>
+                </div>
+              </div>
+
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
                 placeholder={t("Config name")}
                 value={aiProfileForm.name}
                 onChange={(event) => setAiProfileForm((prev) => ({ ...prev, name: event.target.value }))}
               />
+
+              <select
+                className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+                value={normalizeAiApiType(aiProfileForm.apiType)}
+                onChange={(event) => handleApiTypeChange(event.target.value)}
+              >
+                {Object.entries(AI_API_TYPES).map(([value, meta]) => (
+                  <option key={value} value={value}>
+                    {meta.label}
+                  </option>
+                ))}
+              </select>
 
               <div className="relative">
                 <Link className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-muted" aria-hidden="true" />
