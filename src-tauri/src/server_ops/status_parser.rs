@@ -41,8 +41,9 @@ pub fn parse_memory(top_output: &str) -> Option<MemoryStatus> {
         // procps top:
         // "MiB Mem : 15935.1 total, 1200.2 free, 4300.0 used, ..."
         if lower.contains("mem") && lower.contains("total") {
-            let total = extract_metric_value(&lower, " total")?;
-            let used = extract_metric_value(&lower, " used")?;
+            let scale_mb = extract_top_memory_scale_mb(&lower);
+            let total = extract_metric_value(&lower, " total")? * scale_mb;
+            let used = extract_metric_value(&lower, " used")? * scale_mb;
             return Some(build_memory_status(used, total));
         }
 
@@ -190,6 +191,22 @@ fn extract_value_before_keyword(line: &str, keywords: &[&str]) -> Option<f64> {
     None
 }
 
+fn extract_top_memory_scale_mb(line: &str) -> f64 {
+    let prefix = line
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(':');
+
+    match prefix {
+        "k" | "kb" | "ki" | "kib" => 1.0 / 1024.0,
+        "m" | "mb" | "mi" | "mib" => 1.0,
+        "g" | "gb" | "gi" | "gib" => 1024.0,
+        "t" | "tb" | "ti" | "tib" => 1024.0 * 1024.0,
+        _ => 1.0,
+    }
+}
+
 fn parse_to_mb(token: &str) -> Option<f64> {
     let lower = token.trim().to_ascii_lowercase();
     if lower.is_empty() {
@@ -261,6 +278,20 @@ CPU: 1.0% usr 2.0% sys 0.0% nic 96.0% idle 0.0% io 0.0% irq 0.0% sirq
         assert_eq!(parsed.1.used_mb, 15.56);
         assert_eq!(parsed.1.total_mb, 16.54);
         assert_eq!(parsed.1.used_percent, 94.1);
+    }
+
+    #[test]
+    fn parse_cpu_and_memory_kib_top_works() {
+        let top = r#"
+top - 08:58:09 up 10 min,  1 user
+%Cpu(s):  0.4 us,  0.2 sy,  0.0 ni, 99.4 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+KiB Mem : 2061548 total, 1219396 free,   68676 used,  773476 buff/cache
+"#;
+        let parsed = parse_cpu_and_memory(top).expect("parse kib top");
+        assert_eq!(parsed.0, 0.6);
+        assert_eq!(parsed.1.used_mb, 67.07);
+        assert_eq!(parsed.1.total_mb, 2013.23);
+        assert_eq!(parsed.1.used_percent, 3.33);
     }
 
     #[test]
