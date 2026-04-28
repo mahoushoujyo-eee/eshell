@@ -1,16 +1,30 @@
 # SFTP Transfer Guide
 
-This document describes the SFTP upload/download behavior in eShell.
+This document describes the SFTP file-management and transfer behavior in eShell.
 
 ## 1. UX Behavior
 
 From the SFTP panel:
 - `Path`: set local download directory
+- `File`: create an empty file in the current remote directory
+- `Folder`: create a directory in the current remote directory
 - `Upload`: upload selected local file to current remote directory
 - `Download`: download selected remote file to configured local directory
 - `Transfers`: open collapsible transfer overlay
 - the split layout keeps the left tree narrower so the right-side remote entry list has more working room
-- context menus, confirms, and toolbar labels follow the active app locale (`English` / `简体中文`)
+- create, delete, text-open guard, context menus, confirms, and toolbar labels follow the active app locale (`English` / `简体中文`)
+
+Remote entry list behavior:
+- single-click selects an entry
+- double-click opens folders or text files
+- right-click opens actions for the selected file/folder
+- file/folder context menu includes `Copy Path`, which copies the absolute remote path to the clipboard
+
+Create behavior:
+- `File` and `Folder` open an in-app dialog instead of a browser-native prompt
+- the dialog shows the current remote directory and computed target path
+- names must be non-empty and cannot be `.`, `..`, or contain `/` or `\`
+- backend rejects the remote root path and existing target paths to avoid overwriting
 
 Transfer overlay includes:
 - direction (`Upload`/`Download`)
@@ -22,6 +36,15 @@ Transfer overlay includes:
 
 ## 2. Backend Commands
 
+General SFTP file commands:
+- `sftp_list_dir`
+- `sftp_read_file`
+- `sftp_write_file`
+- `sftp_create_file`
+- `sftp_create_directory`
+- `sftp_delete_entry`
+
+Transfer commands:
 - `sftp_upload_file_with_progress`
 - `sftp_download_file_to_local`
 - `sftp_default_download_dir`
@@ -73,3 +96,4 @@ Frontend normalizer/reducer:
 
 - Current implementation is single-transfer-task based (no persisted resume queue).
 - `cancelled` is treated as a user action, not a normal failure.
+- `Copy Path` is a frontend-only clipboard action; it does not invoke backend RPC.

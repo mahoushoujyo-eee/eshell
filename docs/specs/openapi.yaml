@@ -79,6 +79,7 @@ paths:
     post:
       tags: [shell]
       summary: Open shell session
+      description: Opens a shell session. Optional requestId allows cancelling the pending TCP connection phase.
       requestBody:
         required: true
         content:
@@ -90,6 +91,22 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ShellSession" }
+  /rpc/cancel_open_shell_session:
+    post:
+      tags: [shell]
+      summary: Cancel pending shell connection attempt
+      description: Marks a pending open_shell_session requestId as cancelled. Cancellation is checked during TCP connection.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CancelShellConnectionRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: boolean }
   /rpc/close_shell_session:
     post:
       tags: [shell]
@@ -180,6 +197,30 @@ paths:
             schema: { $ref: "#/components/schemas/SftpWriteRequest" }
       responses:
         "200": { description: OK (null) }
+  /rpc/sftp_create_file:
+    post:
+      tags: [sftp]
+      summary: Create empty SFTP file
+      description: Creates an empty remote file and rejects existing target paths.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SftpCreateRequest" }
+      responses:
+        "200": { description: OK (null) }
+  /rpc/sftp_create_directory:
+    post:
+      tags: [sftp]
+      summary: Create SFTP directory
+      description: Creates one remote directory and rejects existing target paths.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SftpCreateRequest" }
+      responses:
+        "200": { description: OK (null) }
   /rpc/sftp_upload_file:
     post:
       tags: [sftp]
@@ -194,7 +235,7 @@ paths:
   /rpc/sftp_delete_entry:
     post:
       tags: [sftp]
-      summary: Delete remote file or symlink
+      summary: Delete remote file, directory, or symlink
       requestBody:
         required: true
         content:
@@ -659,7 +700,17 @@ components:
         input:
           type: object
           required: [configId]
-          properties: { configId: { type: string } }
+          properties:
+            configId: { type: string }
+            requestId: { type: string, nullable: true }
+    CancelShellConnectionRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [requestId]
+          properties:
+            requestId: { type: string }
     CloseShellRequest:
       type: object
       properties:
@@ -731,6 +782,15 @@ components:
             sessionId: { type: string }
             path: { type: string }
             content: { type: string }
+    SftpCreateRequest:
+      type: object
+      properties:
+        input:
+          type: object
+          required: [sessionId, path]
+          properties:
+            sessionId: { type: string }
+            path: { type: string }
     SftpUploadRequest:
       type: object
       properties:

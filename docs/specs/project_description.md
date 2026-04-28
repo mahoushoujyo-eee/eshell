@@ -25,7 +25,9 @@ The project focuses on one integrated workflow:
 Implemented:
 - SSH multi-session
 - PTY terminal I/O
-- SFTP browse/read/write/upload/download
+- cancellable SSH connection attempts during the TCP connection phase
+- SFTP browse/read/write/create/delete/upload/download
+- SFTP context-menu copy of absolute remote paths
 - local download directory configuration
 - transfer queue with progress updates
 - upload/download cancel support
@@ -60,6 +62,7 @@ Important files:
 Runtime-only state examples:
 - active shell sessions
 - PTY channels
+- shell connection cancellation flags
 - transfer cancellation flags
 - status cache
 - ops agent run registry and cancellation markers
@@ -82,6 +85,14 @@ Current transfer model is chunk-based and event-driven:
 - user can cancel a running transfer from the transfer overlay
 
 See [SFTP Transfer Guide](../guides/features/sftp_transfer.md).
+
+## SSH Connection Cancellation
+
+Opening a shell session accepts an optional `requestId`.
+- frontend creates one request id per connect attempt
+- `cancel_open_shell_session` marks that request id as cancelled
+- backend checks the marker during the TCP connection loop
+- once TCP is established, SSH handshake and password authentication use normal blocking `ssh2` behavior to preserve compatibility with servers that are sensitive to non-blocking handshakes
 
 ## Ops Agent Execution Model
 

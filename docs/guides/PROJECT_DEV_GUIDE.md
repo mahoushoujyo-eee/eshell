@@ -1,6 +1,6 @@
 # Project Dev Guide
 
-Last updated: 2026-04-09
+Last updated: 2026-04-28
 
 ## 1. Engineering Priorities
 
@@ -57,10 +57,21 @@ Stage values:
 - `cancelled`
 
 Current command set:
+- `sftp_list_dir`
+- `sftp_read_file`
+- `sftp_write_file`
+- `sftp_create_file`
+- `sftp_create_directory`
+- `sftp_delete_entry`
 - `sftp_upload_file_with_progress`
 - `sftp_download_file_to_local`
 - `sftp_default_download_dir`
 - `sftp_cancel_transfer`
+
+Shell connection cancellation:
+- `open_shell_session` accepts optional `requestId`
+- `cancel_open_shell_session` marks the request as cancelled
+- backend cancellation is checked during the TCP connection phase; SSH handshake/auth remain blocking for compatibility
 
 ## 5. Safety and UX Rules
 

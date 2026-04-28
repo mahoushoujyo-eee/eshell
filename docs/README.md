@@ -24,3 +24,14 @@
 - Temporary notes, checklists, and one-off records go in `reports/` or `scratch/`.
 - Large external references stay under `refer_proj/`.
 - Temporary debug dumps, scratch captures, and one-off TODO notes should be deleted after their conclusions are folded into stable docs.
+
+## Document Index
+
+- [Backend Architecture](guides/architecture/backend_architecture.md) — Complete implementation guide for the Rust backend (state, SSH/PTY/SFTP, Ops Agent, ReAct loop, approvals, providers)
+- [Project Description](specs/project_description.md) — Product scope, runtime state, and feature models
+- [OpenAPI-style RPC Spec](specs/openapi.yaml) — Tauri invoke command contracts
+- [Project Dev Guide](guides/PROJECT_DEV_GUIDE.md) — Engineering workflow, testing baseline, and documentation checklist
+- [SFTP Transfer Guide](guides/features/sftp_transfer.md) — SFTP browser operations, transfers, cancellation, and context-menu behavior
+- [Server Status Guide](guides/features/server_status.md) — Status panel data semantics and UI behavior
+- [Ops Agent Guide](guides/features/ops_agent.md) — Ops Agent request flow, approvals, streaming, attachments, and cancellation
+- [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes

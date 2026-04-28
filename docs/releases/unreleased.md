@@ -1,7 +1,9 @@
 # Unreleased Changes
 
-Last updated: 2026-04-19
+Last updated: 2026-04-28
 
+- SSH connection attempts can now be actively cancelled from the SSH server list while TCP connection is pending.
+- SFTP browser now supports creating remote files/folders through an in-app dialog and copying absolute remote paths from the right-click menu.
 - Ops Agent now supports image upload in chat, local detached attachment persistence, and click-to-view image preview for sent user messages.
 - Ops Agent docs were refreshed to describe the layered package layout, multimodal request flow, and attachment storage model.
 - AI provider configuration now supports explicit protocol selection with `openai_chat_completions`, `openai_responses`, and `anthropic_messages`.
