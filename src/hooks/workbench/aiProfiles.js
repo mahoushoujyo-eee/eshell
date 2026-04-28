@@ -9,6 +9,9 @@ const parseNumber = (value, fallback) => {
   return Number.isFinite(next) ? next : fallback;
 };
 
+export const normalizeAiAgentMode = (value) =>
+  value === "lite" || value === "auto" || value === "pro" ? value : DEFAULT_AI.agentMode;
+
 export const normalizeAiConfig = (config) => ({
   apiType: normalizeAiApiType(config?.apiType),
   baseUrl:
@@ -28,6 +31,7 @@ export const normalizeAiConfig = (config) => ({
     config?.approvalMode === "auto_execute"
       ? "auto_execute"
       : DEFAULT_AI.approvalMode,
+  agentMode: normalizeAiAgentMode(config?.agentMode),
 });
 
 const normalizeAiProfile = (profile) => ({
@@ -54,6 +58,7 @@ export const normalizeAiProfilesState = (state) => {
     ? state.profiles.map(normalizeAiProfile).filter((item) => item.id)
     : [];
   const approvalMode = state?.approvalMode === "auto_execute" ? "auto_execute" : DEFAULT_AI.approvalMode;
+  const agentMode = normalizeAiAgentMode(state?.agentMode);
   const activeFromState = state?.activeProfileId || null;
   const activeProfileId =
     activeFromState && profiles.some((item) => item.id === activeFromState)
@@ -63,6 +68,7 @@ export const normalizeAiProfilesState = (state) => {
     profiles,
     activeProfileId,
     approvalMode,
+    agentMode,
   };
 };
 

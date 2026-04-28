@@ -112,6 +112,14 @@ const upsertOpsAgentStreamToolCall = (rows, nextToolCall) => {
   return next;
 };
 
+const removeOpsAgentStreamToolCall = (rows, toolCall) => {
+  if (!toolCall?.id || !Array.isArray(rows) || rows.length === 0) {
+    return rows || [];
+  }
+
+  return rows.filter((item) => item?.id !== toolCall.id);
+};
+
 export const reduceOpsAgentStreamEvent = (previousStream, event) => {
   const stream = previousStream || EMPTY_OPS_AGENT_STREAM;
 
@@ -206,7 +214,7 @@ export const reduceOpsAgentStreamEvent = (previousStream, event) => {
         stream.runId === event.runId
           ? {
               ...stream,
-              toolCalls: upsertOpsAgentStreamToolCall(stream.toolCalls || [], event.toolCall),
+              toolCalls: removeOpsAgentStreamToolCall(stream.toolCalls || [], event.toolCall),
             }
           : stream,
       reloadConversationId: event.conversationId,
@@ -219,7 +227,7 @@ export const reduceOpsAgentStreamEvent = (previousStream, event) => {
         stream.runId === event.runId
           ? {
               ...stream,
-              toolCalls: upsertOpsAgentStreamToolCall(stream.toolCalls || [], event.toolCall),
+              toolCalls: removeOpsAgentStreamToolCall(stream.toolCalls || [], event.toolCall),
             }
           : stream,
       pendingAction: event.pendingAction,

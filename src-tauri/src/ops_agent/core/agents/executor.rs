@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use crate::ops_agent::core::helpers::{ensure_run_not_cancelled, truncate_for_log};
 use crate::ops_agent::domain::types::{
-    OpsAgentExecutionReport, OpsAgentExecutionStep, OpsAgentKind, OpsAgentMessage,
+    OpsAgentActionStatus, OpsAgentExecutionReport, OpsAgentExecutionStep, OpsAgentExecutorResume,
+    OpsAgentExecutorResumeContext, OpsAgentKind, OpsAgentMessage, OpsAgentPendingAction,
     OpsAgentPlanStepStatus, OpsAgentRole, OpsAgentRunPhase, OpsAgentToolCall,
     OpsAgentToolCallStatus, OpsAgentWorkflowPlan,
 };
@@ -28,6 +29,7 @@ pub struct ExecutorAgentInput {
     pub session_id: Option<String>,
     pub current_user_message_id: String,
     pub plan: OpsAgentWorkflowPlan,
+    pub resume: Option<OpsAgentExecutorResume>,
 }
 
 pub struct ExecutorAgentOutput {
@@ -53,7 +55,29 @@ impl OpsSubAgent for ExecutorAgent {
 }
 
 async fn execute_plan(input: ExecutorAgentInput) -> crate::error::AppResult<ExecutorAgentOutput> {
-    let mut report_steps = Vec::new();
+    let resume = input.resume.clone();
+    let mut report_steps = resume
+        .as_ref()
+        .map(|resume| resume.context.execution_steps.clone())
+        .unwrap_or_default();
+    if let Some(resume) = resume.as_ref() {
+        apply_resolved_action_to_report_steps(
+            &mut report_steps,
+            &resume.context.pending_step_id,
+            Some(&resume.resolved_action),
+        );
+    }
+    let start_index = resume
+        .as_ref()
+        .and_then(|resume| {
+            input
+                .plan
+                .steps
+                .iter()
+                .position(|step| step.id == resume.context.pending_step_id)
+        })
+        .map(|index| index + 1)
+        .unwrap_or(0);
     let mut tool_history = Vec::new();
     let executable_steps = input
         .plan
@@ -74,7 +98,7 @@ async fn execute_plan(input: ExecutorAgentInput) -> crate::error::AppResult<Exec
     }
 
     let mut executed_tools = 0usize;
-    for (index, step) in input.plan.steps.iter().enumerate() {
+    for (index, step) in input.plan.steps.iter().enumerate().skip(start_index) {
         ensure_run_not_cancelled(&input.run_handle)?;
         let step_index = index + 1;
         let step_title = if step.title.trim().is_empty() {
@@ -228,18 +252,6 @@ async fn execute_plan(input: ExecutorAgentInput) -> crate::error::AppResult<Exec
                 });
             }
             OpsAgentToolOutcome::AwaitingApproval(action) => {
-                input.emitter.requires_approval(
-                    action.clone(),
-                    Some(OpsAgentToolCall {
-                        id: tool_call_id,
-                        tool_kind: action.tool_kind.clone(),
-                        command: action.command.clone(),
-                        reason: Some(action.reason.clone()),
-                        status: OpsAgentToolCallStatus::AwaitingApproval,
-                        label: Some("awaiting approval".to_string()),
-                    }),
-                );
-
                 report_steps.push(OpsAgentExecutionStep {
                     step_id: step.id.clone(),
                     title: step_title,
@@ -253,6 +265,25 @@ async fn execute_plan(input: ExecutorAgentInput) -> crate::error::AppResult<Exec
                     output_preview: None,
                     exit_code: None,
                 });
+                let action = input.state.ops_agent.set_action_resume_context(
+                    &action.id,
+                    OpsAgentExecutorResumeContext {
+                        plan: input.plan.clone(),
+                        execution_steps: report_steps.clone(),
+                        pending_step_id: step.id.clone(),
+                    },
+                )?;
+                input.emitter.requires_approval(
+                    action.clone(),
+                    Some(OpsAgentToolCall {
+                        id: tool_call_id,
+                        tool_kind: action.tool_kind.clone(),
+                        command: action.command.clone(),
+                        reason: Some(action.reason.clone()),
+                        status: OpsAgentToolCallStatus::AwaitingApproval,
+                        label: Some("awaiting approval".to_string()),
+                    }),
+                );
 
                 return Ok(ExecutorAgentOutput {
                     report: OpsAgentExecutionReport {
@@ -276,6 +307,40 @@ async fn execute_plan(input: ExecutorAgentInput) -> crate::error::AppResult<Exec
         },
         tool_history,
     })
+}
+
+fn apply_resolved_action_to_report_steps(
+    report_steps: &mut [OpsAgentExecutionStep],
+    pending_step_id: &str,
+    action: Option<&OpsAgentPendingAction>,
+) {
+    let Some(action) = action else {
+        return;
+    };
+    let Some(step) = report_steps
+        .iter_mut()
+        .find(|step| step.step_id == pending_step_id)
+    else {
+        return;
+    };
+
+    step.status = match action.status {
+        OpsAgentActionStatus::Executed => OpsAgentPlanStepStatus::Executed,
+        OpsAgentActionStatus::Rejected => OpsAgentPlanStepStatus::Rejected,
+        OpsAgentActionStatus::Failed => OpsAgentPlanStepStatus::Failed,
+        OpsAgentActionStatus::Pending => OpsAgentPlanStepStatus::AwaitingApproval,
+    };
+    step.message = match action.status {
+        OpsAgentActionStatus::Executed => "Approved action executed before resume.".to_string(),
+        OpsAgentActionStatus::Rejected => "Action was rejected before resume.".to_string(),
+        OpsAgentActionStatus::Failed => "Approved action failed before resume.".to_string(),
+        OpsAgentActionStatus::Pending => "Action is still awaiting approval.".to_string(),
+    };
+    step.output_preview = action
+        .execution_output
+        .as_deref()
+        .map(|output| truncate_for_log(output, EXECUTOR_OUTPUT_PREVIEW_CHARS));
+    step.exit_code = action.execution_exit_code;
 }
 
 fn summarize_execution_steps(steps: &[OpsAgentExecutionStep]) -> String {

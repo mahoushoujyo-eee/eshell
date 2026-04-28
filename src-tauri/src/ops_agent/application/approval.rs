@@ -4,10 +4,10 @@ use tauri::AppHandle;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::ops_agent::core::runtime::spawn_chat_run_task;
+use crate::ops_agent::core::runtime::{spawn_chat_run_task, OpsAgentChatRunTask};
 use crate::ops_agent::domain::types::{
-    OpsAgentActionStatus, OpsAgentMessage, OpsAgentPendingAction, OpsAgentResolveActionInput,
-    OpsAgentResolveActionResult, OpsAgentRole,
+    OpsAgentActionStatus, OpsAgentExecutorResume, OpsAgentPendingAction,
+    OpsAgentResolveActionInput, OpsAgentResolveActionResult, OpsAgentRunResume,
 };
 use crate::ops_agent::infrastructure::logging::append_debug_log;
 use crate::ops_agent::tools::OpsAgentToolResolveRequest;
@@ -51,25 +51,12 @@ pub async fn resolve_pending_action(
         let updated = state
             .ops_agent
             .mark_action_rejected(&input.action_id, resolution_comment.clone())?;
-        let resume_user_message = match resolution_comment.as_deref() {
-            Some(comment) => Some(state.ops_agent.append_message(
-                &updated.conversation_id,
-                OpsAgentRole::User,
-                comment,
-                None,
-                None,
-                Vec::new(),
-            )?),
-            None => None,
-        };
         if let Some(app) = app {
-            maybe_resume_run_after_action_resolution(
+            maybe_resume_executor_after_action_resolution(
                 Arc::clone(&state),
                 app,
                 &updated,
-                None,
                 effective_session_id.as_deref(),
-                resume_user_message.as_ref(),
             );
         }
         append_debug_log(
@@ -118,38 +105,24 @@ pub async fn resolve_pending_action(
         })
         .await?;
 
-    let tool_message = state.ops_agent.append_message(
+    state.ops_agent.append_message(
         &resolution.action.conversation_id,
-        OpsAgentRole::Tool,
+        crate::ops_agent::domain::types::OpsAgentRole::Tool,
         &resolution.message,
         Some(resolution.action.tool_kind.clone()),
         None,
         Vec::new(),
     )?;
 
-    let resume_user_message = match resolution_comment.as_deref() {
-        Some(comment) => Some(state.ops_agent.append_message(
-            &resolution.action.conversation_id,
-            OpsAgentRole::User,
-            comment,
-            None,
-            None,
-            Vec::new(),
-        )?),
-        None => None,
-    };
-
     let can_resume = app.is_some();
     if let Some(app) = app {
-        maybe_resume_run_after_action_resolution(
+        maybe_resume_executor_after_action_resolution(
             Arc::clone(&state),
             app,
             &resolution.action,
-            Some(&tool_message.id),
             effective_session_id.as_deref(),
-            resume_user_message.as_ref(),
         );
-    }
+    };
 
     let note = match resolution.action.status {
         OpsAgentActionStatus::Executed => "Action approved and executed",
@@ -174,13 +147,11 @@ pub async fn resolve_pending_action(
     })
 }
 
-fn maybe_resume_run_after_action_resolution(
+fn maybe_resume_executor_after_action_resolution(
     state: Arc<AppState>,
     app: AppHandle,
     action: &OpsAgentPendingAction,
-    resolved_tool_message_id: Option<&str>,
     resume_session_id_override: Option<&str>,
-    resume_user_message: Option<&OpsAgentMessage>,
 ) {
     if !matches!(
         action.status,
@@ -189,85 +160,35 @@ fn maybe_resume_run_after_action_resolution(
             | OpsAgentActionStatus::Rejected
     ) {
         return;
-    }
-
-    if action.status == OpsAgentActionStatus::Rejected && resume_user_message.is_none() {
-        return;
-    }
-
-    let conversation = match state.ops_agent.get_conversation(&action.conversation_id) {
-        Ok(conversation) => conversation,
-        Err(error) => {
-            append_debug_log(
-                state.as_ref(),
-                "orchestrator.resume.skipped",
-                None,
-                Some(action.conversation_id.as_str()),
-                format!(
-                    "action_id={} reason=conversation_not_found error={error}",
-                    action.id
-                ),
-            );
-            return;
-        }
     };
 
-    let source_user_message_id = if let Some(message) = resume_user_message {
-        message.id.clone()
-    } else if let Some(source_user_message_id) =
-        resolve_action_source_user_message_id(&conversation.messages, action)
-    {
-        source_user_message_id
-    } else {
+    let Some(resume_context) = action.resume_context.clone() else {
         append_debug_log(
             state.as_ref(),
             "orchestrator.resume.skipped",
             None,
             Some(action.conversation_id.as_str()),
             format!(
-                "action_id={} reason=source_user_message_not_found",
+                "action_id={} reason=missing_executor_resume_context",
                 action.id
             ),
         );
         return;
     };
 
-    let seed_turn_tool_history =
-        match collect_turn_tool_history(&conversation.messages, &source_user_message_id) {
-            Ok(messages) => messages,
-            Err(error) => {
-                append_debug_log(
-                    state.as_ref(),
-                    "orchestrator.resume.skipped",
-                    None,
-                    Some(action.conversation_id.as_str()),
-                    format!(
-                        "action_id={} reason=collect_turn_tool_history_failed error={error}",
-                        action.id
-                    ),
-                );
-                return;
-            }
-        };
-
-    if resume_user_message.is_none()
-        && resolved_tool_message_id.is_some()
-        && !seed_turn_tool_history
-            .iter()
-            .any(|item| Some(item.id.as_str()) == resolved_tool_message_id)
-    {
+    let Some(source_user_message_id) = action.source_user_message_id.clone() else {
         append_debug_log(
             state.as_ref(),
             "orchestrator.resume.skipped",
             None,
             Some(action.conversation_id.as_str()),
             format!(
-                "action_id={} reason=resolved_tool_message_outside_source_turn",
+                "action_id={} reason=missing_source_user_message_id",
                 action.id
             ),
         );
         return;
-    }
+    };
 
     let run_id = Uuid::new_v4().to_string();
     let run_handle = match state
@@ -296,10 +217,10 @@ fn maybe_resume_run_after_action_resolution(
         Some(run_id.as_str()),
         Some(action.conversation_id.as_str()),
         format!(
-            "action_id={} source_user_message_id={} seed_tool_messages={} resume_session_id={}",
+            "action_id={} source_user_message_id={} restored_execution_steps={} resume_session_id={}",
             action.id,
             source_user_message_id,
-            seed_turn_tool_history.len(),
+            resume_context.execution_steps.len(),
             normalize_session_id(resume_session_id_override)
                 .as_deref()
                 .or(action.session_id.as_deref())
@@ -308,16 +229,19 @@ fn maybe_resume_run_after_action_resolution(
     );
     let resume_session_id =
         normalize_session_id(resume_session_id_override).or_else(|| action.session_id.clone());
-    spawn_chat_run_task(
-        Arc::clone(&state),
+    spawn_chat_run_task(OpsAgentChatRunTask {
+        state: Arc::clone(&state),
         app,
         run_id,
-        action.conversation_id.clone(),
-        resume_session_id,
-        source_user_message_id,
+        conversation_id: action.conversation_id.clone(),
+        session_id: resume_session_id,
+        current_user_message_id: source_user_message_id,
         run_handle,
-        seed_turn_tool_history,
-    );
+        resume: Some(OpsAgentRunResume::Executor(OpsAgentExecutorResume {
+            context: resume_context,
+            resolved_action: action.clone(),
+        })),
+    });
 }
 
 fn normalize_resolution_comment(value: Option<&str>) -> Option<String> {
@@ -338,64 +262,3 @@ fn normalize_session_id(value: Option<&str>) -> Option<String> {
     }
 }
 
-fn resolve_action_source_user_message_id(
-    messages: &[OpsAgentMessage],
-    action: &OpsAgentPendingAction,
-) -> Option<String> {
-    if let Some(source_user_message_id) = action.source_user_message_id.as_deref() {
-        if messages
-            .iter()
-            .any(|item| item.id == source_user_message_id && item.role == OpsAgentRole::User)
-        {
-            return Some(source_user_message_id.to_string());
-        }
-    }
-
-    messages
-        .iter()
-        .rev()
-        .find(|item| {
-            item.role == OpsAgentRole::User
-                && item.created_at.as_str() <= action.created_at.as_str()
-        })
-        .map(|item| item.id.clone())
-        .or_else(|| {
-            messages
-                .iter()
-                .rev()
-                .find(|item| item.role == OpsAgentRole::User)
-                .map(|item| item.id.clone())
-        })
-}
-
-fn collect_turn_tool_history(
-    messages: &[OpsAgentMessage],
-    current_user_message_id: &str,
-) -> AppResult<Vec<OpsAgentMessage>> {
-    let current_index = messages
-        .iter()
-        .position(|item| item.id == current_user_message_id)
-        .ok_or_else(|| {
-            AppError::NotFound(format!(
-                "ops agent message {current_user_message_id} for resolved action"
-            ))
-        })?;
-
-    if messages[current_index].role != OpsAgentRole::User {
-        return Err(AppError::Validation(
-            "resolved action source message must be a user message".to_string(),
-        ));
-    }
-
-    let mut rows = Vec::new();
-    for item in messages.iter().skip(current_index + 1) {
-        if item.role == OpsAgentRole::User {
-            break;
-        }
-        if item.role == OpsAgentRole::Tool {
-            rows.push(item.clone());
-        }
-    }
-
-    Ok(rows)
-}

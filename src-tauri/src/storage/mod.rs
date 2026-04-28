@@ -1,4 +1,5 @@
 mod ai_profiles;
+mod agent_context;
 mod io;
 mod scripts;
 mod ssh;
@@ -17,6 +18,8 @@ const SSH_CONFIGS_FILE: &str = "ssh_configs.json";
 const SCRIPTS_FILE: &str = "scripts.json";
 const AI_PROFILES_FILE: &str = "ai_profiles.json";
 const LEGACY_AI_CONFIG_FILE: &str = "ai_config.json";
+const GLOBAL_AGENTS_FILE: &str = "AGENTS.md";
+const SERVER_AGENTS_DIR: &str = "server_agents";
 
 /// Handles JSON-backed persistence for user-managed configurations.
 ///
@@ -26,6 +29,8 @@ pub struct Storage {
     ssh_configs_path: PathBuf,
     scripts_path: PathBuf,
     ai_profiles_path: PathBuf,
+    global_agents_path: PathBuf,
+    server_agents_dir: PathBuf,
     ssh_configs: RwLock<Vec<SshConfig>>,
     scripts: RwLock<Vec<ScriptDefinition>>,
     ai_profiles: RwLock<AiProfilesState>,
@@ -39,7 +44,10 @@ impl Storage {
         let ssh_configs_path = root.join(SSH_CONFIGS_FILE);
         let scripts_path = root.join(SCRIPTS_FILE);
         let ai_profiles_path = root.join(AI_PROFILES_FILE);
+        let global_agents_path = root.join(GLOBAL_AGENTS_FILE);
+        let server_agents_dir = root.join(SERVER_AGENTS_DIR);
         let legacy_ai_config_path = root.join(LEGACY_AI_CONFIG_FILE);
+        fs::create_dir_all(&server_agents_dir)?;
 
         let ssh_configs = read_json_or_default::<Vec<SshConfig>>(&ssh_configs_path)?;
         let scripts = read_json_or_default::<Vec<ScriptDefinition>>(&scripts_path)?;
@@ -53,6 +61,9 @@ impl Storage {
         write_json_pretty(&ssh_configs_path, &ssh_configs)?;
         write_json_pretty(&scripts_path, &scripts)?;
         write_json_pretty(&ai_profiles_path, &ai_profiles)?;
+        if !global_agents_path.exists() {
+            fs::write(&global_agents_path, "")?;
+        }
 
         // Remove legacy file after successful migration to avoid dual-source confusion.
         if legacy_ai_config_path.exists() {
@@ -63,6 +74,8 @@ impl Storage {
             ssh_configs_path,
             scripts_path,
             ai_profiles_path,
+            global_agents_path,
+            server_agents_dir,
             ssh_configs: RwLock::new(ssh_configs),
             scripts: RwLock::new(scripts),
             ai_profiles: RwLock::new(ai_profiles),

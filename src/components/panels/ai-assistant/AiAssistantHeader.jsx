@@ -1,4 +1,4 @@
-import { Archive, Bot, ChevronLeft, ChevronRight, Loader2, Plus, Settings2, X } from "lucide-react";
+import { Archive, Bot, ChevronLeft, ChevronRight, Loader2, Plus, Settings, X } from "lucide-react";
 import { useI18n } from "../../../lib/i18n";
 import { HeaderActionButton } from "./AiAssistantControls";
 
@@ -69,7 +69,7 @@ export default function AiAssistantHeader({
         ) : null}
         {onOpenAiConfig ? (
           <HeaderActionButton title={t("AI config")} onClick={onOpenAiConfig}>
-            <Settings2 className="h-4 w-4" aria-hidden="true" />
+            <Settings className="h-4 w-4" aria-hidden="true" />
           </HeaderActionButton>
         ) : null}
         {onClose ? (

@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    now_rfc3339, AiApiType, AiApprovalMode, AiConfig, AiConfigInput, AiProfile, AiProfileInput,
-    AiProfilesState,
+    now_rfc3339, AiAgentMode, AiApiType, AiApprovalMode, AiConfig, AiConfigInput, AiProfile,
+    AiProfileInput, AiProfilesState,
 };
 
 use super::io::write_json_pretty;
@@ -124,6 +124,15 @@ impl Storage {
         Ok(guard.clone())
     }
 
+    /// Persists the global agent runtime mode used by every AI profile.
+    pub fn save_ai_agent_mode(&self, agent_mode: AiAgentMode) -> AppResult<AiProfilesState> {
+        let mut guard = self.ai_profiles.write().expect("ai profiles lock poisoned");
+        ensure_ai_profiles_state(&mut guard, &AiConfig::default());
+        guard.agent_mode = agent_mode;
+        write_json_pretty(&self.ai_profiles_path, &*guard)?;
+        Ok(guard.clone())
+    }
+
     /// Sets one profile as active for AI chat calls.
     pub fn set_active_ai_profile(&self, id: &str) -> AppResult<AiProfilesState> {
         let mut guard = self.ai_profiles.write().expect("ai profiles lock poisoned");
@@ -147,10 +156,17 @@ impl Storage {
             .active_profile_id
             .as_ref()
             .and_then(|id| snapshot.profiles.iter().find(|item| item.id == *id))
-            .map(|profile| config_from_profile(profile, snapshot.approval_mode.clone()))
+            .map(|profile| {
+                config_from_profile(
+                    profile,
+                    snapshot.approval_mode.clone(),
+                    snapshot.agent_mode.clone(),
+                )
+            })
             .unwrap_or_else(|| {
                 let mut config = AiConfig::default();
                 config.approval_mode = snapshot.approval_mode;
+                config.agent_mode = snapshot.agent_mode;
                 config
             })
     }
@@ -206,9 +222,14 @@ impl Storage {
         };
         guard.profiles[index] = updated.clone();
         guard.approval_mode = input.approval_mode.clone();
+        guard.agent_mode = input.agent_mode.clone();
 
         write_json_pretty(&self.ai_profiles_path, &*guard)?;
-        Ok(config_from_profile(&updated, guard.approval_mode.clone()))
+        Ok(config_from_profile(
+            &updated,
+            guard.approval_mode.clone(),
+            guard.agent_mode.clone(),
+        ))
     }
 }
 
@@ -376,7 +397,11 @@ fn profile_from_config(config: &AiConfig, name: &str) -> AiProfile {
     }
 }
 
-fn config_from_profile(profile: &AiProfile, approval_mode: AiApprovalMode) -> AiConfig {
+fn config_from_profile(
+    profile: &AiProfile,
+    approval_mode: AiApprovalMode,
+    agent_mode: AiAgentMode,
+) -> AiConfig {
     AiConfig {
         api_type: profile.api_type.clone(),
         base_url: profile.base_url.clone(),
@@ -387,6 +412,7 @@ fn config_from_profile(profile: &AiProfile, approval_mode: AiApprovalMode) -> Ai
         max_tokens: profile.max_tokens,
         max_context_tokens: profile.max_context_tokens,
         approval_mode,
+        agent_mode,
         updated_at: profile.updated_at.clone(),
     }
 }

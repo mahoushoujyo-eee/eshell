@@ -136,6 +136,11 @@ const pendingActionToolState = (action) => {
   return "awaiting_approval";
 };
 
+const shouldRenderPendingActionInTurn = (action) => {
+  const status = toText(action?.status).trim();
+  return !status || status === "pending";
+};
+
 const createPendingActionToolMessage = (action) => ({
   id: `pending-action:${action.id}`,
   role: "tool",
@@ -261,6 +266,9 @@ const injectPendingActionsIntoGroups = (groups, pendingActions, conversationId) 
 
   pendingActions.forEach((action) => {
     if (!action || typeof action !== "object") {
+      return;
+    }
+    if (!shouldRenderPendingActionInTurn(action)) {
       return;
     }
     if (conversationId && action.conversationId && action.conversationId !== conversationId) {

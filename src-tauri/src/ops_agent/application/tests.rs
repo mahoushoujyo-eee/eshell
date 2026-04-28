@@ -535,7 +535,7 @@ fn rejecting_pending_action_persists_rejection_decision() {
 }
 
 #[test]
-fn resolving_pending_action_with_comment_appends_user_message_for_follow_up() {
+fn resolving_pending_action_with_comment_keeps_comment_on_action() {
     let mut registry = OpsAgentToolRegistry::new();
     registry.register(MockDangerTool);
 
@@ -578,20 +578,20 @@ fn resolving_pending_action_with_comment_appends_user_message_for_follow_up() {
     assert_eq!(resolved.action.status, OpsAgentActionStatus::Executed);
     assert_eq!(
         resolved.action.approval_comment.as_deref(),
-        Some("鎵ц鍚庣户缁鏌ユ湇鍔＄姸鎬?")
+        Some("执行后继续检查服务状态")
     );
 
     let updated = state
         .ops_agent
         .get_conversation(&conversation.id)
         .expect("reload conversation");
-    let last_user_message = updated
+    let user_messages = updated
         .messages
         .iter()
-        .rev()
-        .find(|item| item.role == OpsAgentRole::User)
-        .expect("follow-up user message");
-    assert_eq!(last_user_message.content, "执行后继续检查服务状态");
+        .filter(|item| item.role == OpsAgentRole::User)
+        .collect::<Vec<_>>();
+    assert_eq!(user_messages.len(), 1);
+    assert_eq!(user_messages[0].content, "需要高风险操作，请先审批");
 }
 
 #[test]

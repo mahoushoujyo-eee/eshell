@@ -12,8 +12,10 @@ export default function AiAssistantPanel({
   aiProfiles,
   activeAiProfileId,
   approvalMode,
+  agentMode,
   onSelectAiProfile,
   onSaveApprovalMode,
+  onSaveAgentMode,
   conversations,
   activeConversationId,
   activeConversation,
@@ -203,6 +205,7 @@ export default function AiAssistantPanel({
             activeAiProfileId={activeAiProfileId}
             onSelectAiProfile={onSelectAiProfile}
             approvalMode={approvalMode}
+            agentMode={agentMode}
             shellContext={shellContext}
             aiImageAttachments={aiImageAttachments}
             onAttachAiImages={onAttachAiImages}
@@ -214,6 +217,7 @@ export default function AiAssistantPanel({
             onAskAi={onAskAi}
             onCancelStreaming={onCancelStreaming}
             onSaveApprovalMode={onSaveApprovalMode}
+            onSaveAgentMode={onSaveAgentMode}
             isStreaming={isStreaming}
             activeConversationId={activeConversationId}
             activeConversation={activeConversation}

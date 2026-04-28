@@ -251,6 +251,8 @@ pub struct OpsAgentPendingAction {
     pub approval_at: Option<String>,
     pub execution_output: Option<String>,
     pub execution_exit_code: Option<i32>,
+    #[serde(default)]
+    pub resume_context: Option<OpsAgentExecutorResumeContext>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -440,6 +442,19 @@ pub struct OpsAgentResolveActionResult {
     pub note: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct PlannedToolAction {
+    pub kind: OpsAgentToolKind,
+    pub command: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlannedAgentReply {
+    pub reply: String,
+    pub tool: PlannedToolAction,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OpsAgentPlanStepStatus {
@@ -447,6 +462,7 @@ pub enum OpsAgentPlanStepStatus {
     Skipped,
     Executed,
     AwaitingApproval,
+    Rejected,
     Failed,
 }
 
@@ -493,6 +509,26 @@ pub struct OpsAgentExecutionStep {
     pub output_preview: Option<String>,
     #[serde(default)]
     pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentExecutorResumeContext {
+    pub plan: OpsAgentWorkflowPlan,
+    #[serde(default)]
+    pub execution_steps: Vec<OpsAgentExecutionStep>,
+    pub pending_step_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum OpsAgentRunResume {
+    Executor(OpsAgentExecutorResume),
+}
+
+#[derive(Debug, Clone)]
+pub struct OpsAgentExecutorResume {
+    pub context: OpsAgentExecutorResumeContext,
+    pub resolved_action: OpsAgentPendingAction,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

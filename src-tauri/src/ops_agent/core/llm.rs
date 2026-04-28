@@ -1,10 +1,11 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
+use serde::Deserialize;
 use serde_json::json;
 
 use crate::error::{AppError, AppResult};
-use crate::models::AiConfig;
+use crate::models::{AiAgentMode, AiApprovalMode, AiConfig};
 use crate::state::AppState;
 
 use super::prompting::{
@@ -13,7 +14,7 @@ use super::prompting::{
 };
 use crate::ops_agent::domain::types::{
     OpsAgentExecutionReport, OpsAgentMessage, OpsAgentReviewReport, OpsAgentRole, OpsAgentToolKind,
-    OpsAgentValidationReport, OpsAgentWorkflowPlan,
+    OpsAgentValidationReport, OpsAgentWorkflowPlan, PlannedAgentReply, PlannedToolAction,
 };
 use crate::ops_agent::infrastructure::logging::{truncate_for_log, OpsAgentLogContext};
 use crate::ops_agent::providers::{
@@ -27,6 +28,262 @@ const OPS_AGENT_AI_STREAM_TIMEOUT_SECS: u64 = 240;
 const AI_LOG_MESSAGE_PREVIEW_CHARS: usize = 280;
 const AI_LOG_ARGUMENT_PREVIEW_CHARS: usize = 220;
 const AI_LOG_LAST_OUTPUT_PREVIEW_CHARS: usize = 180;
+const AGENT_CONTEXT_MAX_CHARS: usize = 16_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpsAgentChatRoute {
+    DirectReply { answer: String, reason: String },
+    Workflow { reason: String },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RawChatRouteMode {
+    DirectReply,
+    Workflow,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawChatRouteDecision {
+    route: RawChatRouteMode,
+    #[serde(default)]
+    answer: String,
+    #[serde(default)]
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum RawAgentModeRoute {
+    Lite,
+    Pro,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawAgentModeDecision {
+    mode: RawAgentModeRoute,
+    #[serde(default)]
+    reason: String,
+}
+
+pub async fn route_chat(
+    state: &AppState,
+    config: &AiConfig,
+    history: &[OpsAgentMessage],
+    current_message: &OpsAgentMessage,
+    session_context: &OpsAgentSessionContext,
+    tool_hints: &[OpsAgentToolPromptHint],
+    log_context: Option<OpsAgentLogContext<'_>>,
+) -> AppResult<OpsAgentChatRoute> {
+    validate_ai_config(config)?;
+    log_request_context(
+        log_context,
+        "ai.gateway",
+        config,
+        history,
+        current_message,
+        session_context,
+        None,
+        Some(tool_hints),
+    );
+
+    let mut messages = Vec::new();
+    messages.push(ProviderChatMessage {
+        role: "system".to_string(),
+        content: ProviderChatMessageContent::text(build_gateway_prompt(
+            &config.system_prompt,
+            session_context,
+            tool_hints,
+        )),
+    });
+    push_agent_context_message(state, &mut messages, session_context, log_context);
+    for message in history {
+        messages.push(convert_history_message(state, message)?);
+    }
+    messages.push(convert_history_message(state, current_message)?);
+
+    let response = request_message(
+        config,
+        messages,
+        ProviderChatRequestOptions {
+            tools: vec![build_submit_route_tool_definition()],
+            tool_choice: Some(ProviderToolChoice::Named("submit_route".to_string())),
+            response_format: None,
+            stream: false,
+        },
+        Duration::from_secs(OPS_AGENT_AI_PLAN_TIMEOUT_SECS),
+        log_context,
+        "gateway",
+    )
+    .await?;
+    log_provider_response(
+        log_context,
+        "ai.gateway.provider_response",
+        "ai.gateway.provider_tool_call",
+        &response,
+    );
+
+    parse_chat_route_from_response(&response).map(|route| {
+        if let Some(log_context) = log_context {
+            let (route_name, reason) = match &route {
+                OpsAgentChatRoute::DirectReply { reason, .. } => ("direct_reply", reason.as_str()),
+                OpsAgentChatRoute::Workflow { reason } => ("workflow", reason.as_str()),
+            };
+            log_context.append(
+                "ai.gateway.parsed",
+                format!(
+                    "route={} reason={}",
+                    route_name,
+                    truncate_for_log(reason, AI_LOG_MESSAGE_PREVIEW_CHARS)
+                ),
+            );
+        }
+        route
+    })
+}
+
+pub async fn route_agent_mode(
+    state: &AppState,
+    config: &AiConfig,
+    history: &[OpsAgentMessage],
+    current_message: &OpsAgentMessage,
+    session_context: &OpsAgentSessionContext,
+    tool_hints: &[OpsAgentToolPromptHint],
+    log_context: Option<OpsAgentLogContext<'_>>,
+) -> AppResult<(AiAgentMode, String)> {
+    validate_ai_config(config)?;
+    log_request_context(
+        log_context,
+        "ai.agent_mode_gateway",
+        config,
+        history,
+        current_message,
+        session_context,
+        None,
+        Some(tool_hints),
+    );
+
+    let mut messages = Vec::new();
+    messages.push(ProviderChatMessage {
+        role: "system".to_string(),
+        content: ProviderChatMessageContent::text(build_agent_mode_gateway_prompt(
+            &config.system_prompt,
+            session_context,
+            tool_hints,
+        )),
+    });
+    push_agent_context_message(state, &mut messages, session_context, log_context);
+    for message in history {
+        messages.push(convert_history_message(state, message)?);
+    }
+    messages.push(convert_history_message(state, current_message)?);
+
+    let response = request_message(
+        config,
+        messages,
+        ProviderChatRequestOptions {
+            tools: vec![build_submit_agent_mode_tool_definition()],
+            tool_choice: Some(ProviderToolChoice::Named("submit_agent_mode".to_string())),
+            response_format: None,
+            stream: false,
+        },
+        Duration::from_secs(OPS_AGENT_AI_PLAN_TIMEOUT_SECS),
+        log_context,
+        "agent_mode_gateway",
+    )
+    .await?;
+    log_provider_response(
+        log_context,
+        "ai.agent_mode_gateway.provider_response",
+        "ai.agent_mode_gateway.provider_tool_call",
+        &response,
+    );
+
+    parse_agent_mode_from_response(&response).map(|decision| {
+        if let Some(log_context) = log_context {
+            log_context.append(
+                "ai.agent_mode_gateway.parsed",
+                format!(
+                    "mode={:?} reason={}",
+                    decision.0,
+                    truncate_for_log(decision.1.as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS)
+                ),
+            );
+        }
+        decision
+    })
+}
+
+pub async fn plan_reply(
+    state: &AppState,
+    config: &AiConfig,
+    history: &[OpsAgentMessage],
+    current_message: &OpsAgentMessage,
+    session_context: &OpsAgentSessionContext,
+    tool_hints: &[OpsAgentToolPromptHint],
+    log_context: Option<OpsAgentLogContext<'_>>,
+) -> AppResult<PlannedAgentReply> {
+    validate_ai_config(config)?;
+    log_request_context(
+        log_context,
+        "ai.react_plan",
+        config,
+        history,
+        current_message,
+        session_context,
+        None,
+        Some(tool_hints),
+    );
+
+    let shell_execution_policy = match config.approval_mode {
+        AiApprovalMode::AutoExecute => {
+            "The shell tool may auto-execute commands directly, including non-read-only commands."
+        }
+        AiApprovalMode::RequireApproval => {
+            "Read-only shell commands can run immediately; commands outside the safe read-only allowlist require user approval."
+        }
+    };
+    let mut messages = Vec::new();
+    messages.push(ProviderChatMessage {
+        role: "system".to_string(),
+        content: ProviderChatMessageContent::text(super::prompting::build_planner_system_prompt(
+            &config.system_prompt,
+            session_context,
+            tool_hints,
+            shell_execution_policy,
+        )),
+    });
+    push_agent_context_message(state, &mut messages, session_context, log_context);
+    for message in history {
+        messages.push(convert_history_message(state, message)?);
+    }
+    messages.push(convert_history_message(state, current_message)?);
+
+    let response = request_message(
+        config,
+        messages,
+        ProviderChatRequestOptions {
+            tools: build_react_tool_definitions(tool_hints),
+            tool_choice: (!tool_hints.is_empty()).then_some(ProviderToolChoice::Auto),
+            response_format: None,
+            stream: false,
+        },
+        Duration::from_secs(OPS_AGENT_AI_PLAN_TIMEOUT_SECS),
+        log_context,
+        "react_plan",
+    )
+    .await?;
+    log_provider_response(
+        log_context,
+        "ai.react_plan.provider_response",
+        "ai.react_plan.provider_tool_call",
+        &response,
+    );
+
+    parse_planned_reply_from_response(&response, tool_hints)
+}
 
 pub async fn stream_final_answer<F>(
     state: &AppState,
@@ -62,6 +319,7 @@ where
             planner_reply,
         )),
     });
+    push_agent_context_message(state, &mut messages, session_context, log_context);
     for message in history {
         messages.push(convert_history_message(state, message)?);
     }
@@ -156,6 +414,7 @@ pub async fn plan_workflow(
             tool_hints,
         )),
     });
+    push_agent_context_message(state, &mut messages, session_context, log_context);
     for message in history {
         messages.push(convert_history_message(state, message)?);
     }
@@ -387,6 +646,53 @@ Rules:\n\
     )
 }
 
+fn build_gateway_prompt(
+    base_prompt: &str,
+    session_context: &OpsAgentSessionContext,
+    tool_hints: &[OpsAgentToolPromptHint],
+) -> String {
+    format!(
+        "{base}\n\nYou are the gateway for an operations assistant.\n\
+Decide whether the user's latest message can be answered directly, or whether it needs the serial multi-agent workflow.\n\
+\n\
+Use direct_reply for normal conversation, explanations, definitions, quick troubleshooting advice, small clarifying questions, and requests that do not need live shell evidence or coordinated execution.\n\
+Use workflow when the user asks you to inspect the environment, run commands, change files/services/configuration, diagnose from live system state, validate a fix, or complete a multi-step operational task.\n\
+\n\
+If you choose direct_reply, write the final user-facing answer in the answer field. Keep it concise, useful, and do not claim to have executed commands or inspected live state.\n\
+If you choose workflow, leave answer empty and put a short reason in reason.\n\
+\n\
+Available workflow tools:\n{tool_block}\n\n\
+Session context:\n{session_block}\n\n\
+Submit exactly one route via the submit_route tool.",
+        base = base_prompt.trim(),
+        tool_block = format_tool_catalog_for_prompt(tool_hints),
+        session_block = session_context.to_prompt_block(),
+    )
+}
+
+fn build_agent_mode_gateway_prompt(
+    base_prompt: &str,
+    session_context: &OpsAgentSessionContext,
+    tool_hints: &[OpsAgentToolPromptHint],
+) -> String {
+    format!(
+        "{base}\n\nYou are the runtime gateway for an operations assistant.\n\
+Choose whether the latest user request should use lite mode or pro mode.\n\
+\n\
+lite mode is a compact ReAct loop: it can answer directly, use one tool at a time, and iterate from observations. Choose lite for normal chat, explanations, quick troubleshooting, simple diagnostics, and most day-to-day tasks.\n\
+pro mode is a serial multi-agent workflow with planner, executor, reviewer, validator, and final answer. Choose pro for complex or risky operational work, multi-step changes, tasks needing explicit verification, unclear safety tradeoffs, or anything where independent review/validation is valuable.\n\
+\n\
+Prefer lite unless pro's review and validation would clearly improve correctness or safety.\n\
+\n\
+Available tools:\n{tool_block}\n\n\
+Session context:\n{session_block}\n\n\
+Submit exactly one decision via the submit_agent_mode tool.",
+        base = base_prompt.trim(),
+        tool_block = format_tool_catalog_for_prompt(tool_hints),
+        session_block = session_context.to_prompt_block(),
+    )
+}
+
 fn build_reviewer_prompt(base_prompt: &str) -> String {
     format!(
         "{base}\n\nYou are the Reviewer sub-agent in a serial multi-agent operations workflow.\n\
@@ -403,6 +709,111 @@ Determine whether the user's task is complete based only on the plan, execution 
 Submit validation via the submit_validation tool. Mark completed=false when approval is pending, execution failed, or evidence is insufficient.",
         base = base_prompt.trim(),
     )
+}
+
+fn build_submit_route_tool_definition() -> ProviderToolDefinition {
+    ProviderToolDefinition {
+        name: "submit_route".to_string(),
+        description: "Route the latest user message to a direct reply or the multi-agent workflow."
+            .to_string(),
+        parameters: json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "route": {
+                    "type": "string",
+                    "enum": ["direct_reply", "workflow"],
+                    "description": "direct_reply answers immediately; workflow runs planner/executor/reviewer/validator."
+                },
+                "answer": {
+                    "type": "string",
+                    "description": "Final user-facing answer when route is direct_reply; empty for workflow."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Short routing rationale."
+                }
+            },
+            "required": ["route", "answer", "reason"]
+        }),
+    }
+}
+
+fn build_submit_agent_mode_tool_definition() -> ProviderToolDefinition {
+    ProviderToolDefinition {
+        name: "submit_agent_mode".to_string(),
+        description: "Choose lite or pro runtime mode for the latest user message.".to_string(),
+        parameters: json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["lite", "pro"],
+                    "description": "lite uses the compact ReAct loop; pro uses the serial multi-agent workflow."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Short routing rationale."
+                }
+            },
+            "required": ["mode", "reason"]
+        }),
+    }
+}
+
+fn build_react_tool_definitions(tool_hints: &[OpsAgentToolPromptHint]) -> Vec<ProviderToolDefinition> {
+    tool_hints
+        .iter()
+        .map(|tool| {
+            let requires_command = tool.kind != OpsAgentToolKind::ui_context();
+            let mut required = vec!["reason"];
+            if requires_command {
+                required.insert(0, "command");
+            }
+            let approval = if tool.requires_approval {
+                "May require approval before execution."
+            } else {
+                "Can run immediately when safe."
+            };
+            let usage_notes = if tool.usage_notes.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", tool.usage_notes.join(" "))
+            };
+
+            ProviderToolDefinition {
+                name: tool.kind.to_string(),
+                description: format!(
+                    "{} {}{}",
+                    tool.description.trim(),
+                    approval,
+                    usage_notes
+                )
+                .trim()
+                .to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": if requires_command {
+                                "Concrete command or input for this tool."
+                            } else {
+                                "Optional command or selector. This tool may ignore it."
+                            }
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "Short reason explaining why this tool is needed now."
+                        }
+                    },
+                    "required": required
+                }),
+            }
+        })
+        .collect()
 }
 
 fn build_submit_plan_tool_definition(
@@ -501,6 +912,122 @@ fn build_submit_validation_tool_definition() -> ProviderToolDefinition {
             "required": ["completed", "confidence", "summary", "evidence", "missingItems", "suggestedFollowUp"]
         }),
     }
+}
+
+fn parse_chat_route_from_response(
+    response: &ProviderChatMessageResponse,
+) -> AppResult<OpsAgentChatRoute> {
+    let raw = response
+        .tool_calls
+        .iter()
+        .find(|tool_call| tool_call.name == "submit_route")
+        .map(|tool_call| tool_call.arguments.as_str())
+        .or_else(|| extract_json_object(response.content.as_str()));
+
+    let Some(raw) = raw else {
+        let answer = response.content.trim();
+        if answer.is_empty() {
+            return Err(AppError::Runtime(
+                "gateway did not return a usable route decision".to_string(),
+            ));
+        }
+        return Ok(OpsAgentChatRoute::DirectReply {
+            answer: answer.to_string(),
+            reason: "Gateway returned plain text.".to_string(),
+        });
+    };
+
+    let decision: RawChatRouteDecision = serde_json::from_str(raw)?;
+    let reason = normalize_single_line(decision.reason.as_str());
+    match decision.route {
+        RawChatRouteMode::DirectReply => {
+            let answer = decision.answer.trim().to_string();
+            if answer.is_empty() {
+                return Err(AppError::Runtime(
+                    "gateway selected direct_reply without an answer".to_string(),
+                ));
+            }
+            Ok(OpsAgentChatRoute::DirectReply { answer, reason })
+        }
+        RawChatRouteMode::Workflow => Ok(OpsAgentChatRoute::Workflow { reason }),
+    }
+}
+
+fn parse_agent_mode_from_response(
+    response: &ProviderChatMessageResponse,
+) -> AppResult<(AiAgentMode, String)> {
+    let raw = response
+        .tool_calls
+        .iter()
+        .find(|tool_call| tool_call.name == "submit_agent_mode")
+        .map(|tool_call| tool_call.arguments.as_str())
+        .or_else(|| extract_json_object(response.content.as_str()));
+
+    let Some(raw) = raw else {
+        return Err(AppError::Runtime(
+            "agent mode gateway did not return a usable decision".to_string(),
+        ));
+    };
+
+    let decision: RawAgentModeDecision = serde_json::from_str(raw)?;
+    let reason = normalize_single_line(decision.reason.as_str());
+    let mode = match decision.mode {
+        RawAgentModeRoute::Lite => AiAgentMode::Lite,
+        RawAgentModeRoute::Pro => AiAgentMode::Pro,
+    };
+    Ok((mode, reason))
+}
+
+fn parse_planned_reply_from_response(
+    response: &ProviderChatMessageResponse,
+    tool_hints: &[OpsAgentToolPromptHint],
+) -> AppResult<PlannedAgentReply> {
+    let registered_tools = tool_hints
+        .iter()
+        .map(|item| item.kind.to_string())
+        .collect::<HashSet<_>>();
+
+    for tool_call in &response.tool_calls {
+        let normalized_kind = normalize_tool_kind_alias(
+            OpsAgentToolKind::new(tool_call.name.as_str()),
+            &registered_tools,
+        );
+        if normalized_kind.is_none() || !registered_tools.contains(normalized_kind.as_str()) {
+            continue;
+        }
+
+        let arguments: serde_json::Value = serde_json::from_str(&tool_call.arguments)?;
+        let command = arguments
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+        let reason = arguments
+            .get("reason")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+
+        return Ok(PlannedAgentReply {
+            reply: response.content.trim().to_string(),
+            tool: PlannedToolAction {
+                kind: normalized_kind,
+                command,
+                reason,
+            },
+        });
+    }
+
+    Ok(PlannedAgentReply {
+        reply: response.content.trim().to_string(),
+        tool: PlannedToolAction {
+            kind: OpsAgentToolKind::none(),
+            command: None,
+            reason: None,
+        },
+    })
 }
 
 fn parse_workflow_plan_from_response(
@@ -713,6 +1240,88 @@ fn validate_ai_config(config: &AiConfig) -> AppResult<()> {
         return Err(AppError::Validation("model cannot be empty".to_string()));
     }
     Ok(())
+}
+
+fn push_agent_context_message(
+    state: &AppState,
+    messages: &mut Vec<ProviderChatMessage>,
+    session_context: &OpsAgentSessionContext,
+    log_context: Option<OpsAgentLogContext<'_>>,
+) {
+    let server_id = session_context
+        .session_id
+        .as_deref()
+        .and_then(|session_id| state.get_session(session_id).ok())
+        .map(|session| session.config_id);
+    let bundle = match state
+        .storage
+        .load_agent_context_bundle(server_id.as_deref())
+    {
+        Ok(bundle) => bundle,
+        Err(error) => {
+            if let Some(log_context) = log_context {
+                log_context.append("ai.agent_context.load_failed", error.to_string());
+            }
+            return;
+        }
+    };
+
+    let global = truncate_context_section(bundle.global.trim());
+    let server = bundle
+        .server
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(truncate_context_section);
+
+    if global.is_empty() && server.as_deref().unwrap_or("").is_empty() {
+        return;
+    }
+
+    let mut content = String::from(
+        "Additional user-maintained AGENTS.md context. Treat it as durable user context and preferences, but the latest user message and explicit system instructions still take priority.",
+    );
+    if !global.is_empty() {
+        content.push_str("\n\nGlobal AGENTS.md:\n");
+        content.push_str(global.as_str());
+    }
+    if let Some(server) = server {
+        content.push_str("\n\nServer AGENTS.md:\n");
+        content.push_str(server.as_str());
+    }
+
+    if let Some(log_context) = log_context {
+        log_context.append(
+            "ai.agent_context.injected",
+            format!(
+                "server_id={} global_chars={} server_chars={}",
+                server_id.as_deref().unwrap_or("-"),
+                global.chars().count(),
+                bundle
+                    .server
+                    .as_deref()
+                    .map(|item| item.trim().chars().count())
+                    .unwrap_or(0)
+            ),
+        );
+    }
+
+    messages.push(ProviderChatMessage {
+        role: "system".to_string(),
+        content: ProviderChatMessageContent::text(content),
+    });
+}
+
+fn truncate_context_section(value: &str) -> String {
+    if value.chars().count() <= AGENT_CONTEXT_MAX_CHARS {
+        return value.to_string();
+    }
+    let mut out = value
+        .chars()
+        .take(AGENT_CONTEXT_MAX_CHARS)
+        .collect::<String>();
+    out.push_str("\n\n[AGENTS.md truncated]");
+    out
 }
 
 fn convert_history_message(
@@ -999,5 +1608,54 @@ mod tests {
         let tool_kind_enum = &definition.parameters["properties"]["steps"]["items"]["properties"]
             ["toolKind"]["enum"];
         assert_eq!(tool_kind_enum, &json!(["shell", "ui_context", null]));
+    }
+
+    #[test]
+    fn parses_gateway_direct_reply_tool_call() {
+        let response = ProviderChatMessageResponse {
+            tool_calls: vec![crate::ops_agent::providers::types::ProviderToolCall {
+                id: Some("call-1".to_string()),
+                name: "submit_route".to_string(),
+                arguments: json!({
+                    "route": "direct_reply",
+                    "answer": "可以，直接回答。",
+                    "reason": "Simple conversational request."
+                })
+                .to_string(),
+            }],
+            ..ProviderChatMessageResponse::default()
+        };
+
+        assert_eq!(
+            parse_chat_route_from_response(&response).expect("parse route"),
+            OpsAgentChatRoute::DirectReply {
+                answer: "可以，直接回答。".to_string(),
+                reason: "Simple conversational request.".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_gateway_workflow_tool_call() {
+        let response = ProviderChatMessageResponse {
+            tool_calls: vec![crate::ops_agent::providers::types::ProviderToolCall {
+                id: Some("call-1".to_string()),
+                name: "submit_route".to_string(),
+                arguments: json!({
+                    "route": "workflow",
+                    "answer": "",
+                    "reason": "Needs live shell inspection."
+                })
+                .to_string(),
+            }],
+            ..ProviderChatMessageResponse::default()
+        };
+
+        assert_eq!(
+            parse_chat_route_from_response(&response).expect("parse route"),
+            OpsAgentChatRoute::Workflow {
+                reason: "Needs live shell inspection.".to_string(),
+            }
+        );
     }
 }

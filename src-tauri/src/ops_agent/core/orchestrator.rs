@@ -14,9 +14,9 @@ use crate::ops_agent::core::agents::{
 use crate::ops_agent::core::helpers::{ensure_run_not_cancelled, is_run_cancelled_error};
 use crate::ops_agent::core::prompting::OpsAgentSessionContext;
 use crate::ops_agent::domain::types::{
-    OpsAgentExecutionReport, OpsAgentKind, OpsAgentMessage, OpsAgentPendingAction,
-    OpsAgentReviewReport, OpsAgentRole, OpsAgentRunPhase, OpsAgentValidationReport,
-    OpsAgentWorkflowPlan,
+    OpsAgentExecutionReport, OpsAgentExecutorResume, OpsAgentKind, OpsAgentMessage,
+    OpsAgentPendingAction, OpsAgentReviewReport, OpsAgentRole, OpsAgentRunPhase,
+    OpsAgentRunResume, OpsAgentValidationReport, OpsAgentWorkflowPlan,
 };
 use crate::ops_agent::infrastructure::agent_trace_store::OpsAgentRunManifest;
 use crate::ops_agent::infrastructure::logging::{
@@ -41,7 +41,7 @@ pub(crate) async fn process_chat_stream(
     session_id: Option<String>,
     current_user_message_id: String,
     run_handle: OpsAgentRunHandle,
-    seed_turn_tool_history: Vec<OpsAgentMessage>,
+    resume: Option<OpsAgentRunResume>,
 ) -> AppResult<ProcessChatOutcome> {
     let emitter = OpsAgentEventEmitter::new(
         app,
@@ -73,10 +73,10 @@ pub(crate) async fn process_chat_stream(
         Some(run_id.as_str()),
         Some(conversation_id.as_str()),
         format!(
-            "session_id={} current_message_id={} seed_tool_messages={}",
+            "session_id={} current_message_id={} resume={}",
             session_id.as_deref().unwrap_or("-"),
             current_user_message_id,
-            seed_turn_tool_history.len()
+            describe_run_resume(resume.as_ref())
         ),
     );
     ensure_run_not_cancelled(&run_handle)?;
@@ -102,29 +102,108 @@ pub(crate) async fn process_chat_stream(
         );
     }
 
+    let executor_resume = match resume.as_ref() {
+        Some(OpsAgentRunResume::Executor(resume)) => Some(resume.clone()),
+        None => None,
+    };
     let conversation = state.ops_agent.get_conversation(&conversation_id)?;
+    let conversation_messages = conversation.messages;
+    let turn_tool_history = if executor_resume.is_some() {
+        collect_current_turn_tool_history(&conversation_messages, &current_user_message_id)?
+    } else {
+        Vec::new()
+    };
     let (history, current_user_message) =
-        split_history_for_current_message(conversation.messages, &current_user_message_id)?;
+        split_history_for_current_message(conversation_messages, &current_user_message_id)?;
     let session_context = super::prompting::load_session_context(&state, session_id.as_deref());
     let tool_hints = state.ops_agent_tools.prompt_hints();
     let mut working_history = history.clone();
-    if !seed_turn_tool_history.is_empty() {
-        working_history.extend(seed_turn_tool_history.clone());
+    working_history.extend(turn_tool_history.clone());
+
+    if executor_resume.is_none() {
+        let route = run_gateway(
+            state.as_ref(),
+            &emitter,
+            &run_handle,
+            &run_id,
+            &conversation_id,
+            &config,
+            &working_history,
+            &current_user_message,
+            &session_context,
+            &tool_hints,
+        )
+        .await?;
+
+        match route {
+            super::llm::OpsAgentChatRoute::DirectReply { answer, reason } => {
+                append_debug_log(
+                    state.as_ref(),
+                    "orchestrator.gateway.direct_reply",
+                    Some(run_id.as_str()),
+                    Some(conversation_id.as_str()),
+                    format!("reason={reason} answer_chars={}", answer.chars().count()),
+                );
+                trace_agent_io(
+                    state.as_ref(),
+                    &run_id,
+                    1,
+                    OpsAgentKind::Orchestrator,
+                    &json!({ "gateway": "direct_reply", "reason": reason }),
+                    &json!({ "answer": answer }),
+                );
+                emitter.delta(answer.clone());
+                return finalize_chat_completion(&state, &conversation_id, answer, None, &emitter);
+            }
+            super::llm::OpsAgentChatRoute::Workflow { reason } => {
+                append_debug_log(
+                    state.as_ref(),
+                    "orchestrator.gateway.workflow",
+                    Some(run_id.as_str()),
+                    Some(conversation_id.as_str()),
+                    format!("reason={reason}"),
+                );
+                trace_event(
+                    &state,
+                    &run_id,
+                    &conversation_id,
+                    None,
+                    Some(OpsAgentKind::Orchestrator),
+                    "gateway.workflow",
+                    reason.as_str(),
+                );
+            }
+        }
     }
 
-    let plan = run_planner(
-        Arc::clone(&state),
-        &emitter,
-        &run_handle,
-        &run_id,
-        &conversation_id,
-        &config,
-        &working_history,
-        &current_user_message,
-        &session_context,
-        &tool_hints,
-    )
-    .await?;
+    let plan = if let Some(resume) = executor_resume.as_ref() {
+        append_debug_log(
+            state.as_ref(),
+            "orchestrator.executor_resume.plan_restored",
+            Some(run_id.as_str()),
+            Some(conversation_id.as_str()),
+            format!(
+                "pending_step_id={} execution_steps={}",
+                resume.context.pending_step_id,
+                resume.context.execution_steps.len()
+            ),
+        );
+        resume.context.plan.clone()
+    } else {
+        run_planner(
+            Arc::clone(&state),
+            &emitter,
+            &run_handle,
+            &run_id,
+            &conversation_id,
+            &config,
+            &working_history,
+            &current_user_message,
+            &session_context,
+            &tool_hints,
+        )
+        .await?
+    };
 
     let executor_output = run_executor(
         Arc::clone(&state),
@@ -135,9 +214,33 @@ pub(crate) async fn process_chat_stream(
         session_id.clone(),
         &current_user_message_id,
         &plan,
+        executor_resume.clone(),
     )
     .await?;
     working_history.extend(executor_output.tool_history.clone());
+
+    if let Some(pending_action) = executor_output.report.pending_action.clone() {
+        append_debug_log(
+            state.as_ref(),
+            "orchestrator.paused_for_approval",
+            Some(run_id.as_str()),
+            Some(conversation_id.as_str()),
+            format!(
+                "action_id={} command={}",
+                pending_action.id, pending_action.command
+            ),
+        );
+        trace_event(
+            &state,
+            &run_id,
+            &conversation_id,
+            Some(OpsAgentRunPhase::Executing),
+            Some(OpsAgentKind::Orchestrator),
+            "run.paused_for_approval",
+            "execution paused until the pending action is resolved",
+        );
+        return finalize_approval_pause(&pending_action, &emitter);
+    }
 
     let review = run_reviewer(
         Arc::clone(&state),
@@ -201,6 +304,46 @@ pub(crate) async fn process_chat_stream(
         executor_output.report.pending_action,
         &emitter,
     )
+}
+
+async fn run_gateway(
+    state: &AppState,
+    emitter: &OpsAgentEventEmitter,
+    run_handle: &OpsAgentRunHandle,
+    run_id: &str,
+    conversation_id: &str,
+    config: &AiConfig,
+    history: &[OpsAgentMessage],
+    current_user_message: &OpsAgentMessage,
+    session_context: &OpsAgentSessionContext,
+    tool_hints: &[super::prompting::OpsAgentToolPromptHint],
+) -> AppResult<super::llm::OpsAgentChatRoute> {
+    execute_ai_agent_with_retry(
+        state,
+        emitter,
+        run_handle,
+        run_id,
+        conversation_id,
+        OpsAgentRunPhase::Planning,
+        OpsAgentKind::Orchestrator,
+        "Routing request",
+        || {
+            super::llm::route_chat(
+                state,
+                config,
+                history,
+                current_user_message,
+                session_context,
+                tool_hints,
+                Some(OpsAgentLogContext::new(
+                    state,
+                    Some(run_id),
+                    Some(conversation_id),
+                )),
+            )
+        },
+    )
+    .await
 }
 
 async fn run_planner(
@@ -298,6 +441,7 @@ async fn run_executor(
     session_id: Option<String>,
     current_user_message_id: &str,
     plan: &OpsAgentWorkflowPlan,
+    resume: Option<OpsAgentExecutorResume>,
 ) -> AppResult<super::agents::ExecutorAgentOutput> {
     let agent = ExecutorAgent;
     let phase = agent.phase();
@@ -328,6 +472,7 @@ async fn run_executor(
         session_id,
         current_user_message_id: current_user_message_id.to_string(),
         plan: plan.clone(),
+        resume,
     };
 
     let output = agent.run(input).await?;
@@ -654,6 +799,49 @@ fn finalize_chat_completion(
     )?;
     emitter.completed(assistant_answer, pending_action);
     Ok(ProcessChatOutcome::Completed)
+}
+
+fn finalize_approval_pause(
+    pending_action: &OpsAgentPendingAction,
+    emitter: &OpsAgentEventEmitter,
+) -> AppResult<ProcessChatOutcome> {
+    emitter.completed(String::new(), Some(pending_action.clone()));
+    Ok(ProcessChatOutcome::Completed)
+}
+
+fn describe_run_resume(resume: Option<&OpsAgentRunResume>) -> &'static str {
+    match resume {
+        Some(OpsAgentRunResume::Executor(_)) => "executor",
+        None => "none",
+    }
+}
+
+fn collect_current_turn_tool_history(
+    messages: &[OpsAgentMessage],
+    current_message_id: &str,
+) -> AppResult<Vec<OpsAgentMessage>> {
+    let current_index = messages
+        .iter()
+        .position(|item| item.id == current_message_id)
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "ops agent message {current_message_id} for executor resume"
+            ))
+        })?;
+
+    if messages[current_index].role != OpsAgentRole::User {
+        return Err(AppError::Validation(
+            "executor resume source message must be a user message".to_string(),
+        ));
+    }
+
+    Ok(messages
+        .iter()
+        .skip(current_index + 1)
+        .take_while(|item| item.role != OpsAgentRole::User)
+        .filter(|item| item.role == OpsAgentRole::Tool)
+        .cloned()
+        .collect())
 }
 
 fn split_history_for_current_message(

@@ -140,6 +140,80 @@ describe("reduceOpsAgentStreamEvent", () => {
     ]);
   });
 
+  it("removes streaming tool calls once persisted tool output is ready", () => {
+    const transition = reduceOpsAgentStreamEvent(
+      {
+        runId: "run-1",
+        conversationId: "conv-1",
+        text: "",
+        toolCalls: [
+          {
+            id: "tool-1",
+            toolKind: "shell",
+            command: "hostname",
+            status: "requested",
+          },
+        ],
+        agentProgress: null,
+      },
+      {
+        runId: "run-1",
+        conversationId: "conv-1",
+        stage: "tool_read",
+        chunk: "shell: hostname",
+        createdAt: "",
+        errorMessage: "",
+        toolCall: {
+          id: "tool-1",
+          toolKind: "shell",
+          command: "hostname",
+          status: "executed",
+        },
+        pendingAction: null,
+      },
+    );
+
+    expect(transition.nextStream.toolCalls).toEqual([]);
+    expect(transition.reloadConversationId).toBe("conv-1");
+  });
+
+  it("removes streaming tool calls once they become pending approval actions", () => {
+    const transition = reduceOpsAgentStreamEvent(
+      {
+        runId: "run-1",
+        conversationId: "conv-1",
+        text: "",
+        toolCalls: [
+          {
+            id: "tool-1",
+            toolKind: "shell",
+            command: "systemctl restart nginx",
+            status: "requested",
+          },
+        ],
+        agentProgress: null,
+      },
+      {
+        runId: "run-1",
+        conversationId: "conv-1",
+        stage: "requires_approval",
+        chunk: "",
+        createdAt: "",
+        errorMessage: "",
+        toolCall: {
+          id: "tool-1",
+          toolKind: "shell",
+          command: "systemctl restart nginx",
+          status: "awaiting_approval",
+        },
+        pendingAction: { id: "action-1", status: "pending" },
+      },
+    );
+
+    expect(transition.nextStream.toolCalls).toEqual([]);
+    expect(transition.pendingAction).toEqual({ id: "action-1", status: "pending" });
+  });
+
   it("tracks current agent progress without keeping a pending queue", () => {
     const transition = reduceOpsAgentStreamEvent(EMPTY_OPS_AGENT_STREAM, {
       runId: "run-1",

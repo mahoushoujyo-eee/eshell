@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
+  Gauge,
   ImagePlus,
+  Layers,
   Send,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
   X,
 } from "lucide-react";
 import ProviderIcon from "../../ai/ProviderIcon";
@@ -14,12 +17,19 @@ import { useI18n } from "../../../lib/i18n";
 import { formatBytes } from "../../../utils/format";
 import { ShellContextChip } from "./AiAssistantControls";
 
+const AGENT_MODE_OPTIONS = [
+  { value: "lite", label: "Lite", icon: Gauge },
+  { value: "auto", label: "Auto", icon: Sparkles },
+  { value: "pro", label: "Pro", icon: Layers },
+];
+
 export default function AiComposer({
   isDrawer,
   aiProfiles,
   activeAiProfileId,
   onSelectAiProfile,
   approvalMode,
+  agentMode = "pro",
   shellContext,
   aiImageAttachments,
   onAttachAiImages,
@@ -31,14 +41,17 @@ export default function AiComposer({
   onAskAi,
   onCancelStreaming,
   onSaveApprovalMode,
+  onSaveAgentMode,
   isStreaming,
   hasManagedShell,
 }) {
   const { t } = useI18n();
   const textareaRef = useRef(null);
   const modelPickerRef = useRef(null);
+  const agentModePickerRef = useRef(null);
   const imageInputRef = useRef(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [agentModeMenuOpen, setAgentModeMenuOpen] = useState(false);
   const isAutoExecute = approvalMode === "auto_execute";
   const canSend = aiQuestion.trim() || aiImageAttachments.length > 0;
   const minComposerHeight = hasManagedShell ? 112 : 88;
@@ -48,6 +61,12 @@ export default function AiComposer({
     [activeAiProfileId, aiProfiles],
   );
   const activeModelLabel = activeProfile?.model || t("No AI profile");
+  const activeAgentMode =
+    agentMode === "lite" || agentMode === "auto" || agentMode === "pro" ? agentMode : "pro";
+  const activeAgentModeOption =
+    AGENT_MODE_OPTIONS.find((option) => option.value === activeAgentMode) ||
+    AGENT_MODE_OPTIONS[2];
+  const ActiveAgentModeIcon = activeAgentModeOption.icon;
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -64,7 +83,7 @@ export default function AiComposer({
   }, [aiQuestion, maxComposerHeight, minComposerHeight]);
 
   useEffect(() => {
-    if (!modelMenuOpen) {
+    if (!modelMenuOpen && !agentModeMenuOpen) {
       return undefined;
     }
 
@@ -72,12 +91,17 @@ export default function AiComposer({
       if (modelPickerRef.current?.contains(event.target)) {
         return;
       }
+      if (agentModePickerRef.current?.contains(event.target)) {
+        return;
+      }
       setModelMenuOpen(false);
+      setAgentModeMenuOpen(false);
     };
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         setModelMenuOpen(false);
+        setAgentModeMenuOpen(false);
       }
     };
 
@@ -87,7 +111,7 @@ export default function AiComposer({
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [modelMenuOpen]);
+  }, [agentModeMenuOpen, modelMenuOpen]);
 
   const handleInputKeyDown = (event) => {
     if (event.key !== "Enter" || event.shiftKey) {
@@ -214,6 +238,7 @@ export default function AiComposer({
                     onClick={() => {
                       if (aiProfiles.length > 0) {
                         setModelMenuOpen((current) => !current);
+                        setAgentModeMenuOpen(false);
                       }
                     }}
                     disabled={aiProfiles.length === 0}
@@ -266,6 +291,72 @@ export default function AiComposer({
                                     {provider.shortLabel}
                                   </span>
                                 </span>
+                              </span>
+                              {selected ? (
+                                <Check className="h-4 w-4 shrink-0 text-accent" />
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div ref={agentModePickerRef} className="relative shrink-0" data-tauri-no-drag>
+                  <button
+                    type="button"
+                    className="inline-flex h-9 items-center gap-2 rounded-full border border-border/55 bg-surface/82 px-3 text-[12px] font-medium text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-all hover:border-accent/28 hover:bg-surface"
+                    onClick={() => {
+                      setAgentModeMenuOpen((current) => !current);
+                      setModelMenuOpen(false);
+                    }}
+                    title={t("Agent mode")}
+                    aria-label={t("Agent mode")}
+                    aria-expanded={agentModeMenuOpen}
+                    data-tauri-no-drag
+                  >
+                    <ActiveAgentModeIcon className="h-3.5 w-3.5 shrink-0 text-accent" />
+                    <span>{activeAgentModeOption.label}</span>
+                    <ChevronDown
+                      className={[
+                        "h-3.5 w-3.5 shrink-0 text-muted transition-transform",
+                        agentModeMenuOpen ? "rotate-180" : "",
+                      ].join(" ")}
+                      aria-hidden="true"
+                    />
+                  </button>
+
+                  {agentModeMenuOpen ? (
+                    <div className="absolute bottom-full left-0 z-30 mb-2 w-[12rem] overflow-hidden rounded-[18px] border border-border/70 bg-panel/96 shadow-[0_18px_42px_rgba(0,0,0,0.22)] backdrop-blur-xl">
+                      <div className="px-3 pb-1 pt-3 text-[11px] font-medium tracking-[0.08em] text-muted">
+                        {t("Agent mode")}
+                      </div>
+                      <div className="space-y-1 px-2 pb-2">
+                        {AGENT_MODE_OPTIONS.map((option) => {
+                          const Icon = option.icon;
+                          const selected = option.value === activeAgentMode;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => {
+                                if (!selected && onSaveAgentMode) {
+                                  onSaveAgentMode(option.value);
+                                }
+                                setAgentModeMenuOpen(false);
+                              }}
+                              className={[
+                                "flex w-full items-center justify-between gap-3 rounded-[14px] px-3 py-2 text-left text-[13px] transition-colors",
+                                selected
+                                  ? "bg-surface/92 text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+                                  : "text-text/88 hover:bg-surface/72",
+                              ].join(" ")}
+                              data-tauri-no-drag
+                            >
+                              <span className="flex min-w-0 items-center gap-2">
+                                <Icon className="h-4 w-4 shrink-0 text-accent" />
+                                <span className="truncate">{option.label}</span>
                               </span>
                               {selected ? (
                                 <Check className="h-4 w-4 shrink-0 text-accent" />

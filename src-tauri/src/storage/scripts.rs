@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{now_rfc3339, ScriptDefinition, ScriptInput};
+use crate::models::{now_rfc3339, ScriptDefinition, ScriptInput, ScriptParameter};
 
 use super::io::write_json_pretty;
 use super::Storage;
@@ -22,6 +22,7 @@ impl Storage {
 
         let path = input.path.unwrap_or_default().trim().to_string();
         let command = input.command.unwrap_or_default().trim().to_string();
+        let parameters = normalize_script_parameters(input.parameters)?;
         if path.is_empty() && command.is_empty() {
             return Err(AppError::Validation(
                 "script path and command cannot both be empty".to_string(),
@@ -44,6 +45,7 @@ impl Storage {
                     path,
                     command,
                     description: input.description.unwrap_or_default().trim().to_string(),
+                    parameters,
                     created_at: existing.created_at.clone(),
                     updated_at: now,
                 };
@@ -57,6 +59,7 @@ impl Storage {
                     path,
                     command,
                     description: input.description.unwrap_or_default().trim().to_string(),
+                    parameters,
                     created_at: now.clone(),
                     updated_at: now,
                 };
@@ -91,4 +94,42 @@ impl Storage {
             .cloned()
             .ok_or_else(|| AppError::NotFound(format!("script {id}")))
     }
+}
+
+fn normalize_script_parameters(
+    parameters: Vec<ScriptParameter>,
+) -> AppResult<Vec<ScriptParameter>> {
+    let mut normalized = Vec::new();
+
+    for parameter in parameters {
+        let name = parameter.name.trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+        if !is_valid_script_parameter_name(&name) {
+            return Err(AppError::Validation(format!(
+                "script parameter {name} uses unsupported characters"
+            )));
+        }
+        if normalized.iter().any(|item: &ScriptParameter| item.name == name) {
+            return Err(AppError::Validation(format!(
+                "script parameter {name} is duplicated"
+            )));
+        }
+        normalized.push(ScriptParameter {
+            name: name.clone(),
+            label: parameter.label.trim().to_string(),
+            default_value: parameter.default_value,
+            required: parameter.required,
+            quote: parameter.quote,
+        });
+    }
+
+    Ok(normalized)
+}
+
+fn is_valid_script_parameter_name(value: &str) -> bool {
+    value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
 }

@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::models::now_rfc3339;
 use crate::ops_agent::core::helpers::truncate_for_log;
-use crate::ops_agent::core::runtime::spawn_chat_run_task;
+use crate::ops_agent::core::runtime::{spawn_chat_run_task, OpsAgentChatRunTask};
 use crate::ops_agent::domain::types::{
     OpsAgentCancelRunResult, OpsAgentChatAccepted, OpsAgentChatInput, OpsAgentConversation,
     OpsAgentConversationSummary, OpsAgentPendingAction, OpsAgentRole,
@@ -266,16 +266,16 @@ pub fn start_chat_stream(
         ),
     );
 
-    spawn_chat_run_task(
-        Arc::clone(&state),
+    spawn_chat_run_task(OpsAgentChatRunTask {
+        state: Arc::clone(&state),
         app,
-        run_id.clone(),
-        conversation.id.clone(),
+        run_id: run_id.clone(),
+        conversation_id: conversation.id.clone(),
         session_id,
-        user_message.id,
+        current_user_message_id: user_message.id,
         run_handle,
-        Vec::new(),
-    );
+        resume: None,
+    });
 
     Ok(accepted)
 }

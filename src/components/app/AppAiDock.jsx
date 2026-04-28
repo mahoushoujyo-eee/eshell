@@ -38,6 +38,7 @@ export default function AppAiDock({
     askAi,
     cancelAiStreaming,
     saveAiApprovalMode,
+    saveAiAgentMode,
     attachAiImages,
     removeAiImageAttachment,
     clearAiImageAttachments,
@@ -73,8 +74,10 @@ export default function AppAiDock({
             aiProfiles={aiProfiles}
             activeAiProfileId={activeAiProfileId}
             approvalMode={aiConfig.approvalMode}
+            agentMode={aiConfig.agentMode}
             onSelectAiProfile={selectAiProfile}
             onSaveApprovalMode={saveAiApprovalMode}
+            onSaveAgentMode={saveAiAgentMode}
             conversations={aiConversations}
             activeConversationId={activeAiConversationId}
             activeConversation={activeAiConversation}
