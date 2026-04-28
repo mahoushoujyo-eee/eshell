@@ -6,8 +6,10 @@ export const api = {
   deleteSshConfig: (id) => invoke("delete_ssh_config", { id }),
 
   listShellSessions: () => invoke("list_shell_sessions"),
-  openShellSession: (configId) =>
-    invoke("open_shell_session", { input: { configId } }),
+  openShellSession: (configId, requestId = null) =>
+    invoke("open_shell_session", { input: { configId, requestId } }),
+  cancelOpenShellSession: (requestId) =>
+    invoke("cancel_open_shell_session", { input: { requestId } }),
   closeShellSession: (sessionId) =>
     invoke("close_shell_session", { input: { sessionId } }),
   ptyWriteInput: (sessionId, data) =>
@@ -23,6 +25,10 @@ export const api = {
     invoke("sftp_read_file", { input: { sessionId, path } }),
   sftpWriteFile: (sessionId, path, content) =>
     invoke("sftp_write_file", { input: { sessionId, path, content } }),
+  sftpCreateFile: (sessionId, path) =>
+    invoke("sftp_create_file", { input: { sessionId, path } }),
+  sftpCreateDirectory: (sessionId, path) =>
+    invoke("sftp_create_directory", { input: { sessionId, path } }),
   sftpDeleteEntry: (sessionId, path, entryType) =>
     invoke("sftp_delete_entry", { input: { sessionId, path, entryType } }),
   sftpUploadFile: (sessionId, remotePath, contentBase64) =>

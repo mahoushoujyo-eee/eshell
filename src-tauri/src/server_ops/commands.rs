@@ -4,12 +4,12 @@ use tauri::State;
 
 use crate::error::{to_command_error, AppError, AppResult};
 use crate::models::{
-    CloseShellInput, CommandExecutionResult, ExecuteCommandInput, FetchServerStatusInput,
-    OpenShellInput, PtyResizeInput, PtyWriteInput, RunScriptInput, RunScriptResult,
-    SftpDeleteInput,
-    SftpCancelTransferInput, SftpDownloadInput, SftpDownloadPayload, SftpDownloadToLocalInput,
-    SftpFileContent, SftpListInput, SftpListResponse, SftpReadInput, SftpTransferResult,
-    SftpUploadInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession,
+    CancelShellConnectionInput, CloseShellInput, CommandExecutionResult, ExecuteCommandInput,
+    FetchServerStatusInput, OpenShellInput, PtyResizeInput, PtyWriteInput, RunScriptInput,
+    RunScriptResult, SftpCancelTransferInput, SftpCreateInput, SftpDeleteInput, SftpDownloadInput,
+    SftpDownloadPayload, SftpDownloadToLocalInput, SftpFileContent, SftpListInput,
+    SftpListResponse, SftpReadInput, SftpTransferResult, SftpUploadInput,
+    SftpUploadWithProgressInput, SftpWriteInput, ShellSession,
 };
 use crate::state::AppState;
 
@@ -30,7 +30,24 @@ pub async fn open_shell_session(
     input: OpenShellInput,
 ) -> Result<ShellSession, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::open_shell_session(app_state, app, &input.config_id)).await
+    run_blocking(move || {
+        super::open_shell_session(
+            app_state,
+            app,
+            &input.config_id,
+            input.request_id.as_deref(),
+        )
+    })
+    .await
+}
+
+/// Requests cancellation for a pending shell connection attempt.
+#[tauri::command]
+pub fn cancel_open_shell_session(
+    state: State<'_, Arc<AppState>>,
+    input: CancelShellConnectionInput,
+) -> Result<bool, String> {
+    Ok(state.cancel_shell_connection(&input.request_id))
 }
 
 /// Closes one shell session and drops the corresponding status cache.
@@ -99,6 +116,26 @@ pub async fn sftp_write_file(
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
     run_blocking(move || super::sftp_write_file(&app_state, input)).await
+}
+
+/// Creates an empty remote file through SFTP.
+#[tauri::command]
+pub async fn sftp_create_file(
+    state: State<'_, Arc<AppState>>,
+    input: SftpCreateInput,
+) -> Result<(), String> {
+    let app_state = Arc::clone(state.inner());
+    run_blocking(move || super::sftp_create_file(&app_state, input)).await
+}
+
+/// Creates one remote directory through SFTP.
+#[tauri::command]
+pub async fn sftp_create_directory(
+    state: State<'_, Arc<AppState>>,
+    input: SftpCreateInput,
+) -> Result<(), String> {
+    let app_state = Arc::clone(state.inner());
+    run_blocking(move || super::sftp_create_directory(&app_state, input)).await
 }
 
 /// Uploads local file bytes (base64 payload) to a remote path via SFTP.

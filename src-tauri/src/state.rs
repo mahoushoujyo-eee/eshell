@@ -33,6 +33,7 @@ pub struct AppState {
     sessions: RwLock<HashMap<String, ShellSession>>,
     status_cache: RwLock<HashMap<String, ServerStatus>>,
     pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>,
+    shell_connection_cancellations: RwLock<HashMap<String, bool>>,
     sftp_transfer_cancellations: RwLock<HashMap<String, bool>>,
 }
 
@@ -56,6 +57,7 @@ impl AppState {
             sessions: RwLock::new(HashMap::new()),
             status_cache: RwLock::new(HashMap::new()),
             pty_channels: RwLock::new(HashMap::new()),
+            shell_connection_cancellations: RwLock::new(HashMap::new()),
             sftp_transfer_cancellations: RwLock::new(HashMap::new()),
         })
     }
@@ -156,6 +158,44 @@ impl AppState {
         {
             let _ = sender.send(PtyCommand::Close);
         }
+    }
+
+    /// Marks one shell connection attempt as active unless it was already pre-cancelled.
+    pub fn begin_shell_connection(&self, request_id: &str) {
+        self.shell_connection_cancellations
+            .write()
+            .expect("shell connection cancellation lock poisoned")
+            .entry(request_id.to_string())
+            .or_insert(false);
+    }
+
+    /// Requests cancellation for a shell connection attempt.
+    pub fn cancel_shell_connection(&self, request_id: &str) -> bool {
+        let mut guard = self
+            .shell_connection_cancellations
+            .write()
+            .expect("shell connection cancellation lock poisoned");
+        let existed = guard.contains_key(request_id);
+        guard.insert(request_id.to_string(), true);
+        existed
+    }
+
+    /// Checks whether a shell connection attempt is cancelled.
+    pub fn is_shell_connection_cancelled(&self, request_id: &str) -> bool {
+        self.shell_connection_cancellations
+            .read()
+            .expect("shell connection cancellation lock poisoned")
+            .get(request_id)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// Clears one shell connection cancellation marker.
+    pub fn clear_shell_connection(&self, request_id: &str) {
+        self.shell_connection_cancellations
+            .write()
+            .expect("shell connection cancellation lock poisoned")
+            .remove(request_id);
     }
 
     /// Returns cached status for a session when available.

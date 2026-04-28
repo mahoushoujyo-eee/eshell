@@ -13,6 +13,7 @@ export default function AppModals({
     setSshForm,
     saveSsh,
     connectServer,
+    cancelConnectServer,
     handleDeleteSsh,
     scripts,
     scriptForm,
@@ -51,6 +52,7 @@ export default function AppModals({
         setSshForm={setSshForm}
         onSaveSsh={saveSsh}
         onConnectServer={connectServer}
+        onCancelConnectServer={cancelConnectServer}
         onDeleteSsh={handleDeleteSsh}
       />
 

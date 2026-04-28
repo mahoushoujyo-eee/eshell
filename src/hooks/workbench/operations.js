@@ -7,6 +7,7 @@ import { createPtyInputSender } from "../../lib/pty-input-sender";
 import { createSftpTransferSeed, upsertSftpTransfer } from "../../lib/sftp-transfer";
 import { recordOutputBufferUpdate } from "../../lib/terminal-perf-debug";
 import { api } from "../../lib/tauri-api";
+import { copyTextToClipboard } from "../../utils/clipboard";
 import { arrayBufferToBase64 } from "../../utils/encoding";
 import { joinPath, normalizeRemotePath } from "../../utils/path";
 import {
@@ -24,6 +25,14 @@ import { shellQuote, trimTerminalOutput } from "./session";
 
 const isTransferCancelledError = (err) =>
   toErrorMessage(err).toLowerCase().includes("transfer cancelled by user");
+
+const isConnectionCancelledError = (err) =>
+  toErrorMessage(err).toLowerCase().includes("ssh connection cancelled");
+
+const isValidRemoteEntryName = (value) => {
+  const name = String(value || "").trim();
+  return Boolean(name) && name !== "." && name !== ".." && !/[\\/]/.test(name);
+};
 
 export function useWorkbenchOperations({
   sshConfigs,
@@ -509,10 +518,14 @@ export function useWorkbenchOperations({
   );
 
   const connectServer = useCallback(
-    async (configId) => {
+    async (configId, requestId = null) => {
       const targetConfig = sshConfigs.find((item) => item.id === configId) || null;
       const targetLabel =
         targetConfig?.name || targetConfig?.host || tRef.current("SSH Servers");
+      const connectionRequestId =
+        requestId ||
+        globalThis.crypto?.randomUUID?.() ||
+        `connect-${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const pendingNoticeId = pushUiNotice(
         tRef.current("Connecting to {target}...", { target: targetLabel }),
         {
@@ -523,7 +536,7 @@ export function useWorkbenchOperations({
 
       try {
         const session = await runBusy(tRef.current("Open SSH session"), () =>
-          api.openShellSession(configId),
+          api.openShellSession(configId, connectionRequestId),
         );
         dismissUiNotice(pendingNoticeId);
         await reloadSessions();
@@ -554,6 +567,13 @@ export function useWorkbenchOperations({
         return true;
       } catch (err) {
         dismissUiNotice(pendingNoticeId);
+        if (isConnectionCancelledError(err)) {
+          pushUiNotice(tRef.current("SSH connection cancelled"), {
+            tone: "info",
+            ttlMs: 3200,
+          });
+          return false;
+        }
         const reason = toErrorMessage(err);
         const message = tRef.current("Failed to connect to {target}: {reason}", {
           target: targetLabel,
@@ -777,6 +797,76 @@ export function useWorkbenchOperations({
     ],
   );
 
+  const createSftpEntry = useCallback(
+    async (entryType, rawName) => {
+      if (!activeSessionId) {
+        return false;
+      }
+      const isDirectory = entryType === "directory";
+      const name = String(rawName || "").trim();
+      if (!isValidRemoteEntryName(name)) {
+        onError(tRef.current("Use a name without slashes."));
+        return false;
+      }
+
+      const remotePath = joinPath(currentPath, name);
+      try {
+        await runBusy(tRef.current(isDirectory ? "Create remote folder" : "Create remote file"), () =>
+          runWithSessionReconnect(activeSessionId, (sessionId) =>
+            isDirectory
+              ? api.sftpCreateDirectory(sessionId, remotePath)
+              : api.sftpCreateFile(sessionId, remotePath),
+          ),
+        );
+        await refreshSftp(currentPath);
+        setSelectedEntry({
+          name,
+          path: remotePath,
+          entryType: isDirectory ? "directory" : "file",
+          size: 0,
+          modifiedAt: null,
+        });
+        pushUiNotice(
+          tRef.current(isDirectory ? "Created folder {name}" : "Created file {name}", { name }),
+          {
+            tone: "success",
+            ttlMs: 4200,
+          },
+        );
+        return true;
+      } catch (err) {
+        onError(err);
+        return false;
+      }
+    },
+    [
+      activeSessionId,
+      currentPath,
+      onError,
+      pushUiNotice,
+      refreshSftp,
+      runBusy,
+      runWithSessionReconnect,
+      setSelectedEntry,
+    ],
+  );
+
+  const cancelConnectServer = useCallback(
+    async (requestId) => {
+      if (!requestId) {
+        return false;
+      }
+      try {
+        await api.cancelOpenShellSession(requestId);
+        return true;
+      } catch (err) {
+        onError(err);
+        return false;
+      }
+    },
+    [onError],
+  );
+
   const downloadFile = useCallback(async (entry = null) => {
     const targetEntry = entry || selectedEntry;
     if (!activeSessionId || !targetEntry || targetEntry.entryType === "directory") {
@@ -908,6 +998,32 @@ export function useWorkbenchOperations({
       setOpenFilePath,
       setSelectedEntry,
     ],
+  );
+
+  const copySftpEntryPath = useCallback(
+    async (entry = null) => {
+      const targetEntry = entry || selectedEntry;
+      const remotePath = targetEntry?.path ? normalizeRemotePath(targetEntry.path) : "";
+      if (!remotePath) {
+        return false;
+      }
+
+      try {
+        const copied = await copyTextToClipboard(remotePath);
+        if (!copied) {
+          throw new Error(tRef.current("Failed to copy path"));
+        }
+        pushUiNotice(tRef.current("Copied path: {path}", { path: remotePath }), {
+          tone: "success",
+          ttlMs: 2800,
+        });
+        return true;
+      } catch (err) {
+        onError(err);
+        return false;
+      }
+    },
+    [onError, pushUiNotice, selectedEntry],
   );
 
   const cancelSftpTransfer = useCallback(
@@ -1527,6 +1643,7 @@ export function useWorkbenchOperations({
     bootstrap,
     saveSsh,
     connectServer,
+    cancelConnectServer,
     closeSession,
     execCommand,
     requestSftpDir,
@@ -1534,8 +1651,10 @@ export function useWorkbenchOperations({
     openEntry,
     selectSftpEntry,
     uploadFile,
+    createSftpEntry,
     downloadFile,
     deleteSftpEntry,
+    copySftpEntryPath,
     cancelSftpTransfer,
     refreshStatus,
     saveScript,

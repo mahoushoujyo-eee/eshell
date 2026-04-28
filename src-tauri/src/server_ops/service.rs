@@ -1,6 +1,6 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -20,10 +20,10 @@ use super::status_parser::{
 use crate::error::{AppError, AppResult};
 use crate::models::{
     now_rfc3339, CommandExecutionResult, FetchServerStatusInput, MemoryStatus,
-    NetworkInterfaceStatus, PtyOutputEvent, SftpDownloadInput, SftpDownloadPayload,
-    SftpDeleteInput, SftpDownloadToLocalInput, SftpEntry, SftpEntryType, SftpFileContent, SftpListInput,
-    SftpListResponse, SftpReadInput, SftpTransferEvent, SftpTransferResult, SftpUploadInput,
-    SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshConfig,
+    NetworkInterfaceStatus, PtyOutputEvent, SftpCreateInput, SftpDeleteInput, SftpDownloadInput,
+    SftpDownloadPayload, SftpDownloadToLocalInput, SftpEntry, SftpEntryType, SftpFileContent,
+    SftpListInput, SftpListResponse, SftpReadInput, SftpTransferEvent, SftpTransferResult,
+    SftpUploadInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshConfig,
 };
 use crate::state::{AppState, PtyCommand};
 
@@ -36,15 +36,39 @@ const PTY_MAX_WRITE_OPS_PER_TICK: usize = 24;
 const PTY_MAX_READ_CHUNKS_PER_TICK: usize = 8;
 const SFTP_TRANSFER_EVENT: &str = "sftp-transfer";
 const SFTP_TRANSFER_CHUNK_BYTES: usize = 64 * 1024;
+const SSH_CONNECT_TOTAL_TIMEOUT: Duration = Duration::from_secs(45);
+const SSH_CONNECT_SLICE_TIMEOUT: Duration = Duration::from_millis(500);
+const SSH_CONNECT_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const SSH_CONNECTION_CANCELLED_MESSAGE: &str = "SSH connection cancelled by user";
 
 /// Creates a shell session and starts a long-lived PTY worker for interactive terminal IO.
 pub fn open_shell_session(
     state: Arc<AppState>,
     app: AppHandle,
     config_id: &str,
+    request_id: Option<&str>,
+) -> AppResult<ShellSession> {
+    if let Some(request_id) = request_id {
+        state.begin_shell_connection(request_id);
+    }
+
+    let result = open_shell_session_inner(Arc::clone(&state), app, config_id, request_id);
+
+    if let Some(request_id) = request_id {
+        state.clear_shell_connection(request_id);
+    }
+
+    result
+}
+
+fn open_shell_session_inner(
+    state: Arc<AppState>,
+    app: AppHandle,
+    config_id: &str,
+    request_id: Option<&str>,
 ) -> AppResult<ShellSession> {
     let config = state.storage.find_ssh_config(config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect_with_cancellation(&config, request_id.map(|id| (&*state, id)))?;
     let (pwd_out, _, status) = run_channel_command(&ssh, "pwd")?;
     if status != 0 {
         return Err(AppError::Runtime(format!(
@@ -239,6 +263,31 @@ pub fn sftp_write_file(state: &AppState, input: SftpWriteInput) -> AppResult<()>
     let remote_path = normalize_remote_path(&input.path);
     let mut file = sftp.create(Path::new(&remote_path))?;
     file.write_all(input.content.as_bytes())?;
+    Ok(())
+}
+
+/// Creates an empty remote file without overwriting an existing entry.
+pub fn sftp_create_file(state: &AppState, input: SftpCreateInput) -> AppResult<()> {
+    let session = state.get_session(&input.session_id)?;
+    let config = state.storage.find_ssh_config(&session.config_id)?;
+    let ssh = connect(&config)?;
+    let sftp = ssh.sftp()?;
+    let remote_path = normalize_remote_path(&input.path);
+    ensure_creatable_remote_path(&sftp, &remote_path)?;
+    let mut file = sftp.create(Path::new(&remote_path))?;
+    file.write_all(b"")?;
+    Ok(())
+}
+
+/// Creates one remote directory without overwriting an existing entry.
+pub fn sftp_create_directory(state: &AppState, input: SftpCreateInput) -> AppResult<()> {
+    let session = state.get_session(&input.session_id)?;
+    let config = state.storage.find_ssh_config(&session.config_id)?;
+    let ssh = connect(&config)?;
+    let sftp = ssh.sftp()?;
+    let remote_path = normalize_remote_path(&input.path);
+    ensure_creatable_remote_path(&sftp, &remote_path)?;
+    sftp.mkdir(Path::new(&remote_path), 0o755)?;
     Ok(())
 }
 
@@ -866,6 +915,21 @@ fn extract_entry_name(raw_path: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn ensure_creatable_remote_path(sftp: &ssh2::Sftp, path: &str) -> AppResult<()> {
+    let normalized_path = normalize_remote_path(path);
+    if normalized_path == "/" {
+        return Err(AppError::Validation(
+            "refusing to create the remote root path".to_string(),
+        ));
+    }
+    if sftp.stat(Path::new(&normalized_path)).is_ok() {
+        return Err(AppError::Validation(format!(
+            "remote path already exists: {normalized_path}"
+        )));
+    }
+    Ok(())
+}
+
 fn delete_remote_dir_recursive(sftp: &ssh2::Sftp, path: &str) -> AppResult<()> {
     let normalized_path = normalize_remote_path(path);
     let entries = sftp.readdir(Path::new(&normalized_path))?;
@@ -1233,15 +1297,24 @@ fn is_transient_pty_io_error(err: &std::io::Error) -> bool {
 }
 
 fn connect(config: &SshConfig) -> AppResult<Session> {
-    let tcp = TcpStream::connect((config.host.as_str(), config.port))?;
+    connect_with_cancellation(config, None)
+}
+
+fn connect_with_cancellation(
+    config: &SshConfig,
+    cancellation: Option<(&AppState, &str)>,
+) -> AppResult<Session> {
+    let tcp = connect_tcp_with_cancellation(config, cancellation)?;
     tcp.set_read_timeout(Some(std::time::Duration::from_secs(20)))?;
     tcp.set_write_timeout(Some(std::time::Duration::from_secs(20)))?;
 
     let mut session = Session::new()?;
     session.set_tcp_stream(tcp);
+    check_shell_connection_cancelled(cancellation)?;
     session
         .handshake()
         .map_err(|err| map_handshake_error(config, err))?;
+    check_shell_connection_cancelled(cancellation)?;
     session.userauth_password(&config.username, &config.password)?;
 
     if !session.authenticated() {
@@ -1252,6 +1325,79 @@ fn connect(config: &SshConfig) -> AppResult<Session> {
     }
 
     Ok(session)
+}
+
+fn connect_tcp_with_cancellation(
+    config: &SshConfig,
+    cancellation: Option<(&AppState, &str)>,
+) -> AppResult<TcpStream> {
+    let addresses = (config.host.as_str(), config.port)
+        .to_socket_addrs()?
+        .collect::<Vec<SocketAddr>>();
+    if addresses.is_empty() {
+        return Err(AppError::Runtime(format!(
+            "no socket addresses resolved for {}:{}",
+            config.host, config.port
+        )));
+    }
+
+    let started_at = Instant::now();
+    let mut last_error: Option<std::io::Error> = None;
+    while started_at.elapsed() < SSH_CONNECT_TOTAL_TIMEOUT {
+        check_shell_connection_cancelled(cancellation)?;
+
+        for address in &addresses {
+            check_shell_connection_cancelled(cancellation)?;
+            let remaining = SSH_CONNECT_TOTAL_TIMEOUT.saturating_sub(started_at.elapsed());
+            if remaining.is_zero() {
+                break;
+            }
+            let timeout = remaining.min(SSH_CONNECT_SLICE_TIMEOUT);
+            match TcpStream::connect_timeout(address, timeout) {
+                Ok(stream) => return Ok(stream),
+                Err(err) if is_retryable_connect_error(&err) => {
+                    last_error = Some(err);
+                }
+                Err(err) => return Err(AppError::Io(err)),
+            }
+        }
+
+        thread::sleep(SSH_CONNECT_POLL_INTERVAL);
+    }
+
+    Err(AppError::Io(last_error.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!(
+                "connection attempt timed out for {}:{}",
+                config.host, config.port
+            ),
+        )
+    })))
+}
+
+fn check_shell_connection_cancelled(cancellation: Option<(&AppState, &str)>) -> AppResult<()> {
+    if is_shell_connection_cancelled(cancellation) {
+        return Err(AppError::Runtime(
+            SSH_CONNECTION_CANCELLED_MESSAGE.to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_shell_connection_cancelled(cancellation: Option<(&AppState, &str)>) -> bool {
+    cancellation
+        .map(|(state, request_id)| state.is_shell_connection_cancelled(request_id))
+        .unwrap_or(false)
+}
+
+fn is_retryable_connect_error(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::Interrupted
+    )
 }
 
 fn map_handshake_error(config: &SshConfig, err: ssh2::Error) -> AppError {

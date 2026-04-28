@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import SplitPane from "../SplitPane";
 import { normalizeRemotePath } from "../../utils/path";
+import SftpCreateEntryDialog from "./sftp/SftpCreateEntryDialog";
 import SftpDeleteConfirmDialog from "./sftp/SftpDeleteConfirmDialog";
 import SftpEntriesPane from "./sftp/SftpEntriesPane";
 import SftpEntryContextMenu from "./sftp/SftpEntryContextMenu";
@@ -18,8 +19,10 @@ export default function SftpPanel({
   requestSftpDir,
   refreshSftp,
   uploadFile,
+  createSftpEntry,
   downloadFile,
   deleteSftpEntry,
+  copySftpEntryPath,
   cancelTransfer,
   downloadDirectory,
   onDownloadDirectoryChange,
@@ -40,6 +43,8 @@ export default function SftpPanel({
   const [pendingTextOpen, setPendingTextOpen] = useState(null);
   const [confirmOpenBusy, setConfirmOpenBusy] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
+  const [pendingCreateEntryType, setPendingCreateEntryType] = useState(null);
+  const [confirmCreateBusy, setConfirmCreateBusy] = useState(false);
   const [pendingDeleteEntry, setPendingDeleteEntry] = useState(null);
   const [confirmDeleteBusy, setConfirmDeleteBusy] = useState(false);
 
@@ -101,6 +106,8 @@ export default function SftpPanel({
     setPendingTextOpen(null);
     setConfirmOpenBusy(false);
     setContextMenu(null);
+    setPendingCreateEntryType(null);
+    setConfirmCreateBusy(false);
     setPendingDeleteEntry(null);
     setConfirmDeleteBusy(false);
   }, [activeSessionId]);
@@ -191,6 +198,29 @@ export default function SftpPanel({
     }
   };
 
+  const requestCreateEntry = (entryType) => {
+    if (!entryType) {
+      return;
+    }
+    setPendingCreateEntryType(entryType);
+  };
+
+  const confirmCreateEntry = async (name) => {
+    if (!pendingCreateEntryType) {
+      return;
+    }
+
+    setConfirmCreateBusy(true);
+    try {
+      const created = await createSftpEntry(pendingCreateEntryType, name);
+      if (created) {
+        setPendingCreateEntryType(null);
+      }
+    } finally {
+      setConfirmCreateBusy(false);
+    }
+  };
+
   const transferRows = Array.isArray(transfers) ? transfers.slice(0, 8) : [];
   const activeTransferCount = transferRows.filter((item) =>
     item && ["queued", "started", "progress"].includes(item.stage),
@@ -251,6 +281,7 @@ export default function SftpPanel({
         configureDownloadDirectory={configureDownloadDirectory}
         downloadDirectory={downloadDirectory}
         uploadFile={uploadFile}
+        createSftpEntry={requestCreateEntry}
         downloadFile={downloadFile}
         selectedEntry={selectedEntry}
         showTransferPanel={showTransferPanel}
@@ -313,6 +344,10 @@ export default function SftpPanel({
           closeEntryContextMenu();
           await downloadFile(entry);
         }}
+        onCopyPath={async (entry) => {
+          closeEntryContextMenu();
+          await copySftpEntryPath(entry);
+        }}
         onDelete={requestDeleteEntry}
       />
 
@@ -329,6 +364,20 @@ export default function SftpPanel({
           setPendingTextOpen(null);
         }}
         onConfirm={confirmTextOpen}
+      />
+
+      <SftpCreateEntryDialog
+        open={Boolean(pendingCreateEntryType)}
+        entryType={pendingCreateEntryType}
+        currentPath={currentPath}
+        busy={confirmCreateBusy}
+        onCancel={() => {
+          if (confirmCreateBusy) {
+            return;
+          }
+          setPendingCreateEntryType(null);
+        }}
+        onConfirm={confirmCreateEntry}
       />
 
       <SftpDeleteConfirmDialog

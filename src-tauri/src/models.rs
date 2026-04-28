@@ -127,6 +127,13 @@ pub struct SftpWriteInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SftpCreateInput {
+    pub session_id: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SftpUploadInput {
     pub session_id: String,
     pub remote_path: String,
@@ -476,12 +483,19 @@ pub struct AiAnswer {
 #[serde(rename_all = "camelCase")]
 pub struct OpenShellInput {
     pub config_id: String,
+    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloseShellInput {
     pub session_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelShellConnectionInput {
+    pub request_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

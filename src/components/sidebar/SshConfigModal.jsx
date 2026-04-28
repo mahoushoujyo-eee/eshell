@@ -20,16 +20,21 @@ export default function SshConfigModal({
   setSshForm,
   onSaveSsh,
   onConnectServer,
+  onCancelConnectServer,
   onDeleteSsh,
 }) {
   const { t } = useI18n();
   const [mode, setMode] = useState("list");
   const [connectingId, setConnectingId] = useState("");
+  const [connectingRequestId, setConnectingRequestId] = useState("");
+  const [cancelingConnection, setCancelingConnection] = useState(false);
 
   useEffect(() => {
     if (open) {
       setMode("list");
       setConnectingId("");
+      setConnectingRequestId("");
+      setCancelingConnection(false);
     }
   }, [open]);
 
@@ -59,14 +64,33 @@ export default function SshConfigModal({
       return;
     }
 
+    const requestId =
+      globalThis.crypto?.randomUUID?.() ||
+      `connect-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     setConnectingId(configId);
+    setConnectingRequestId(requestId);
+    setCancelingConnection(false);
     try {
-      const connected = await onConnectServer(configId);
+      const connected = await onConnectServer(configId, requestId);
       if (connected) {
         onClose();
       }
     } finally {
       setConnectingId("");
+      setConnectingRequestId("");
+      setCancelingConnection(false);
+    }
+  };
+
+  const handleCancelConnect = async () => {
+    if (!connectingRequestId || cancelingConnection) {
+      return;
+    }
+
+    setCancelingConnection(true);
+    const accepted = await onCancelConnectServer?.(connectingRequestId);
+    if (!accepted) {
+      setCancelingConnection(false);
     }
   };
 
@@ -131,16 +155,29 @@ export default function SshConfigModal({
                     <div className="mt-2 flex gap-1">
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1 rounded bg-accent px-2 py-1 text-white disabled:cursor-wait disabled:opacity-70"
-                        onClick={() => handleConnect(item.id)}
-                        disabled={isConnecting}
+                        className={[
+                          "inline-flex items-center gap-1 rounded px-2 py-1 text-white disabled:cursor-wait disabled:opacity-70",
+                          connectingId === item.id ? "bg-danger" : "bg-accent",
+                        ].join(" ")}
+                        onClick={() =>
+                          connectingId === item.id ? handleCancelConnect() : handleConnect(item.id)
+                        }
+                        disabled={(isConnecting && connectingId !== item.id) || cancelingConnection}
                       >
                         {connectingId === item.id ? (
-                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                          cancelingConnection ? (
+                            <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                          ) : (
+                            <X className="h-3.5 w-3.5" aria-hidden="true" />
+                          )
                         ) : (
                           <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
                         )}
-                        {connectingId === item.id ? t("Connecting...") : t("Connect")}
+                        {connectingId === item.id
+                          ? cancelingConnection
+                            ? t("Cancelling...")
+                            : t("Cancel")
+                          : t("Connect")}
                       </button>
                       <button
                         type="button"
