@@ -3,6 +3,7 @@ export const EMPTY_OPS_AGENT_STREAM = Object.freeze({
   conversationId: null,
   text: "",
   toolCalls: [],
+  agentProgress: null,
 });
 
 export const upsertOpsAgentPendingAction = (rows, nextAction) => {
@@ -30,13 +31,30 @@ export const normalizeOpsAgentStreamEvent = (payload) => {
     return null;
   }
 
+  const progress =
+    payload.progress && typeof payload.progress === "object" ? payload.progress : null;
+
   return {
     runId: typeof payload.runId === "string" ? payload.runId : "",
     conversationId: typeof payload.conversationId === "string" ? payload.conversationId : "",
     stage,
+    phase: typeof payload.phase === "string" ? payload.phase : "",
+    agentKind: typeof payload.agentKind === "string" ? payload.agentKind : "",
+    summary: typeof payload.summary === "string" ? payload.summary : "",
+    detail: typeof payload.detail === "string" ? payload.detail : "",
     chunk: typeof payload.chunk === "string" ? payload.chunk : "",
     createdAt: typeof payload.createdAt === "string" ? payload.createdAt : "",
     errorMessage: typeof payload.error === "string" ? payload.error : "",
+    progress:
+      progress === null
+        ? null
+        : {
+            status: typeof progress.status === "string" ? progress.status : "",
+            title: typeof progress.title === "string" ? progress.title : "",
+            message: typeof progress.message === "string" ? progress.message : "",
+            stepIndex: Number.isFinite(progress.stepIndex) ? progress.stepIndex : null,
+            stepTotal: Number.isFinite(progress.stepTotal) ? progress.stepTotal : null,
+          },
     toolCall:
       payload.toolCall && typeof payload.toolCall === "object"
         ? payload.toolCall
@@ -45,6 +63,27 @@ export const normalizeOpsAgentStreamEvent = (payload) => {
       payload.pendingAction && typeof payload.pendingAction === "object"
         ? payload.pendingAction
         : null,
+  };
+};
+
+const normalizeAgentProgress = (event) => {
+  const progress = event?.progress || {};
+  const title = progress.title || event.summary || "";
+  const message = progress.message || event.detail || "";
+
+  if (!event?.agentKind && !event?.phase && !title && !message) {
+    return null;
+  }
+
+  return {
+    phase: event.phase || "",
+    agentKind: event.agentKind || "",
+    status: progress.status || "",
+    title,
+    message,
+    stepIndex: progress.stepIndex,
+    stepTotal: progress.stepTotal,
+    createdAt: event.createdAt || "",
   };
 };
 
@@ -98,8 +137,33 @@ export const reduceOpsAgentStreamEvent = (previousStream, event) => {
         conversationId: event.conversationId,
         text: "",
         toolCalls: [],
+        agentProgress: null,
       },
       activateConversationId: event.conversationId,
+    };
+  }
+
+  if (
+    event.stage === "phase_changed" ||
+    event.stage === "agent_started" ||
+    event.stage === "agent_progress" ||
+    event.stage === "agent_completed"
+  ) {
+    const agentProgress = normalizeAgentProgress(event);
+    return {
+      nextStream:
+        stream.runId === event.runId
+          ? {
+              ...stream,
+              agentProgress,
+            }
+          : {
+              runId: event.runId,
+              conversationId: event.conversationId,
+              text: "",
+              toolCalls: [],
+              agentProgress,
+            },
     };
   }
 
@@ -113,6 +177,7 @@ export const reduceOpsAgentStreamEvent = (previousStream, event) => {
               conversationId: event.conversationId,
               text: event.chunk,
               toolCalls: [],
+              agentProgress: null,
             },
     };
   }
@@ -126,11 +191,12 @@ export const reduceOpsAgentStreamEvent = (previousStream, event) => {
               toolCalls: upsertOpsAgentStreamToolCall(stream.toolCalls || [], event.toolCall),
             }
           : {
-              runId: event.runId,
-              conversationId: event.conversationId,
-              text: "",
-              toolCalls: event.toolCall ? [event.toolCall] : [],
-            },
+            runId: event.runId,
+            conversationId: event.conversationId,
+            text: "",
+            toolCalls: event.toolCall ? [event.toolCall] : [],
+            agentProgress: normalizeAgentProgress(event),
+          },
     };
   }
 

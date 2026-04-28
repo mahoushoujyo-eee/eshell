@@ -5,6 +5,7 @@ use std::sync::RwLock;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{ServerStatus, ShellSession};
+use crate::ops_agent::infrastructure::agent_trace_store::OpsAgentTraceStore;
 use crate::ops_agent::infrastructure::attachments::OpsAgentAttachmentStore;
 use crate::ops_agent::infrastructure::run_registry::OpsAgentRunRegistry;
 use crate::ops_agent::infrastructure::store::OpsAgentStore;
@@ -28,6 +29,7 @@ pub struct AppState {
     pub storage: Storage,
     pub ops_agent: OpsAgentStore,
     pub ops_agent_attachments: OpsAgentAttachmentStore,
+    pub ops_agent_traces: OpsAgentTraceStore,
     pub ops_agent_tools: OpsAgentToolRegistry,
     pub ops_agent_runs: OpsAgentRunRegistry,
     sessions: RwLock<HashMap<String, ShellSession>>,
@@ -51,7 +53,8 @@ impl AppState {
         Ok(Self {
             storage: Storage::new(storage_root.clone())?,
             ops_agent: OpsAgentStore::new(storage_root.clone())?,
-            ops_agent_attachments: OpsAgentAttachmentStore::new(storage_root)?,
+            ops_agent_attachments: OpsAgentAttachmentStore::new(storage_root.clone())?,
+            ops_agent_traces: OpsAgentTraceStore::new(storage_root)?,
             ops_agent_tools,
             ops_agent_runs: OpsAgentRunRegistry::new(),
             sessions: RwLock::new(HashMap::new()),

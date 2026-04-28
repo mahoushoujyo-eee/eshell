@@ -309,7 +309,10 @@ fn legacy_ai_profiles_without_max_context_tokens_get_default_value() {
 
     let profiles = storage.list_ai_profiles();
     assert_eq!(profiles.profiles[0].max_context_tokens, 100_000);
-    assert_eq!(profiles.profiles[0].api_type, AiApiType::OpenAiChatCompletions);
+    assert_eq!(
+        profiles.profiles[0].api_type,
+        AiApiType::OpenAiChatCompletions
+    );
     assert_eq!(profiles.approval_mode, AiApprovalMode::RequireApproval);
 }
 
@@ -379,5 +382,8 @@ fn save_ai_approval_mode_updates_global_setting_only() {
 
     assert_eq!(updated_state.approval_mode, AiApprovalMode::AutoExecute);
     assert_eq!(updated_state.profiles.len(), profile_count);
-    assert_eq!(storage.get_ai_config().approval_mode, AiApprovalMode::AutoExecute);
+    assert_eq!(
+        storage.get_ai_config().approval_mode,
+        AiApprovalMode::AutoExecute
+    );
 }

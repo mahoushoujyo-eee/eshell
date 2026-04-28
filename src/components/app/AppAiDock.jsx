@@ -25,6 +25,7 @@ export default function AppAiDock({
     isAiStreaming,
     aiStreamingText,
     aiStreamingToolCalls,
+    aiStreamingAgentProgress,
     activeAiConversationError,
     clearActiveAiConversationError,
     resolvingAiActionId,
@@ -95,6 +96,7 @@ export default function AppAiDock({
             isStreaming={isAiStreaming}
             streamingText={aiStreamingText}
             streamingToolCalls={aiStreamingToolCalls}
+            streamingAgentProgress={aiStreamingAgentProgress}
             conversationError={activeAiConversationError}
             onClearConversationError={clearActiveAiConversationError}
             onAskAi={askAi}

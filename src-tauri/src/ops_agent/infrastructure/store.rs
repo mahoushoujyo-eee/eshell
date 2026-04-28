@@ -317,7 +317,8 @@ impl OpsAgentStore {
             conversation.messages.push(message.clone());
             if should_auto_title {
                 conversation.title = derive_title_from_first_user_prompt(
-                    derive_title_seed(message.content.as_str(), message.attachment_ids.len()).as_str(),
+                    derive_title_seed(message.content.as_str(), message.attachment_ids.len())
+                        .as_str(),
                 );
             }
             conversation.updated_at = now_rfc3339();
@@ -358,7 +359,9 @@ impl OpsAgentStore {
             .conversations
             .iter_mut()
             .find(|item| item.id == conversation_id)
-            .ok_or_else(|| AppError::NotFound(format!("ops agent conversation {conversation_id}")))?;
+            .ok_or_else(|| {
+                AppError::NotFound(format!("ops agent conversation {conversation_id}"))
+            })?;
 
         conversation.messages = messages;
         conversation.updated_at = now_rfc3339();
@@ -972,7 +975,10 @@ mod tests {
             rejected.approval_decision,
             Some(OpsAgentApprovalDecision::Rejected)
         );
-        assert_eq!(rejected.approval_comment.as_deref(), Some("operator rejected"));
+        assert_eq!(
+            rejected.approval_comment.as_deref(),
+            Some("operator rejected")
+        );
     }
 
     #[test]

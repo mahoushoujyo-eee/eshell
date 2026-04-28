@@ -135,7 +135,14 @@ pub async fn request_message(
     log_context: Option<OpsAgentLogContext<'_>>,
     request_kind: &str,
 ) -> AppResult<ProviderChatMessageResponse> {
-    log_request(log_context, request_kind, config, &messages, &options, timeout);
+    log_request(
+        log_context,
+        request_kind,
+        config,
+        &messages,
+        &options,
+        timeout,
+    );
 
     let response = build_client_request(config, messages, options, timeout)
         .send()
@@ -173,7 +180,9 @@ pub async fn request_message(
         if let Some(log_context) = log_context {
             log_context.append(
                 "ai.provider.response_read_failed",
-                format!("kind={request_kind} provider=openai_responses status={status} error={error}"),
+                format!(
+                    "kind={request_kind} provider=openai_responses status={status} error={error}"
+                ),
             );
         }
         AppError::from(error)
@@ -237,7 +246,14 @@ where
     F: FnMut(&str) -> AppResult<()>,
 {
     options.stream = true;
-    log_request(log_context, request_kind, config, &messages, &options, timeout);
+    log_request(
+        log_context,
+        request_kind,
+        config,
+        &messages,
+        &options,
+        timeout,
+    );
 
     let response = build_client_request(config, messages, options, timeout)
         .send()
@@ -451,11 +467,11 @@ fn serialize_message_content(
             .into_iter()
             .filter_map(|part| match part {
                 ProviderMessageContentPart::Text { text } => Some(serialize_text_part(role, text)),
-                ProviderMessageContentPart::ImageUrl { image_url } => Some(
-                    WireInputContentPart::InputImage {
+                ProviderMessageContentPart::ImageUrl { image_url } => {
+                    Some(WireInputContentPart::InputImage {
                         image_url: image_url.url,
-                    },
-                ),
+                    })
+                }
             })
             .collect(),
     }
@@ -609,9 +625,9 @@ where
         })?;
 
         if payload.type_name == "error" {
-            return Err(AppError::Runtime(
-                payload.message.unwrap_or_else(|| "provider stream returned an error event".to_string()),
-            ));
+            return Err(AppError::Runtime(payload.message.unwrap_or_else(|| {
+                "provider stream returned an error event".to_string()
+            })));
         }
 
         if payload.type_name != "response.output_text.delta" {

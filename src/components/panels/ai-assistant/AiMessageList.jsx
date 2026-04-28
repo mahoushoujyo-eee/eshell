@@ -16,6 +16,7 @@ export default function AiMessageList({
   isStreaming,
   streamingText,
   streamingToolCalls,
+  streamingAgentProgress,
   isDrawer,
   resolvingActionId,
   onResolvePendingAction,
@@ -27,6 +28,7 @@ export default function AiMessageList({
     isStreaming,
     streamingText,
     streamingToolCalls,
+    streamingAgentProgress,
   });
   const hasContent = messageGroups.length > 0;
   const messageScrollRef = useRef(null);
@@ -55,7 +57,15 @@ export default function AiMessageList({
       return;
     }
     node.scrollTop = node.scrollHeight;
-  }, [messages, pendingActions, isStreaming, streamingText, streamingToolCalls, activeConversationId]);
+  }, [
+    messages,
+    pendingActions,
+    isStreaming,
+    streamingText,
+    streamingToolCalls,
+    streamingAgentProgress,
+    activeConversationId,
+  ]);
 
   useEffect(() => {
     setExpandedShellMessageIds({});

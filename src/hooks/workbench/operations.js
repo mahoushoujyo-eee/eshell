@@ -1451,6 +1451,7 @@ export function useWorkbenchOperations({
           conversationId: accepted.conversationId,
           text: "",
           toolCalls: [],
+          agentProgress: null,
         };
         aiStreamRef.current = nextStream;
         setAiStream(nextStream);

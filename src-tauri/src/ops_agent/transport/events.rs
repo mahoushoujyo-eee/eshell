@@ -3,11 +3,13 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 
 use crate::ops_agent::domain::types::{
-    OpsAgentPendingAction, OpsAgentStreamEvent, OpsAgentStreamStage, OpsAgentToolCall,
+    OpsAgentKind, OpsAgentPendingAction, OpsAgentProgress, OpsAgentProgressStatus,
+    OpsAgentRunPhase, OpsAgentStreamEvent, OpsAgentStreamStage, OpsAgentToolCall,
 };
 use crate::ops_agent::infrastructure::logging::{append_debug_log_at_path, truncate_for_log};
 
 /// Thin helper around Tauri event emission so service code stays protocol-focused.
+#[derive(Clone)]
 pub struct OpsAgentEventEmitter {
     app: AppHandle,
     log_path: PathBuf,
@@ -32,6 +34,98 @@ impl OpsAgentEventEmitter {
 
     pub fn started(&self) {
         self.emit(OpsAgentStreamStage::Started, |event| event);
+    }
+
+    pub fn phase_changed(
+        &self,
+        phase: OpsAgentRunPhase,
+        agent_kind: OpsAgentKind,
+        summary: impl Into<String>,
+    ) {
+        self.emit(OpsAgentStreamStage::PhaseChanged, |event| {
+            let mut next = event;
+            next.phase = Some(phase);
+            next.agent_kind = Some(agent_kind);
+            next.summary = Some(summary.into());
+            next
+        });
+    }
+
+    pub fn agent_started(
+        &self,
+        phase: OpsAgentRunPhase,
+        agent_kind: OpsAgentKind,
+        title: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        self.emit(OpsAgentStreamStage::AgentStarted, |event| {
+            let title = title.into();
+            let message = normalize_optional_text(message.into());
+            let mut next = event;
+            next.phase = Some(phase);
+            next.agent_kind = Some(agent_kind);
+            next.summary = Some(title.clone());
+            next.progress = Some(OpsAgentProgress {
+                status: OpsAgentProgressStatus::Started,
+                title,
+                message,
+                step_index: None,
+                step_total: None,
+            });
+            next
+        });
+    }
+
+    pub fn agent_progress(
+        &self,
+        phase: OpsAgentRunPhase,
+        agent_kind: OpsAgentKind,
+        title: impl Into<String>,
+        message: impl Into<String>,
+        step_index: Option<usize>,
+        step_total: Option<usize>,
+    ) {
+        self.emit(OpsAgentStreamStage::AgentProgress, |event| {
+            let title = title.into();
+            let message = normalize_optional_text(message.into());
+            let mut next = event;
+            next.phase = Some(phase);
+            next.agent_kind = Some(agent_kind);
+            next.summary = Some(title.clone());
+            next.progress = Some(OpsAgentProgress {
+                status: OpsAgentProgressStatus::Running,
+                title,
+                message,
+                step_index,
+                step_total,
+            });
+            next
+        });
+    }
+
+    pub fn agent_completed(
+        &self,
+        phase: OpsAgentRunPhase,
+        agent_kind: OpsAgentKind,
+        title: impl Into<String>,
+        message: impl Into<String>,
+    ) {
+        self.emit(OpsAgentStreamStage::AgentCompleted, |event| {
+            let title = title.into();
+            let message = normalize_optional_text(message.into());
+            let mut next = event;
+            next.phase = Some(phase);
+            next.agent_kind = Some(agent_kind);
+            next.summary = Some(title.clone());
+            next.progress = Some(OpsAgentProgress {
+                status: OpsAgentProgressStatus::Completed,
+                title,
+                message,
+                step_index: None,
+                step_total: None,
+            });
+            next
+        });
     }
 
     pub fn delta(&self, chunk: impl Into<String>) {
@@ -109,8 +203,11 @@ impl OpsAgentEventEmitter {
             Some(self.run_id.as_str()),
             Some(self.conversation_id.as_str()),
             format!(
-                "stage={:?} chunk_chars={} full_answer_chars={} tool_call={} pending_action={} error_preview={}",
+                "stage={:?} phase={} agent={} progress={} chunk_chars={} full_answer_chars={} tool_call={} pending_action={} error_preview={}",
                 event.stage,
+                event.phase.as_ref().map(|item| item.as_str()).unwrap_or("-"),
+                event.agent_kind.as_ref().map(|item| item.as_str()).unwrap_or("-"),
+                describe_progress(event.progress.as_ref()),
                 event.chunk.as_ref().map(|item| item.chars().count()).unwrap_or(0),
                 event
                     .full_answer
@@ -125,6 +222,15 @@ impl OpsAgentEventEmitter {
     }
 }
 
+fn normalize_optional_text(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 fn describe_tool_call(tool_call: Option<&OpsAgentToolCall>) -> String {
     let Some(tool_call) = tool_call else {
         return "-".to_string();
@@ -132,9 +238,7 @@ fn describe_tool_call(tool_call: Option<&OpsAgentToolCall>) -> String {
 
     format!(
         "{}:{}:{:?}",
-        tool_call.id,
-        tool_call.tool_kind,
-        tool_call.status
+        tool_call.id, tool_call.tool_kind, tool_call.status
     )
 }
 
@@ -144,4 +248,21 @@ fn describe_pending_action(action: Option<&OpsAgentPendingAction>) -> String {
     };
 
     format!("{}:{}:{:?}", action.id, action.tool_kind, action.status)
+}
+
+fn describe_progress(progress: Option<&OpsAgentProgress>) -> String {
+    let Some(progress) = progress else {
+        return "-".to_string();
+    };
+
+    format!(
+        "{:?}:{}:{}",
+        progress.status,
+        truncate_for_log(progress.title.as_str(), 80),
+        progress
+            .message
+            .as_deref()
+            .map(|value| truncate_for_log(value, 80))
+            .unwrap_or_else(|| "-".to_string())
+    )
 }

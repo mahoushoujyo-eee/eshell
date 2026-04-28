@@ -79,9 +79,7 @@ pub async fn resolve_pending_action(
             Some(updated.conversation_id.as_str()),
             format!(
                 "action_id={} approve=false status={:?} resume_triggered={}",
-                updated.id,
-                updated.status,
-                can_resume
+                updated.id, updated.status, can_resume
             ),
         );
         return Ok(OpsAgentResolveActionResult {
@@ -165,13 +163,10 @@ pub async fn resolve_pending_action(
         None,
         Some(resolution.action.conversation_id.as_str()),
         format!(
-                "action_id={} approve=true status={:?} note={} resume_triggered={}",
-                resolution.action.id,
-                resolution.action.status,
-                note,
-                can_resume
-            ),
-        );
+            "action_id={} approve=true status={:?} note={} resume_triggered={}",
+            resolution.action.id, resolution.action.status, note, can_resume
+        ),
+    );
 
     Ok(OpsAgentResolveActionResult {
         action: resolution.action,
@@ -189,7 +184,9 @@ fn maybe_resume_run_after_action_resolution(
 ) {
     if !matches!(
         action.status,
-        OpsAgentActionStatus::Executed | OpsAgentActionStatus::Failed | OpsAgentActionStatus::Rejected
+        OpsAgentActionStatus::Executed
+            | OpsAgentActionStatus::Failed
+            | OpsAgentActionStatus::Rejected
     ) {
         return;
     }
@@ -203,7 +200,7 @@ fn maybe_resume_run_after_action_resolution(
         Err(error) => {
             append_debug_log(
                 state.as_ref(),
-                "react.resume.skipped",
+                "orchestrator.resume.skipped",
                 None,
                 Some(action.conversation_id.as_str()),
                 format!(
@@ -224,7 +221,7 @@ fn maybe_resume_run_after_action_resolution(
     } else {
         append_debug_log(
             state.as_ref(),
-            "react.resume.skipped",
+            "orchestrator.resume.skipped",
             None,
             Some(action.conversation_id.as_str()),
             format!(
@@ -241,7 +238,7 @@ fn maybe_resume_run_after_action_resolution(
             Err(error) => {
                 append_debug_log(
                     state.as_ref(),
-                    "react.resume.skipped",
+                    "orchestrator.resume.skipped",
                     None,
                     Some(action.conversation_id.as_str()),
                     format!(
@@ -261,7 +258,7 @@ fn maybe_resume_run_after_action_resolution(
     {
         append_debug_log(
             state.as_ref(),
-            "react.resume.skipped",
+            "orchestrator.resume.skipped",
             None,
             Some(action.conversation_id.as_str()),
             format!(
@@ -281,7 +278,7 @@ fn maybe_resume_run_after_action_resolution(
         Err(error) => {
             append_debug_log(
                 state.as_ref(),
-                "react.resume.skipped",
+                "orchestrator.resume.skipped",
                 Some(run_id.as_str()),
                 Some(action.conversation_id.as_str()),
                 format!(
@@ -295,7 +292,7 @@ fn maybe_resume_run_after_action_resolution(
 
     append_debug_log(
         state.as_ref(),
-        "react.resume.started",
+        "orchestrator.resume.started",
         Some(run_id.as_str()),
         Some(action.conversation_id.as_str()),
         format!(

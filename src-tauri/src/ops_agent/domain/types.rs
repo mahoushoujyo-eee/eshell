@@ -95,6 +95,83 @@ pub enum OpsAgentToolCallStatus {
     AwaitingApproval,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpsAgentKind {
+    Orchestrator,
+    Planner,
+    Executor,
+    Reviewer,
+    Validator,
+}
+
+impl OpsAgentKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Orchestrator => "orchestrator",
+            Self::Planner => "planner",
+            Self::Executor => "executor",
+            Self::Reviewer => "reviewer",
+            Self::Validator => "validator",
+        }
+    }
+}
+
+impl std::fmt::Display for OpsAgentKind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpsAgentRunPhase {
+    Planning,
+    Executing,
+    Reviewing,
+    Validating,
+    Answering,
+}
+
+impl OpsAgentRunPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Planning => "planning",
+            Self::Executing => "executing",
+            Self::Reviewing => "reviewing",
+            Self::Validating => "validating",
+            Self::Answering => "answering",
+        }
+    }
+}
+
+impl std::fmt::Display for OpsAgentRunPhase {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpsAgentProgressStatus {
+    Started,
+    Running,
+    Completed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentProgress {
+    pub status: OpsAgentProgressStatus,
+    pub title: String,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub step_index: Option<usize>,
+    #[serde(default)]
+    pub step_total: Option<usize>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OpsAgentShellContext {
@@ -271,6 +348,10 @@ pub struct OpsAgentChatAccepted {
 #[serde(rename_all = "snake_case")]
 pub enum OpsAgentStreamStage {
     Started,
+    PhaseChanged,
+    AgentStarted,
+    AgentProgress,
+    AgentCompleted,
     Delta,
     ToolCall,
     ToolRead,
@@ -285,6 +366,16 @@ pub struct OpsAgentStreamEvent {
     pub run_id: String,
     pub conversation_id: String,
     pub stage: OpsAgentStreamStage,
+    #[serde(default)]
+    pub phase: Option<OpsAgentRunPhase>,
+    #[serde(default)]
+    pub agent_kind: Option<OpsAgentKind>,
+    #[serde(default)]
+    pub progress: Option<OpsAgentProgress>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub detail: Option<String>,
     pub chunk: Option<String>,
     pub full_answer: Option<String>,
     pub tool_call: Option<OpsAgentToolCall>,
@@ -349,17 +440,93 @@ pub struct OpsAgentResolveActionResult {
     pub note: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct PlannedToolAction {
-    pub kind: OpsAgentToolKind,
-    pub command: Option<String>,
-    pub reason: Option<String>,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpsAgentPlanStepStatus {
+    Pending,
+    Skipped,
+    Executed,
+    AwaitingApproval,
+    Failed,
 }
 
-#[derive(Debug, Clone)]
-pub struct PlannedAgentReply {
-    pub reply: String,
-    pub tool: PlannedToolAction,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentPlanStep {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub tool_kind: Option<OpsAgentToolKind>,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub success_criteria: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentWorkflowPlan {
+    pub summary: String,
+    #[serde(default)]
+    pub steps: Vec<OpsAgentPlanStep>,
+    #[serde(default)]
+    pub success_criteria: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentExecutionStep {
+    pub step_id: String,
+    pub title: String,
+    pub status: OpsAgentPlanStepStatus,
+    #[serde(default)]
+    pub tool_kind: Option<OpsAgentToolKind>,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub output_preview: Option<String>,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentExecutionReport {
+    pub summary: String,
+    #[serde(default)]
+    pub steps: Vec<OpsAgentExecutionStep>,
+    #[serde(default)]
+    pub pending_action: Option<OpsAgentPendingAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentReviewReport {
+    pub summary: String,
+    #[serde(default)]
+    pub concerns: Vec<String>,
+    #[serde(default)]
+    pub needs_follow_up: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpsAgentValidationReport {
+    pub completed: bool,
+    pub confidence: f64,
+    pub summary: String,
+    #[serde(default)]
+    pub evidence: Vec<String>,
+    #[serde(default)]
+    pub missing_items: Vec<String>,
+    #[serde(default)]
+    pub suggested_follow_up: Vec<String>,
 }
 
 impl OpsAgentConversationSummary {
@@ -407,6 +574,11 @@ impl OpsAgentStreamEvent {
             full_answer: None,
             tool_call: None,
             pending_action: None,
+            phase: None,
+            agent_kind: None,
+            progress: None,
+            summary: None,
+            detail: None,
             error: None,
             created_at: now_rfc3339(),
         }

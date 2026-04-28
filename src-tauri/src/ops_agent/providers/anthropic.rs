@@ -107,7 +107,14 @@ pub async fn request_message(
     log_context: Option<OpsAgentLogContext<'_>>,
     request_kind: &str,
 ) -> AppResult<ProviderChatMessageResponse> {
-    log_request(log_context, request_kind, config, &messages, &options, timeout);
+    log_request(
+        log_context,
+        request_kind,
+        config,
+        &messages,
+        &options,
+        timeout,
+    );
 
     let response = build_client_request(config, messages, options, timeout)?
         .send()
@@ -145,7 +152,9 @@ pub async fn request_message(
         if let Some(log_context) = log_context {
             log_context.append(
                 "ai.provider.response_read_failed",
-                format!("kind={request_kind} provider=anthropic_messages status={status} error={error}"),
+                format!(
+                    "kind={request_kind} provider=anthropic_messages status={status} error={error}"
+                ),
             );
         }
         AppError::from(error)
@@ -209,7 +218,14 @@ where
     F: FnMut(&str) -> AppResult<()>,
 {
     options.stream = true;
-    log_request(log_context, request_kind, config, &messages, &options, timeout);
+    log_request(
+        log_context,
+        request_kind,
+        config,
+        &messages,
+        &options,
+        timeout,
+    );
 
     let response = build_client_request(config, messages, options, timeout)?
         .send()
@@ -377,7 +393,9 @@ fn build_client_request(
         .json(&payload))
 }
 
-fn split_messages(messages: Vec<ProviderChatMessage>) -> AppResult<(Option<String>, Vec<WireMessage>)> {
+fn split_messages(
+    messages: Vec<ProviderChatMessage>,
+) -> AppResult<(Option<String>, Vec<WireMessage>)> {
     let mut system_parts = Vec::new();
     let mut wire_messages = Vec::new();
 
@@ -440,18 +458,20 @@ fn serialize_message_content(content: ProviderChatMessageContent) -> AppResult<V
 }
 
 fn parse_data_url(url: &str) -> AppResult<(String, String)> {
-    let payload = url
-        .strip_prefix("data:")
-        .ok_or_else(|| AppError::Validation("anthropic image input must be a data URL".to_string()))?;
-    let (meta, data) = payload
-        .split_once(',')
-        .ok_or_else(|| AppError::Validation("anthropic image input data URL was invalid".to_string()))?;
+    let payload = url.strip_prefix("data:").ok_or_else(|| {
+        AppError::Validation("anthropic image input must be a data URL".to_string())
+    })?;
+    let (meta, data) = payload.split_once(',').ok_or_else(|| {
+        AppError::Validation("anthropic image input data URL was invalid".to_string())
+    })?;
     let media_type = meta
         .split(';')
         .next()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| AppError::Validation("anthropic image input missing media type".to_string()))?;
+        .ok_or_else(|| {
+            AppError::Validation("anthropic image input missing media type".to_string())
+        })?;
     if !meta.contains(";base64") {
         return Err(AppError::Validation(
             "anthropic image input must be base64 encoded".to_string(),
@@ -460,7 +480,9 @@ fn parse_data_url(url: &str) -> AppResult<(String, String)> {
     Ok((media_type.to_string(), data.to_string()))
 }
 
-fn normalize_response(content: Vec<ResponseContentBlock>) -> AppResult<ProviderChatMessageResponse> {
+fn normalize_response(
+    content: Vec<ResponseContentBlock>,
+) -> AppResult<ProviderChatMessageResponse> {
     let mut text = Vec::new();
     let mut reasoning = Vec::new();
     let mut tool_calls = Vec::new();

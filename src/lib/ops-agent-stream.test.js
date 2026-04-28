@@ -20,15 +20,33 @@ describe("normalizeOpsAgentStreamEvent", () => {
         conversationId: "conv-1",
         stage: "delta",
         chunk: "hello",
-        error: "boom",
-      }),
-    ).toEqual({
+      error: "boom",
+      phase: "answering",
+      agentKind: "orchestrator",
+      progress: {
+        status: "running",
+        title: "Answering user",
+        message: "Preparing final response",
+      },
+    }),
+  ).toEqual({
       runId: "run-1",
       conversationId: "conv-1",
       stage: "delta",
+      phase: "answering",
+      agentKind: "orchestrator",
+      summary: "",
+      detail: "",
       chunk: "hello",
       createdAt: "",
       errorMessage: "boom",
+      progress: {
+        status: "running",
+        title: "Answering user",
+        message: "Preparing final response",
+        stepIndex: null,
+        stepTotal: null,
+      },
       toolCall: null,
       pendingAction: null,
     });
@@ -50,10 +68,11 @@ describe("reduceOpsAgentStreamEvent", () => {
 
     expect(transition.nextStream).toEqual({
       runId: "run-1",
-      conversationId: "conv-1",
-      text: "",
-      toolCalls: [],
-    });
+        conversationId: "conv-1",
+        text: "",
+        toolCalls: [],
+        agentProgress: null,
+      });
     expect(transition.activateConversationId).toBe("conv-1");
   });
 
@@ -64,6 +83,7 @@ describe("reduceOpsAgentStreamEvent", () => {
         conversationId: "conv-1",
         text: "hello",
         toolCalls: [],
+        agentProgress: null,
       },
       {
         runId: "run-1",
@@ -87,6 +107,7 @@ describe("reduceOpsAgentStreamEvent", () => {
         conversationId: "conv-1",
         text: "checking",
         toolCalls: [],
+        agentProgress: null,
       },
       {
         runId: "run-1",
@@ -119,6 +140,41 @@ describe("reduceOpsAgentStreamEvent", () => {
     ]);
   });
 
+  it("tracks current agent progress without keeping a pending queue", () => {
+    const transition = reduceOpsAgentStreamEvent(EMPTY_OPS_AGENT_STREAM, {
+      runId: "run-1",
+      conversationId: "conv-1",
+      stage: "agent_progress",
+      phase: "executing",
+      agentKind: "executor",
+      summary: "Checking service",
+      detail: "",
+      chunk: "",
+      createdAt: "2026-04-28T00:00:00Z",
+      errorMessage: "",
+      progress: {
+        status: "running",
+        title: "Checking service",
+        message: "systemctl status nginx",
+        stepIndex: 1,
+        stepTotal: 2,
+      },
+      toolCall: null,
+      pendingAction: null,
+    });
+
+    expect(transition.nextStream.agentProgress).toEqual({
+      phase: "executing",
+      agentKind: "executor",
+      status: "running",
+      title: "Checking service",
+      message: "systemctl status nginx",
+      stepIndex: 1,
+      stepTotal: 2,
+      createdAt: "2026-04-28T00:00:00Z",
+    });
+  });
+
   it("marks completion and requests downstream refreshes", () => {
     const transition = reduceOpsAgentStreamEvent(
       {
@@ -126,6 +182,7 @@ describe("reduceOpsAgentStreamEvent", () => {
         conversationId: "conv-1",
         text: "done",
         toolCalls: [{ id: "tool-1" }],
+        agentProgress: { agentKind: "validator" },
       },
       {
         runId: "run-1",
@@ -153,6 +210,7 @@ describe("reduceOpsAgentStreamEvent", () => {
         conversationId: "conv-1",
         text: "partial",
         toolCalls: [],
+        agentProgress: null,
       },
       {
         runId: "",

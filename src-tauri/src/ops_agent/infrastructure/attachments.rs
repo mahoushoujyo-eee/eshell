@@ -9,9 +9,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::now_rfc3339;
-use crate::ops_agent::domain::types::{
-    OpsAgentAttachmentContent, OpsAgentImageAttachmentInput,
-};
+use crate::ops_agent::domain::types::{OpsAgentAttachmentContent, OpsAgentImageAttachmentInput};
 use crate::ops_agent::infrastructure::logging::{
     append_debug_log_at_path, resolve_ops_agent_log_path,
 };
@@ -71,7 +69,10 @@ impl OpsAgentAttachmentStore {
         Ok(attachment_ids)
     }
 
-    pub fn get_attachment_content(&self, attachment_id: &str) -> AppResult<OpsAgentAttachmentContent> {
+    pub fn get_attachment_content(
+        &self,
+        attachment_id: &str,
+    ) -> AppResult<OpsAgentAttachmentContent> {
         let normalized_id = normalize_attachment_id(attachment_id)?;
         let meta = self.read_meta(normalized_id.as_str())?;
         let bytes_path = self.bytes_path(normalized_id.as_str());
@@ -283,9 +284,7 @@ mod tests {
             .expect("save");
         assert_eq!(ids.len(), 1);
 
-        let content = store
-            .get_attachment_content(ids[0].as_str())
-            .expect("load");
+        let content = store.get_attachment_content(ids[0].as_str()).expect("load");
         assert_eq!(content.file_name.as_deref(), Some("diagram.png"));
         assert_eq!(content.content_type, "image/png");
         assert_eq!(

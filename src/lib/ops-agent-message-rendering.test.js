@@ -131,6 +131,7 @@ describe("groupOpsAgentMessages", () => {
         isStreaming: true,
         streamingText: "working on it",
         streamingToolCalls: [],
+        streamingAgentProgress: null,
       },
     ]);
   });
@@ -155,6 +156,7 @@ describe("groupOpsAgentMessages", () => {
         isStreaming: true,
         streamingText: "",
         streamingToolCalls: [],
+        streamingAgentProgress: null,
       },
     ]);
   });
@@ -271,6 +273,7 @@ describe("groupOpsAgentMessages", () => {
             },
           },
         ],
+        streamingAgentProgress: null,
       },
     ]);
   });

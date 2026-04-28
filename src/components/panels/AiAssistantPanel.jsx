@@ -35,6 +35,7 @@ export default function AiAssistantPanel({
   isStreaming,
   streamingText,
   streamingToolCalls = [],
+  streamingAgentProgress = null,
   conversationError = "",
   onClearConversationError,
   onAskAi,
@@ -190,6 +191,7 @@ export default function AiAssistantPanel({
             isStreaming={isStreaming}
             streamingText={streamingText}
             streamingToolCalls={streamingToolCalls}
+            streamingAgentProgress={streamingAgentProgress}
             isDrawer={isDrawer}
             resolvingActionId={resolvingActionId}
             onResolvePendingAction={onResolvePendingAction}

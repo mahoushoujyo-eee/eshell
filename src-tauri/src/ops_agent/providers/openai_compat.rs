@@ -117,7 +117,14 @@ pub async fn request_message(
     log_context: Option<OpsAgentLogContext<'_>>,
     request_kind: &str,
 ) -> AppResult<ProviderChatMessageResponse> {
-    log_request(log_context, request_kind, config, &messages, &options, timeout);
+    log_request(
+        log_context,
+        request_kind,
+        config,
+        &messages,
+        &options,
+        timeout,
+    );
 
     let response = build_client_request(config, messages, options, timeout)
         .send()
@@ -188,7 +195,10 @@ pub async fn request_message(
     if let Some(log_context) = log_context {
         log_context.append(
             "ai.provider.response_choices",
-            format!("kind={request_kind} status={status} choices={}", choices.len()),
+            format!(
+                "kind={request_kind} status={status} choices={}",
+                choices.len()
+            ),
         );
     }
     let message = choices
@@ -237,7 +247,14 @@ where
     F: FnMut(&str) -> AppResult<()>,
 {
     options.stream = true;
-    log_request(log_context, request_kind, config, &messages, &options, timeout);
+    log_request(
+        log_context,
+        request_kind,
+        config,
+        &messages,
+        &options,
+        timeout,
+    );
 
     let response = build_client_request(config, messages, options, timeout)
         .send()
@@ -430,7 +447,11 @@ fn normalize_choice_message(message: ChoiceMessage) -> ProviderChatMessageRespon
     }
 
     ProviderChatMessageResponse {
-        content: message.content.unwrap_or_default().trim_end_matches('\0').to_string(),
+        content: message
+            .content
+            .unwrap_or_default()
+            .trim_end_matches('\0')
+            .to_string(),
         reasoning_content: message.reasoning_content.unwrap_or_default(),
         tool_calls,
     }
@@ -652,10 +673,7 @@ where
                         request_kind,
                         stats.events,
                         error,
-                        truncate_for_log(
-                            event.data.as_str(),
-                            PROVIDER_LOG_EVENT_PREVIEW_CHARS
-                        )
+                        truncate_for_log(event.data.as_str(), PROVIDER_LOG_EVENT_PREVIEW_CHARS)
                     ),
                 );
             }

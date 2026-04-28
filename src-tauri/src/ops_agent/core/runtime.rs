@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use tauri::AppHandle;
 
+use super::helpers::is_run_cancelled_error;
+use super::orchestrator::process_chat_stream;
+use super::ProcessChatOutcome;
 use crate::ops_agent::domain::types::OpsAgentMessage;
 use crate::ops_agent::infrastructure::logging::{append_debug_log, resolve_ops_agent_log_path};
 use crate::ops_agent::infrastructure::run_registry::OpsAgentRunHandle;
 use crate::ops_agent::transport::events::OpsAgentEventEmitter;
 use crate::state::AppState;
-use super::helpers::is_run_cancelled_error;
-use super::react_loop::process_chat_stream;
-use super::ProcessChatOutcome;
 
 pub(crate) fn spawn_chat_run_task(
     state: Arc<AppState>,
@@ -48,22 +48,6 @@ pub(crate) fn spawn_chat_run_task(
                     Some(conversation_id_for_task.as_str()),
                     "stream finished",
                 );
-            }
-            Ok(ProcessChatOutcome::Cancelled) => {
-                append_debug_log(
-                    state_for_task.as_ref(),
-                    "chat.cancelled",
-                    Some(run_id_for_task.as_str()),
-                    Some(conversation_id_for_task.as_str()),
-                    "run cancelled by user",
-                );
-                OpsAgentEventEmitter::new(
-                    app_for_task,
-                    resolve_ops_agent_log_path(&state_for_task.storage.data_dir()),
-                    run_id_for_task,
-                    conversation_id_for_task,
-                )
-                .completed(String::new(), None);
             }
             Err(error) => {
                 append_debug_log(

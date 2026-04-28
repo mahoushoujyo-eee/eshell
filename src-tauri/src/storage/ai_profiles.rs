@@ -255,7 +255,10 @@ pub(super) fn ensure_ai_profiles_state(state: &mut AiProfilesState, fallback_con
     }
 }
 
-fn legacy_profile_approval_mode(root: &Value, active_profile_id: Option<&str>) -> Option<AiApprovalMode> {
+fn legacy_profile_approval_mode(
+    root: &Value,
+    active_profile_id: Option<&str>,
+) -> Option<AiApprovalMode> {
     let profiles = root.get("profiles")?.as_array()?;
 
     if let Some(active_id) = active_profile_id {

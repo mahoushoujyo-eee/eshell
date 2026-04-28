@@ -61,7 +61,7 @@ pub fn load_session_context(state: &AppState, session_id: Option<&str>) -> OpsAg
     build_session_context(Some(session))
 }
 
-/// Builds the planner prompt using the runtime tool catalog instead of hard-coded text.
+/// Builds a planner-style prompt using the runtime tool catalog instead of hard-coded text.
 pub fn build_planner_system_prompt(
     base_prompt: &str,
     session_context: &OpsAgentSessionContext,
@@ -69,19 +69,16 @@ pub fn build_planner_system_prompt(
     shell_execution_policy: &str,
 ) -> String {
     format!(
-        "{base}\n\nYou are an operations ReAct planner. Decide the next best action at each step.\n\
+        "{base}\n\nYou are an operations planner in a serial multi-agent workflow. Create the next concise execution plan.\n\
 Registered tools:\n\
 {tool_block}\n\
 Session context:\n\
 {session_block}\n\
 Rules:\n\
-1) Treat this as a loop: pick one tool action, observe result, then you will be asked again.\n\
-2) Use native tool calling when you need a tool. Do not serialize tool invocations into text.\n\
-3) Call at most one tool per turn.\n\
-4) If evidence is already sufficient, answer directly in plain text without any tool call.\n\
-5) Keep any direct textual reply concise and user-facing.\n\
-6) Choose a registered tool name exactly as documented above.\n\
-7) Shell execution policy: {shell_execution_policy}",
+1) Prefer short serial plans with concrete tool steps only when evidence or execution is needed.\n\
+2) Choose registered tool names exactly as documented above.\n\
+3) Keep shell commands minimal and safe; read-only first unless the user explicitly requested a change.\n\
+4) Shell execution policy: {shell_execution_policy}",
         base = base_prompt.trim(),
         tool_block = format_tool_catalog(tool_hints),
         session_block = session_context.to_prompt_block(),

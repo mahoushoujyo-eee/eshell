@@ -301,6 +301,7 @@ export const groupOpsAgentMessages = (messages, options = {}) => {
             isStreaming: true,
             streamingText: toText(options?.streamingText),
             streamingToolCalls,
+            streamingAgentProgress: options?.streamingAgentProgress || null,
           },
         ]
       : [];
@@ -352,6 +353,7 @@ export const groupOpsAgentMessages = (messages, options = {}) => {
   }
 
   const streamingText = toText(options?.streamingText);
+  const streamingAgentProgress = options?.streamingAgentProgress || null;
   for (let index = groupsWithPendingActions.length - 1; index >= 0; index -= 1) {
     const group = groupsWithPendingActions[index];
     if (!group || typeof group !== "object") {
@@ -365,6 +367,7 @@ export const groupOpsAgentMessages = (messages, options = {}) => {
         isStreaming: true,
         streamingText,
         streamingToolCalls,
+        streamingAgentProgress,
       };
       return nextGroups;
     }
@@ -384,6 +387,7 @@ export const groupOpsAgentMessages = (messages, options = {}) => {
       isStreaming: true,
       streamingText,
       streamingToolCalls,
+      streamingAgentProgress,
     },
   ];
 };

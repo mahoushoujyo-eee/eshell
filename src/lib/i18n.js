@@ -364,6 +364,16 @@ zhMessages["Execution result"] = "\u6267\u884c\u7ed3\u679c";
 zhMessages["Execution error"] = "\u6267\u884c\u9519\u8bef";
 zhMessages["failed"] = "\u6267\u884c\u5931\u8d25";
 zhMessages["rejected"] = "\u5df2\u62d2\u7edd";
+zhMessages["Planner"] = "\u89c4\u5212";
+zhMessages["Executor"] = "\u6267\u884c";
+zhMessages["Reviewer"] = "\u590d\u6838";
+zhMessages["Validator"] = "\u6821\u9a8c";
+zhMessages["Orchestrator"] = "\u8c03\u5ea6";
+zhMessages["planning"] = "\u89c4\u5212\u4e2d";
+zhMessages["executing"] = "\u6267\u884c\u4e2d";
+zhMessages["reviewing"] = "\u590d\u6838\u4e2d";
+zhMessages["validating"] = "\u6821\u9a8c\u4e2d";
+zhMessages["answering"] = "\u56de\u590d\u4e2d";
 
 const defaultContextValue = {
   language: "en",
