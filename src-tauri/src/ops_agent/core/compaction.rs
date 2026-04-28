@@ -82,7 +82,8 @@ pub async fn compact_conversation_history(
     config: &AiConfig,
     mode: OpsAgentCompactMode,
 ) -> AppResult<OpsAgentCompactConversationResult> {
-    let estimated_tokens_before = estimate_conversation_tokens(state, config, &conversation, session_id);
+    let estimated_tokens_before =
+        estimate_conversation_tokens(state, config, &conversation, session_id);
     let log_context = OpsAgentLogContext::new(state, None, Some(conversation.id.as_str()));
     log_context.append(
         "compact.begin",
@@ -110,13 +111,15 @@ pub async fn compact_conversation_history(
         return Ok(OpsAgentCompactConversationResult {
             conversation,
             compacted: false,
-            note: "The current conversation is still too short, so compaction is not needed yet.".to_string(),
+            note: "The current conversation is still too short, so compaction is not needed yet."
+                .to_string(),
             estimated_tokens_before,
             estimated_tokens_after: estimated_tokens_before,
         });
     }
 
-    let keep_start = find_keep_start_index(&conversation.messages, config.max_context_tokens as usize);
+    let keep_start =
+        find_keep_start_index(&conversation.messages, config.max_context_tokens as usize);
     if keep_start == 0 || keep_start >= conversation.messages.len() {
         log_context.append(
             "compact.skip",
@@ -266,7 +269,9 @@ pub async fn compact_conversation_history(
         conversation: updated,
         compacted: true,
         note: match mode {
-            OpsAgentCompactMode::Auto => "Conversation history was compacted automatically.".to_string(),
+            OpsAgentCompactMode::Auto => {
+                "Conversation history was compacted automatically.".to_string()
+            }
             OpsAgentCompactMode::Manual => "Conversation history was compacted.".to_string(),
         },
         estimated_tokens_before,
@@ -280,7 +285,8 @@ pub fn estimate_conversation_tokens(
     conversation: &OpsAgentConversation,
     session_id: Option<&str>,
 ) -> usize {
-    let session_context = load_session_context(state, session_id.or(conversation.session_id.as_deref()));
+    let session_context =
+        load_session_context(state, session_id.or(conversation.session_id.as_deref()));
     let tool_hints = state.ops_agent_tools.prompt_hints();
     let shell_execution_policy = match config.approval_mode {
         crate::models::AiApprovalMode::AutoExecute => {
@@ -335,11 +341,7 @@ fn build_compaction_transcript(messages: &[OpsAgentMessage]) -> String {
         .iter()
         .enumerate()
         .map(|(index, message)| {
-            format!(
-                "{}. {}",
-                index + 1,
-                render_message_for_compaction(message)
-            )
+            format!("{}. {}", index + 1, render_message_for_compaction(message))
         })
         .collect::<Vec<_>>()
         .join("\n\n")
@@ -399,7 +401,9 @@ fn render_message_for_compaction(message: &OpsAgentMessage) -> String {
 
 fn build_fallback_summary(messages: &[OpsAgentMessage]) -> String {
     let mut bullets = Vec::new();
-    bullets.push("- The earlier conversation was compacted with a local fallback summary.".to_string());
+    bullets.push(
+        "- The earlier conversation was compacted with a local fallback summary.".to_string(),
+    );
 
     for message in messages.iter().rev().take(8).rev() {
         let label = match message.role {
@@ -413,7 +417,11 @@ fn build_fallback_summary(messages: &[OpsAgentMessage]) -> String {
             label,
             truncate_text(
                 &message.content.replace('\n', " "),
-                if message.role == OpsAgentRole::Tool { 180 } else { 220 }
+                if message.role == OpsAgentRole::Tool {
+                    180
+                } else {
+                    220
+                }
             )
         ));
     }

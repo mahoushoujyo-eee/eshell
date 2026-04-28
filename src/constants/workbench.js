@@ -83,6 +83,7 @@ export const EMPTY_SCRIPT = {
   path: "",
   command: "",
   description: "",
+  parameters: [],
 };
 
 export const DEFAULT_AI = {
@@ -96,6 +97,7 @@ export const DEFAULT_AI = {
   maxTokens: 800,
   maxContextTokens: 100000,
   approvalMode: "require_approval",
+  agentMode: "pro",
 };
 
 export const getWallpaperPreset = (id) => WALLPAPER_PRESET_MAP.get(id) || WALLPAPER_PRESET_MAP.get(DEFAULT_WALLPAPER.id);

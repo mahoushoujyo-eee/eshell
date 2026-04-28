@@ -34,6 +34,59 @@ const isValidRemoteEntryName = (value) => {
   return Boolean(name) && name !== "." && name !== ".." && !/[\\/]/.test(name);
 };
 
+const SCRIPT_PARAMETER_PATTERN = /\{\{\s*([A-Za-z0-9_-]+)\s*\}\}/g;
+
+const buildScriptCommand = (baseCommand, parameters, parameterValues) => {
+  const command = String(baseCommand || "").trim();
+  if (!command) {
+    return "";
+  }
+
+  const normalizedParameters = Array.isArray(parameters)
+    ? parameters
+        .map((parameter) => ({
+          name: String(parameter?.name || "").trim(),
+          quote: parameter?.quote !== false,
+          defaultValue: parameter?.defaultValue ?? "",
+        }))
+        .filter((parameter) => parameter.name)
+    : [];
+  if (normalizedParameters.length === 0) {
+    return command;
+  }
+
+  const valueByName = new Map(
+    normalizedParameters.map((parameter) => [
+      parameter.name,
+      parameterValues?.[parameter.name] ?? parameter.defaultValue ?? "",
+    ]),
+  );
+  const formatValue = (parameter, value) =>
+    parameter.quote === false ? String(value ?? "") : shellQuote(value ?? "");
+
+  const usedNames = new Set();
+  const replacedCommand = command.replace(
+    SCRIPT_PARAMETER_PATTERN,
+    (match, rawName) => {
+      const parameter = normalizedParameters.find((item) => item.name === rawName);
+      if (!parameter) {
+        return match;
+      }
+      usedNames.add(parameter.name);
+      return formatValue(parameter, valueByName.get(parameter.name));
+    },
+  );
+
+  const appendedArgs = normalizedParameters
+    .filter((parameter) => !usedNames.has(parameter.name))
+    .flatMap((parameter) => {
+      const rawValue = String(valueByName.get(parameter.name) ?? "");
+      return rawValue ? [formatValue(parameter, rawValue)] : [];
+    });
+
+  return [replacedCommand, ...appendedArgs].join(" ").trim();
+};
+
 export function useWorkbenchOperations({
   sshConfigs,
   sessions,
@@ -395,14 +448,26 @@ export function useWorkbenchOperations({
     const activeProfile =
       normalized.profiles.find((item) => item.id === normalized.activeProfileId) || null;
     if (activeProfile) {
-      setAiConfig(normalizeAiConfig({ ...activeProfile, approvalMode: normalized.approvalMode }));
+      setAiConfig(
+        normalizeAiConfig({
+          ...activeProfile,
+          approvalMode: normalized.approvalMode,
+          agentMode: normalized.agentMode,
+        }),
+      );
       if (!keepForm) {
         setAiProfileForm(activeProfile);
       }
       return activeProfile;
     }
 
-    setAiConfig(normalizeAiConfig({ ...DEFAULT_AI, approvalMode: normalized.approvalMode }));
+    setAiConfig(
+      normalizeAiConfig({
+        ...DEFAULT_AI,
+        approvalMode: normalized.approvalMode,
+        agentMode: normalized.agentMode,
+      }),
+    );
     if (!keepForm) {
       setAiProfileForm(DEFAULT_AI_PROFILE_FORM);
     }
@@ -1118,7 +1183,14 @@ export function useWorkbenchOperations({
     async (event) => {
       event.preventDefault();
       try {
-        await runBusy(tRef.current("Save script"), () => api.saveScript(scriptForm));
+        await runBusy(tRef.current("Save script"), () =>
+          api.saveScript({
+            ...scriptForm,
+            parameters: Array.isArray(scriptForm.parameters)
+              ? scriptForm.parameters
+              : [],
+          }),
+        );
         setScriptForm(EMPTY_SCRIPT);
         setScripts(await api.listScripts());
       } catch (err) {
@@ -1129,24 +1201,41 @@ export function useWorkbenchOperations({
   );
 
   const runScript = useCallback(
-    async (scriptId) => {
+    async (scriptId, parameterValues = {}) => {
       if (!activeSessionId) {
         onError(tRef.current("Please connect an SSH session first"));
-        return;
+        return false;
       }
 
       const script = scripts.find((item) => item.id === scriptId);
       if (!script) {
         onError(tRef.current("Script not found"));
-        return;
+        return false;
       }
 
       const directCommand = (script.command || "").trim();
       const scriptPath = (script.path || "").trim();
-      const resolvedCommand = directCommand || (scriptPath ? `bash ${shellQuote(scriptPath)}` : "");
+      const baseCommand = directCommand || (scriptPath ? `bash ${shellQuote(scriptPath)}` : "");
+      const parameters = Array.isArray(script.parameters) ? script.parameters : [];
+      const missingParameter = parameters.find((parameter) => {
+        const name = String(parameter?.name || "").trim();
+        if (!name || !parameter?.required) {
+          return false;
+        }
+        return !String(parameterValues[name] ?? parameter.defaultValue ?? "").trim();
+      });
+      if (missingParameter) {
+        onError(
+          tRef.current("Missing required script parameter: {name}", {
+            name: missingParameter.label || missingParameter.name,
+          }),
+        );
+        return false;
+      }
+      const resolvedCommand = buildScriptCommand(baseCommand, parameters, parameterValues);
       if (!resolvedCommand) {
         onError(tRef.current("Script has no runnable command or path"));
-        return;
+        return false;
       }
 
       try {
@@ -1155,8 +1244,10 @@ export function useWorkbenchOperations({
             api.ptyWriteInput(sessionId, `${resolvedCommand}\n`),
           ),
         );
+        return true;
       } catch (err) {
         onError(err);
+        return false;
       }
     },
     [activeSessionId, onError, runBusy, runWithSessionReconnect, scripts],
@@ -1253,6 +1344,23 @@ export function useWorkbenchOperations({
       try {
         const state = await runBusy(tRef.current("Approval mode"), () =>
           api.saveAiApprovalMode(approvalMode),
+        );
+        applyAiProfilesState(state, true);
+      } catch (err) {
+        onError(err);
+      }
+    },
+    [applyAiProfilesState, onError, runBusy],
+  );
+
+  const saveAiAgentMode = useCallback(
+    async (agentMode) => {
+      if (agentMode !== "lite" && agentMode !== "pro" && agentMode !== "auto") {
+        return;
+      }
+      try {
+        const state = await runBusy(tRef.current("Agent mode"), () =>
+          api.saveAiAgentMode(agentMode),
         );
         applyAiProfilesState(state, true);
       } catch (err) {
@@ -1451,6 +1559,7 @@ export function useWorkbenchOperations({
           conversationId: accepted.conversationId,
           text: "",
           toolCalls: [],
+          agentProgress: null,
         };
         aiStreamRef.current = nextStream;
         setAiStream(nextStream);
@@ -1665,6 +1774,7 @@ export function useWorkbenchOperations({
     selectAiProfile,
     deleteAiProfile,
     saveAiApprovalMode,
+    saveAiAgentMode,
     selectAiConversation,
     createAiConversation,
     deleteAiConversation,

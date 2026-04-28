@@ -70,6 +70,7 @@ export default function AppModals({
       <AiConfigModal
         open={isAiModalOpen}
         onClose={onCloseAiModal}
+        sshConfigs={sshConfigs}
         aiProfiles={aiProfiles}
         activeAiProfileId={activeAiProfileId}
         aiProfileForm={aiProfileForm}

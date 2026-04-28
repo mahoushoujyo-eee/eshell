@@ -14,6 +14,10 @@ pub fn default_ai_approval_mode() -> AiApprovalMode {
     AiApprovalMode::RequireApproval
 }
 
+pub fn default_ai_agent_mode() -> AiAgentMode {
+    AiAgentMode::Pro
+}
+
 pub fn default_ai_api_type() -> AiApiType {
     AiApiType::OpenAiChatCompletions
 }
@@ -286,8 +290,28 @@ pub struct ScriptDefinition {
     pub path: String,
     pub command: String,
     pub description: String,
+    #[serde(default)]
+    pub parameters: Vec<ScriptParameter>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptParameter {
+    pub name: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub default_value: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default = "default_script_parameter_quote")]
+    pub quote: bool,
+}
+
+pub fn default_script_parameter_quote() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,6 +322,8 @@ pub struct ScriptInput {
     pub path: Option<String>,
     pub command: Option<String>,
     pub description: Option<String>,
+    #[serde(default)]
+    pub parameters: Vec<ScriptParameter>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -325,6 +351,20 @@ pub enum AiApprovalMode {
 impl Default for AiApprovalMode {
     fn default() -> Self {
         default_ai_approval_mode()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AiAgentMode {
+    Lite,
+    Pro,
+    Auto,
+}
+
+impl Default for AiAgentMode {
+    fn default() -> Self {
+        default_ai_agent_mode()
     }
 }
 
@@ -368,6 +408,8 @@ pub struct AiConfig {
     pub max_context_tokens: u32,
     #[serde(default = "default_ai_approval_mode")]
     pub approval_mode: AiApprovalMode,
+    #[serde(default = "default_ai_agent_mode")]
+    pub agent_mode: AiAgentMode,
     pub updated_at: String,
 }
 
@@ -384,6 +426,7 @@ impl Default for AiConfig {
             max_tokens: 800,
             max_context_tokens: default_ai_max_context_tokens(),
             approval_mode: default_ai_approval_mode(),
+            agent_mode: default_ai_agent_mode(),
             updated_at: now_rfc3339(),
         }
     }
@@ -404,6 +447,8 @@ pub struct AiConfigInput {
     pub max_context_tokens: u32,
     #[serde(default = "default_ai_approval_mode")]
     pub approval_mode: AiApprovalMode,
+    #[serde(default = "default_ai_agent_mode")]
+    pub agent_mode: AiAgentMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -449,6 +494,8 @@ pub struct AiProfilesState {
     pub active_profile_id: Option<String>,
     #[serde(default = "default_ai_approval_mode")]
     pub approval_mode: AiApprovalMode,
+    #[serde(default = "default_ai_agent_mode")]
+    pub agent_mode: AiAgentMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -462,6 +509,37 @@ pub struct SetActiveAiProfileInput {
 pub struct SetAiApprovalModeInput {
     #[serde(default = "default_ai_approval_mode")]
     pub approval_mode: AiApprovalMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAiAgentModeInput {
+    #[serde(default = "default_ai_agent_mode")]
+    pub agent_mode: AiAgentMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentContextInput {
+    #[serde(default)]
+    pub server_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveAgentContextInput {
+    #[serde(default)]
+    pub server_id: Option<String>,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentContextContent {
+    #[serde(default)]
+    pub server_id: Option<String>,
+    pub content: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -358,14 +358,11 @@ impl OpsAgentTool for ShellTool {
                     })
                 }
                 Err(error) => {
-                    let updated = request
-                        .state
-                        .ops_agent
-                        .mark_action_failed(
-                            &action.id,
-                            error.to_string(),
-                            request.approval_comment.clone(),
-                        )?;
+                    let updated = request.state.ops_agent.mark_action_failed(
+                        &action.id,
+                        error.to_string(),
+                        request.approval_comment.clone(),
+                    )?;
                     append_debug_log(
                         request.state.as_ref(),
                         "shell.approval_failed",
@@ -493,8 +490,7 @@ fn validate_read_shell_command(command: &str) -> AppResult<String> {
 fn validate_read_shell_redirection_and_substitution(command: &str) -> AppResult<()> {
     if command.contains('<') || command.contains("`") || command.contains("$(") {
         return Err(AppError::Validation(
-            "read_shell command contains unsupported shell redirection or substitution"
-                .to_string(),
+            "read_shell command contains unsupported shell redirection or substitution".to_string(),
         ));
     }
 
@@ -528,8 +524,7 @@ fn validate_read_shell_redirection_and_substitution(command: &str) -> AppResult<
         }
 
         return Err(AppError::Validation(
-            "read_shell command contains unsupported shell redirection or substitution"
-                .to_string(),
+            "read_shell command contains unsupported shell redirection or substitution".to_string(),
         ));
     }
 
@@ -557,7 +552,10 @@ fn is_safe_file_descriptor_duplication(token: &str) -> bool {
 }
 
 fn is_null_redirect_prefix(token: &str) -> bool {
-    matches!(token, ">" | "1>" | "2>" | ">>" | "1>>" | "2>>" | "&>" | "&>>")
+    matches!(
+        token,
+        ">" | "1>" | "2>" | ">>" | "1>>" | "2>>" | "&>" | "&>>"
+    )
 }
 
 fn normalize_redirect_target(token: &str) -> String {

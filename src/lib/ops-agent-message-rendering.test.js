@@ -131,6 +131,7 @@ describe("groupOpsAgentMessages", () => {
         isStreaming: true,
         streamingText: "working on it",
         streamingToolCalls: [],
+        streamingAgentProgress: null,
       },
     ]);
   });
@@ -155,6 +156,7 @@ describe("groupOpsAgentMessages", () => {
         isStreaming: true,
         streamingText: "",
         streamingToolCalls: [],
+        streamingAgentProgress: null,
       },
     ]);
   });
@@ -225,6 +227,63 @@ describe("groupOpsAgentMessages", () => {
     ]);
   });
 
+  it("does not inject resolved approval actions into the agent turn", () => {
+    expect(
+      groupOpsAgentMessages(
+        [
+          { id: "u1", role: "user", content: "check mysql", createdAt: "2026-04-08T23:59:58Z" },
+          {
+            id: "t1",
+            role: "tool",
+            toolKind: "shell",
+            content: "shell action executed.\nCommand: mysql --version\nExit: 0\nmysql 8.0",
+            createdAt: "2026-04-09T00:00:02Z",
+          },
+        ],
+        {
+          conversationId: "conv-1",
+          pendingActions: [
+            {
+              id: "action-1",
+              conversationId: "conv-1",
+              sourceUserMessageId: "u1",
+              toolKind: "shell",
+              command: "mysql --version",
+              status: "executed",
+              createdAt: "2026-04-09T00:00:00Z",
+              executionOutput: "mysql 8.0",
+            },
+          ],
+        },
+      ),
+    ).toEqual([
+      {
+        id: "u1",
+        kind: "user",
+        message: {
+          id: "u1",
+          role: "user",
+          content: "check mysql",
+          createdAt: "2026-04-08T23:59:58Z",
+        },
+      },
+      {
+        id: "turn-t1",
+        kind: "agent_turn",
+        sourceUserMessageId: "u1",
+        messages: [
+          {
+            id: "t1",
+            role: "tool",
+            toolKind: "shell",
+            content: "shell action executed.\nCommand: mysql --version\nExit: 0\nmysql 8.0",
+            createdAt: "2026-04-09T00:00:02Z",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("surfaces streaming tool calls inside the current turn", () => {
     expect(
       groupOpsAgentMessages(
@@ -271,6 +330,7 @@ describe("groupOpsAgentMessages", () => {
             },
           },
         ],
+        streamingAgentProgress: null,
       },
     ]);
   });

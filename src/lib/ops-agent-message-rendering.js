@@ -136,6 +136,11 @@ const pendingActionToolState = (action) => {
   return "awaiting_approval";
 };
 
+const shouldRenderPendingActionInTurn = (action) => {
+  const status = toText(action?.status).trim();
+  return !status || status === "pending";
+};
+
 const createPendingActionToolMessage = (action) => ({
   id: `pending-action:${action.id}`,
   role: "tool",
@@ -263,6 +268,9 @@ const injectPendingActionsIntoGroups = (groups, pendingActions, conversationId) 
     if (!action || typeof action !== "object") {
       return;
     }
+    if (!shouldRenderPendingActionInTurn(action)) {
+      return;
+    }
     if (conversationId && action.conversationId && action.conversationId !== conversationId) {
       return;
     }
@@ -301,6 +309,7 @@ export const groupOpsAgentMessages = (messages, options = {}) => {
             isStreaming: true,
             streamingText: toText(options?.streamingText),
             streamingToolCalls,
+            streamingAgentProgress: options?.streamingAgentProgress || null,
           },
         ]
       : [];
@@ -352,6 +361,7 @@ export const groupOpsAgentMessages = (messages, options = {}) => {
   }
 
   const streamingText = toText(options?.streamingText);
+  const streamingAgentProgress = options?.streamingAgentProgress || null;
   for (let index = groupsWithPendingActions.length - 1; index >= 0; index -= 1) {
     const group = groupsWithPendingActions[index];
     if (!group || typeof group !== "object") {
@@ -365,6 +375,7 @@ export const groupOpsAgentMessages = (messages, options = {}) => {
         isStreaming: true,
         streamingText,
         streamingToolCalls,
+        streamingAgentProgress,
       };
       return nextGroups;
     }
@@ -384,6 +395,7 @@ export const groupOpsAgentMessages = (messages, options = {}) => {
       isStreaming: true,
       streamingText,
       streamingToolCalls,
+      streamingAgentProgress,
     },
   ];
 };

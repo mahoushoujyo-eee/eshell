@@ -5,13 +5,11 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::ops_agent::core::helpers::normalized_reply;
-use crate::ops_agent::core::react_loop::split_history_for_current_message;
-use crate::ops_agent::core::OPS_AGENT_MAX_REACT_STEPS;
 use crate::ops_agent::domain::types::{
     OpsAgentActionStatus, OpsAgentMessage, OpsAgentPendingAction, OpsAgentResolveActionInput,
-    OpsAgentRiskLevel, OpsAgentRole, OpsAgentToolKind, PlannedAgentReply, PlannedToolAction,
+    OpsAgentRiskLevel, OpsAgentRole, OpsAgentToolKind,
 };
 use crate::ops_agent::tools::{
     OpsAgentTool, OpsAgentToolDefinition, OpsAgentToolExecution, OpsAgentToolOutcome,
@@ -22,10 +20,24 @@ use crate::state::AppState;
 use super::resolve_pending_action;
 
 type TestToolFuture<T> = Pin<Box<dyn Future<Output = AppResult<T>> + Send + 'static>>;
+const MOCK_AGENT_MAX_TOOL_STEPS: usize = 8;
 
 struct MockInspectTool;
 struct MockDiagnoseTool;
 struct MockDangerTool;
+
+#[derive(Debug, Clone)]
+struct MockPlannedToolAction {
+    kind: OpsAgentToolKind,
+    command: Option<String>,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct MockPlannedAgentReply {
+    reply: String,
+    tool: MockPlannedToolAction,
+}
 
 struct MockDangerSessionAwareTool {
     observed_sessions: Arc<Mutex<Vec<Option<String>>>>,
@@ -211,12 +223,36 @@ fn temp_dir(name: &str) -> PathBuf {
 
 fn test_state_with_registry(registry: OpsAgentToolRegistry) -> Arc<AppState> {
     Arc::new(
-        AppState::new_with_ops_agent_tools(temp_dir("react-loop"), registry)
+        AppState::new_with_ops_agent_tools(temp_dir("agent-tool-flow"), registry)
             .expect("create app state"),
     )
 }
 
-async fn run_mock_react_loop<F>(
+fn split_history_for_current_message(
+    messages: Vec<OpsAgentMessage>,
+    current_message_id: &str,
+) -> AppResult<(Vec<OpsAgentMessage>, OpsAgentMessage)> {
+    let current_index = messages
+        .iter()
+        .position(|item| item.id == current_message_id)
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "ops agent message {current_message_id} for active chat run"
+            ))
+        })?;
+    let current_message = messages[current_index].clone();
+    if current_message.role != OpsAgentRole::User {
+        return Err(AppError::Validation(
+            "active chat run message must be a user message".to_string(),
+        ));
+    }
+
+    let history = messages.into_iter().take(current_index).collect::<Vec<_>>();
+
+    Ok((history, current_message))
+}
+
+async fn run_mock_agent_tool_flow<F>(
     state: Arc<AppState>,
     conversation_id: &str,
     session_id: Option<&str>,
@@ -224,7 +260,7 @@ async fn run_mock_react_loop<F>(
     mut planner: F,
 ) -> AppResult<(String, Option<OpsAgentPendingAction>)>
 where
-    F: FnMut(&[OpsAgentMessage], &OpsAgentMessage) -> PlannedAgentReply,
+    F: FnMut(&[OpsAgentMessage], &OpsAgentMessage) -> MockPlannedAgentReply,
 {
     let user_message = state.ops_agent.append_message(
         conversation_id,
@@ -238,7 +274,7 @@ where
     let (mut history, current_user_message) =
         split_history_for_current_message(conversation.messages, &user_message.id)?;
 
-    for _ in 0..OPS_AGENT_MAX_REACT_STEPS {
+    for _ in 0..MOCK_AGENT_MAX_TOOL_STEPS {
         let plan = planner(&history, &current_user_message);
         if plan.tool.kind.is_none() {
             let final_answer =
@@ -301,7 +337,7 @@ where
     }
 
     let limit_message =
-        format!("I reached the autonomous tool step limit ({OPS_AGENT_MAX_REACT_STEPS}).");
+        format!("I reached the autonomous tool step limit ({MOCK_AGENT_MAX_TOOL_STEPS}).");
     state.ops_agent.append_message(
         conversation_id,
         OpsAgentRole::Assistant,
@@ -314,7 +350,7 @@ where
 }
 
 #[test]
-fn react_loop_runs_multi_turn_reasoning_with_mock_tools() {
+fn mock_agent_tool_flow_runs_multi_turn_reasoning_with_mock_tools() {
     let mut registry = OpsAgentToolRegistry::new();
     registry.register(MockInspectTool);
     registry.register(MockDiagnoseTool);
@@ -326,7 +362,7 @@ fn react_loop_runs_multi_turn_reasoning_with_mock_tools() {
         .expect("create conversation");
 
     let mut planner_calls = 0usize;
-    let (answer, pending_action) = tauri::async_runtime::block_on(run_mock_react_loop(
+    let (answer, pending_action) = tauri::async_runtime::block_on(run_mock_agent_tool_flow(
         Arc::clone(&state),
         &conversation.id,
         None,
@@ -339,9 +375,9 @@ fn react_loop_runs_multi_turn_reasoning_with_mock_tools() {
                 .any(|item| item.content.contains("process=java"));
 
             if !has_metrics {
-                return PlannedAgentReply {
+                return MockPlannedAgentReply {
                     reply: "先读取核心指标，确认是否资源瓶颈。".to_string(),
-                    tool: PlannedToolAction {
+                    tool: MockPlannedToolAction {
                         kind: OpsAgentToolKind::new("mock_inspect"),
                         command: Some("collect_runtime_metrics".to_string()),
                         reason: Some("need baseline metrics".to_string()),
@@ -350,9 +386,9 @@ fn react_loop_runs_multi_turn_reasoning_with_mock_tools() {
             }
 
             if !has_java_diagnosis {
-                return PlannedAgentReply {
+                return MockPlannedAgentReply {
                     reply: "指标异常，再看热点进程定位来源。".to_string(),
-                    tool: PlannedToolAction {
+                    tool: MockPlannedToolAction {
                         kind: OpsAgentToolKind::new("mock_diagnose"),
                         command: Some("find_hot_process".to_string()),
                         reason: Some("identify culprit process".to_string()),
@@ -360,11 +396,11 @@ fn react_loop_runs_multi_turn_reasoning_with_mock_tools() {
                 };
             }
 
-            PlannedAgentReply {
+            MockPlannedAgentReply {
                 reply:
                     "已定位：CPU 抖动主要由 Java 进程引起（pid=22131，cpu≈96%）。建议先抓线程栈再限制并发。"
                         .to_string(),
-                tool: PlannedToolAction {
+                tool: MockPlannedToolAction {
                     kind: OpsAgentToolKind::none(),
                     command: None,
                     reason: None,
@@ -372,7 +408,7 @@ fn react_loop_runs_multi_turn_reasoning_with_mock_tools() {
             }
         },
     ))
-    .expect("run mock react loop");
+    .expect("run mock agent tool flow");
 
     assert!(pending_action.is_none());
     assert!(answer.contains("Java 进程"));
@@ -393,7 +429,7 @@ fn react_loop_runs_multi_turn_reasoning_with_mock_tools() {
 }
 
 #[test]
-fn react_loop_can_queue_mock_approval_action() {
+fn mock_agent_tool_flow_can_queue_approval_action() {
     let mut registry = OpsAgentToolRegistry::new();
     registry.register(MockDangerTool);
 
@@ -403,21 +439,22 @@ fn react_loop_can_queue_mock_approval_action() {
         .create_conversation(Some("approval"), None)
         .expect("create conversation");
 
-    let (assistant_message, pending_action) = tauri::async_runtime::block_on(run_mock_react_loop(
-        Arc::clone(&state),
-        &conversation.id,
-        None,
-        "请直接清理历史日志目录",
-        |_history, _current_user_message| PlannedAgentReply {
-            reply: "该操作有风险，我先发起审批。".to_string(),
-            tool: PlannedToolAction {
-                kind: OpsAgentToolKind::new("mock_danger"),
-                command: Some("rm -rf /var/log/old".to_string()),
-                reason: Some("cleanup requested by user".to_string()),
+    let (assistant_message, pending_action) =
+        tauri::async_runtime::block_on(run_mock_agent_tool_flow(
+            Arc::clone(&state),
+            &conversation.id,
+            None,
+            "请直接清理历史日志目录",
+            |_history, _current_user_message| MockPlannedAgentReply {
+                reply: "该操作有风险，我先发起审批。".to_string(),
+                tool: MockPlannedToolAction {
+                    kind: OpsAgentToolKind::new("mock_danger"),
+                    command: Some("rm -rf /var/log/old".to_string()),
+                    reason: Some("cleanup requested by user".to_string()),
+                },
             },
-        },
-    ))
-    .expect("run mock react loop");
+        ))
+        .expect("run mock agent tool flow");
 
     let action = pending_action.expect("approval action");
     assert_eq!(action.tool_kind, OpsAgentToolKind::new("mock_danger"));
@@ -459,21 +496,22 @@ fn rejecting_pending_action_persists_rejection_decision() {
         .create_conversation(Some("approval-reject"), None)
         .expect("create conversation");
 
-    let (_assistant_message, pending_action) = tauri::async_runtime::block_on(run_mock_react_loop(
-        Arc::clone(&state),
-        &conversation.id,
-        None,
-        "这是危险操作，请先审批",
-        |_history, _current_user_message| PlannedAgentReply {
-            reply: "该操作有风险，我先发起审批。".to_string(),
-            tool: PlannedToolAction {
-                kind: OpsAgentToolKind::new("mock_danger"),
-                command: Some("dangerous-operation".to_string()),
-                reason: Some("verify rejection flow".to_string()),
+    let (_assistant_message, pending_action) =
+        tauri::async_runtime::block_on(run_mock_agent_tool_flow(
+            Arc::clone(&state),
+            &conversation.id,
+            None,
+            "这是危险操作，请先审批",
+            |_history, _current_user_message| MockPlannedAgentReply {
+                reply: "该操作有风险，我先发起审批。".to_string(),
+                tool: MockPlannedToolAction {
+                    kind: OpsAgentToolKind::new("mock_danger"),
+                    command: Some("dangerous-operation".to_string()),
+                    reason: Some("verify rejection flow".to_string()),
+                },
             },
-        },
-    ))
-    .expect("run mock react loop");
+        ))
+        .expect("run mock agent tool flow");
 
     let action = pending_action.expect("approval action");
     let resolved = tauri::async_runtime::block_on(resolve_pending_action(
@@ -497,7 +535,7 @@ fn rejecting_pending_action_persists_rejection_decision() {
 }
 
 #[test]
-fn resolving_pending_action_with_comment_appends_user_message_for_follow_up() {
+fn resolving_pending_action_with_comment_keeps_comment_on_action() {
     let mut registry = OpsAgentToolRegistry::new();
     registry.register(MockDangerTool);
 
@@ -507,21 +545,22 @@ fn resolving_pending_action_with_comment_appends_user_message_for_follow_up() {
         .create_conversation(Some("approval-comment"), None)
         .expect("create conversation");
 
-    let (_assistant_message, pending_action) = tauri::async_runtime::block_on(run_mock_react_loop(
-        Arc::clone(&state),
-        &conversation.id,
-        None,
-        "需要高风险操作，请先审批",
-        |_history, _current_user_message| PlannedAgentReply {
-            reply: "这个动作有风险，等待审批。".to_string(),
-            tool: PlannedToolAction {
-                kind: OpsAgentToolKind::new("mock_danger"),
-                command: Some("dangerous-operation".to_string()),
-                reason: Some("verify comment flow".to_string()),
+    let (_assistant_message, pending_action) =
+        tauri::async_runtime::block_on(run_mock_agent_tool_flow(
+            Arc::clone(&state),
+            &conversation.id,
+            None,
+            "需要高风险操作，请先审批",
+            |_history, _current_user_message| MockPlannedAgentReply {
+                reply: "这个动作有风险，等待审批。".to_string(),
+                tool: MockPlannedToolAction {
+                    kind: OpsAgentToolKind::new("mock_danger"),
+                    command: Some("dangerous-operation".to_string()),
+                    reason: Some("verify comment flow".to_string()),
+                },
             },
-        },
-    ))
-    .expect("run mock react loop");
+        ))
+        .expect("run mock agent tool flow");
 
     let action = pending_action.expect("approval action");
     let resolved = tauri::async_runtime::block_on(resolve_pending_action(
@@ -539,20 +578,20 @@ fn resolving_pending_action_with_comment_appends_user_message_for_follow_up() {
     assert_eq!(resolved.action.status, OpsAgentActionStatus::Executed);
     assert_eq!(
         resolved.action.approval_comment.as_deref(),
-        Some("鎵ц鍚庣户缁鏌ユ湇鍔＄姸鎬?")
+        Some("执行后继续检查服务状态")
     );
 
     let updated = state
         .ops_agent
         .get_conversation(&conversation.id)
         .expect("reload conversation");
-    let last_user_message = updated
+    let user_messages = updated
         .messages
         .iter()
-        .rev()
-        .find(|item| item.role == OpsAgentRole::User)
-        .expect("follow-up user message");
-    assert_eq!(last_user_message.content, "执行后继续检查服务状态");
+        .filter(|item| item.role == OpsAgentRole::User)
+        .collect::<Vec<_>>();
+    assert_eq!(user_messages.len(), 1);
+    assert_eq!(user_messages[0].content, "需要高风险操作，请先审批");
 }
 
 #[test]
@@ -569,21 +608,22 @@ fn resolve_pending_action_uses_requested_session_override_for_tool_resolution() 
         .create_conversation(Some("session-override"), Some("session-1"))
         .expect("create conversation");
 
-    let (_assistant_message, pending_action) = tauri::async_runtime::block_on(run_mock_react_loop(
-        Arc::clone(&state),
-        &conversation.id,
-        Some("session-1"),
-        "执行一个需要审批的动作",
-        |_history, _current_user_message| PlannedAgentReply {
-            reply: "该操作有风险，我先发起审批。".to_string(),
-            tool: PlannedToolAction {
-                kind: OpsAgentToolKind::new("mock_danger_session"),
-                command: Some("dangerous-operation".to_string()),
-                reason: Some("verify session override".to_string()),
+    let (_assistant_message, pending_action) =
+        tauri::async_runtime::block_on(run_mock_agent_tool_flow(
+            Arc::clone(&state),
+            &conversation.id,
+            Some("session-1"),
+            "执行一个需要审批的动作",
+            |_history, _current_user_message| MockPlannedAgentReply {
+                reply: "该操作有风险，我先发起审批。".to_string(),
+                tool: MockPlannedToolAction {
+                    kind: OpsAgentToolKind::new("mock_danger_session"),
+                    command: Some("dangerous-operation".to_string()),
+                    reason: Some("verify session override".to_string()),
+                },
             },
-        },
-    ))
-    .expect("run mock react loop");
+        ))
+        .expect("run mock agent tool flow");
 
     let action = pending_action.expect("approval action");
     assert_eq!(action.status, OpsAgentActionStatus::Pending);

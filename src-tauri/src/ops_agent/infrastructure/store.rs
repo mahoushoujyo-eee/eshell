@@ -14,8 +14,8 @@ use crate::ops_agent::infrastructure::logging::{
 
 use crate::ops_agent::domain::types::{
     OpsAgentActionStatus, OpsAgentApprovalDecision, OpsAgentConversation,
-    OpsAgentConversationSummary, OpsAgentData, OpsAgentMessage, OpsAgentPendingAction,
-    OpsAgentRiskLevel, OpsAgentRole, OpsAgentShellContext, OpsAgentToolKind,
+    OpsAgentConversationSummary, OpsAgentData, OpsAgentExecutorResumeContext, OpsAgentMessage,
+    OpsAgentPendingAction, OpsAgentRiskLevel, OpsAgentRole, OpsAgentShellContext, OpsAgentToolKind,
 };
 
 const LEGACY_DATA_FILE: &str = "ops_agent.json";
@@ -317,7 +317,8 @@ impl OpsAgentStore {
             conversation.messages.push(message.clone());
             if should_auto_title {
                 conversation.title = derive_title_from_first_user_prompt(
-                    derive_title_seed(message.content.as_str(), message.attachment_ids.len()).as_str(),
+                    derive_title_seed(message.content.as_str(), message.attachment_ids.len())
+                        .as_str(),
                 );
             }
             conversation.updated_at = now_rfc3339();
@@ -358,7 +359,9 @@ impl OpsAgentStore {
             .conversations
             .iter_mut()
             .find(|item| item.id == conversation_id)
-            .ok_or_else(|| AppError::NotFound(format!("ops agent conversation {conversation_id}")))?;
+            .ok_or_else(|| {
+                AppError::NotFound(format!("ops agent conversation {conversation_id}"))
+            })?;
 
         conversation.messages = messages;
         conversation.updated_at = now_rfc3339();
@@ -453,6 +456,7 @@ impl OpsAgentStore {
             approval_at: None,
             execution_output: None,
             execution_exit_code: None,
+            resume_context: None,
         };
         guard.pending_actions.push(action.clone());
 
@@ -483,6 +487,49 @@ impl OpsAgentStore {
             .find(|item| item.id == action_id)
             .cloned()
             .ok_or_else(|| AppError::NotFound(format!("ops agent action {action_id}")))
+    }
+
+    pub fn set_action_resume_context(
+        &self,
+        action_id: &str,
+        resume_context: OpsAgentExecutorResumeContext,
+    ) -> AppResult<OpsAgentPendingAction> {
+        let mut guard = self.data.write().expect("ops agent lock poisoned");
+        let action_index = guard
+            .pending_actions
+            .iter_mut()
+            .position(|item| item.id == action_id)
+            .ok_or_else(|| AppError::NotFound(format!("ops agent action {action_id}")))?;
+
+        let now = now_rfc3339();
+        let snapshot = {
+            let action = &mut guard.pending_actions[action_index];
+            action.resume_context = Some(resume_context);
+            action.updated_at = now;
+            action.clone()
+        };
+
+        self.persist_list_locked(&guard)?;
+        self.log(
+            "infrastructure.store.pending_action_resume_context_set",
+            None,
+            Some(snapshot.conversation_id.as_str()),
+            format!(
+                "action_id={} pending_step_id={} execution_steps={}",
+                snapshot.id,
+                snapshot
+                    .resume_context
+                    .as_ref()
+                    .map(|item| item.pending_step_id.as_str())
+                    .unwrap_or("-"),
+                snapshot
+                    .resume_context
+                    .as_ref()
+                    .map(|item| item.execution_steps.len())
+                    .unwrap_or(0),
+            ),
+        );
+        Ok(snapshot)
     }
 
     pub fn mark_action_rejected(
@@ -972,7 +1019,10 @@ mod tests {
             rejected.approval_decision,
             Some(OpsAgentApprovalDecision::Rejected)
         );
-        assert_eq!(rejected.approval_comment.as_deref(), Some("operator rejected"));
+        assert_eq!(
+            rejected.approval_comment.as_deref(),
+            Some("operator rejected")
+        );
     }
 
     #[test]

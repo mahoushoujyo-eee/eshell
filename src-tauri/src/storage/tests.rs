@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::{
-    AiApiType, AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput, AiProfilesState,
+    AiAgentMode, AiApiType, AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput, AiProfilesState,
     ScriptInput, SshConfigInput,
 };
 
@@ -103,6 +103,7 @@ fn script_crud_works() {
             path: Some("/opt/health.sh".to_string()),
             command: None,
             description: Some("health check".to_string()),
+            parameters: Vec::new(),
         })
         .expect("create script");
 
@@ -116,6 +117,7 @@ fn script_crud_works() {
             path: Some(String::new()),
             command: Some("uptime".to_string()),
             description: Some("custom command".to_string()),
+            parameters: Vec::new(),
         })
         .expect("update script");
     assert_eq!(updated.command, "uptime");
@@ -183,6 +185,7 @@ fn save_ai_config_updates_active_profile() {
             max_tokens: profile_seed.max_tokens,
             max_context_tokens: profile_seed.max_context_tokens,
             approval_mode: AiApprovalMode::AutoExecute,
+            agent_mode: AiAgentMode::Lite,
         })
         .expect("save config");
 
@@ -196,6 +199,31 @@ fn save_ai_config_updates_active_profile() {
     assert_eq!(active.model, profile_seed.model);
     assert_eq!(active.api_key, profile_seed.api_key);
     assert_eq!(state.approval_mode, AiApprovalMode::AutoExecute);
+    assert_eq!(state.agent_mode, AiAgentMode::Lite);
+}
+
+#[test]
+fn agent_contexts_are_stored_as_markdown_files() {
+    let storage = Storage::new(temp_dir("agent-context")).expect("create storage");
+
+    let global = storage
+        .save_agent_context(None, "global notes")
+        .expect("save global context");
+    assert!(global.path.ends_with("AGENTS.md"));
+
+    let server = storage
+        .save_agent_context(Some("server-1"), "server notes")
+        .expect("save server context");
+    assert!(
+        server.path.ends_with("server_agents\\server-1\\AGENTS.md")
+            || server.path.ends_with("server_agents/server-1/AGENTS.md")
+    );
+
+    let bundle = storage
+        .load_agent_context_bundle(Some("server-1"))
+        .expect("load context bundle");
+    assert_eq!(bundle.global, "global notes");
+    assert_eq!(bundle.server.as_deref(), Some("server notes"));
 }
 
 #[test]
@@ -309,7 +337,10 @@ fn legacy_ai_profiles_without_max_context_tokens_get_default_value() {
 
     let profiles = storage.list_ai_profiles();
     assert_eq!(profiles.profiles[0].max_context_tokens, 100_000);
-    assert_eq!(profiles.profiles[0].api_type, AiApiType::OpenAiChatCompletions);
+    assert_eq!(
+        profiles.profiles[0].api_type,
+        AiApiType::OpenAiChatCompletions
+    );
     assert_eq!(profiles.approval_mode, AiApprovalMode::RequireApproval);
 }
 
@@ -379,5 +410,8 @@ fn save_ai_approval_mode_updates_global_setting_only() {
 
     assert_eq!(updated_state.approval_mode, AiApprovalMode::AutoExecute);
     assert_eq!(updated_state.profiles.len(), profile_count);
-    assert_eq!(storage.get_ai_config().approval_mode, AiApprovalMode::AutoExecute);
+    assert_eq!(
+        storage.get_ai_config().approval_mode,
+        AiApprovalMode::AutoExecute
+    );
 }

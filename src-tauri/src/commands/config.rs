@@ -4,8 +4,9 @@ use tauri::State;
 
 use crate::error::to_command_error;
 use crate::models::{
-    AiConfig, AiConfigInput, AiProfileInput, AiProfilesState, ScriptDefinition, ScriptInput,
-    SetActiveAiProfileInput, SetAiApprovalModeInput, SshConfig, SshConfigInput,
+    AgentContextContent, AgentContextInput, AiConfig, AiConfigInput, AiProfileInput,
+    AiProfilesState, SaveAgentContextInput, ScriptDefinition, ScriptInput, SetActiveAiProfileInput,
+    SetAiAgentModeInput, SetAiApprovalModeInput, SshConfig, SshConfigInput,
 };
 use crate::state::AppState;
 
@@ -102,6 +103,42 @@ pub fn save_ai_approval_mode(
     state
         .storage
         .save_ai_approval_mode(input.approval_mode)
+        .map_err(to_command_error)
+}
+
+/// Saves the global agent runtime mode shared by every AI profile.
+#[tauri::command]
+pub fn save_ai_agent_mode(
+    state: State<'_, Arc<AppState>>,
+    input: SetAiAgentModeInput,
+) -> Result<AiProfilesState, String> {
+    state
+        .storage
+        .save_ai_agent_mode(input.agent_mode)
+        .map_err(to_command_error)
+}
+
+/// Reads global or per-server AGENTS.md content stored on the local client.
+#[tauri::command]
+pub fn get_agent_context(
+    state: State<'_, Arc<AppState>>,
+    input: AgentContextInput,
+) -> Result<AgentContextContent, String> {
+    state
+        .storage
+        .get_agent_context(input.server_id.as_deref())
+        .map_err(to_command_error)
+}
+
+/// Saves global or per-server AGENTS.md content stored on the local client.
+#[tauri::command]
+pub fn save_agent_context(
+    state: State<'_, Arc<AppState>>,
+    input: SaveAgentContextInput,
+) -> Result<AgentContextContent, String> {
+    state
+        .storage
+        .save_agent_context(input.server_id.as_deref(), &input.content)
         .map_err(to_command_error)
 }
 

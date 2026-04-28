@@ -258,6 +258,7 @@ export function useWorkbench() {
     selectAiProfile,
     deleteAiProfile,
     saveAiApprovalMode,
+    saveAiAgentMode,
     selectAiConversation,
     createAiConversation,
     deleteAiConversation,
@@ -398,6 +399,8 @@ export function useWorkbench() {
     aiStream.conversationId === activeAiConversationId ? aiStream.text : "";
   const aiStreamingToolCalls =
     aiStream.conversationId === activeAiConversationId ? aiStream.toolCalls || [] : [];
+  const aiStreamingAgentProgress =
+    aiStream.conversationId === activeAiConversationId ? aiStream.agentProgress || null : null;
   const isAiStreaming =
     Boolean(aiStream.runId) && aiStream.conversationId === activeAiConversationId;
   const activeAiConversationError = activeAiConversationId
@@ -458,6 +461,7 @@ export function useWorkbench() {
     isAiStreaming,
     aiStreamingText,
     aiStreamingToolCalls,
+    aiStreamingAgentProgress,
     activeAiConversationError,
     clearActiveAiConversationError,
     resolvingAiActionId,
@@ -480,6 +484,7 @@ export function useWorkbench() {
     selectAiProfile,
     deleteAiProfile,
     saveAiApprovalMode,
+    saveAiAgentMode,
     selectAiConversation,
     createAiConversation,
     deleteAiConversation,

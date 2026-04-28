@@ -72,6 +72,7 @@ impl Storage {
         };
 
         write_json_pretty(&self.ssh_configs_path, &*guard)?;
+        self.get_agent_context(Some(&config.id))?;
         Ok(config)
     }
 

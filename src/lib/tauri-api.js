@@ -75,6 +75,12 @@ export const api = {
   deleteAiProfile: (id) => invoke("delete_ai_profile", { id }),
   saveAiApprovalMode: (approvalMode) =>
     invoke("save_ai_approval_mode", { input: { approvalMode } }),
+  saveAiAgentMode: (agentMode) =>
+    invoke("save_ai_agent_mode", { input: { agentMode } }),
+  getAgentContext: (serverId = null) =>
+    invoke("get_agent_context", { input: { serverId } }),
+  saveAgentContext: (serverId = null, content = "") =>
+    invoke("save_agent_context", { input: { serverId, content } }),
   setActiveAiProfile: (id) =>
     invoke("set_active_ai_profile", { input: { id } }),
   askAi: (input) => invoke("ai_ask", { input }),
