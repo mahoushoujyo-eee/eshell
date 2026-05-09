@@ -15,8 +15,8 @@ use crate::ops_agent::core::helpers::{ensure_run_not_cancelled, is_run_cancelled
 use crate::ops_agent::core::prompting::OpsAgentSessionContext;
 use crate::ops_agent::domain::types::{
     OpsAgentExecutionReport, OpsAgentExecutorResume, OpsAgentKind, OpsAgentMessage,
-    OpsAgentPendingAction, OpsAgentReviewReport, OpsAgentRole, OpsAgentRunPhase,
-    OpsAgentRunResume, OpsAgentValidationReport, OpsAgentWorkflowPlan,
+    OpsAgentPendingAction, OpsAgentReviewReport, OpsAgentRole, OpsAgentRunPhase, OpsAgentRunResume,
+    OpsAgentValidationReport, OpsAgentWorkflowPlan,
 };
 use crate::ops_agent::infrastructure::agent_trace_store::OpsAgentRunManifest;
 use crate::ops_agent::infrastructure::logging::{
@@ -82,31 +82,18 @@ pub(crate) async fn process_chat_stream(
     ensure_run_not_cancelled(&run_handle)?;
 
     let config = state.storage.get_ai_config();
-    if let Some(compaction) = super::compaction::auto_compact_conversation_if_needed(
-        state.as_ref(),
-        &conversation_id,
-        session_id.as_deref(),
-        &config,
-    )
-    .await?
-    {
-        append_debug_log(
-            state.as_ref(),
-            "orchestrator.auto_compact",
-            Some(run_id.as_str()),
-            Some(conversation_id.as_str()),
-            format!(
-                "estimated_before={} estimated_after={}",
-                compaction.estimated_tokens_before, compaction.estimated_tokens_after
-            ),
-        );
-    }
-
     let executor_resume = match resume.as_ref() {
         Some(OpsAgentRunResume::Executor(resume)) => Some(resume.clone()),
         None => None,
     };
     let conversation = state.ops_agent.get_conversation(&conversation_id)?;
+    let conversation = super::compaction::model_conversation_for_current_message(
+        state.as_ref(),
+        conversation,
+        &current_user_message_id,
+        session_id.as_deref(),
+        &config,
+    )?;
     let conversation_messages = conversation.messages;
     let turn_tool_history = if executor_resume.is_some() {
         collect_current_turn_tool_history(&conversation_messages, &current_user_message_id)?
@@ -119,62 +106,6 @@ pub(crate) async fn process_chat_stream(
     let tool_hints = state.ops_agent_tools.prompt_hints();
     let mut working_history = history.clone();
     working_history.extend(turn_tool_history.clone());
-
-    if executor_resume.is_none() {
-        let route = run_gateway(
-            state.as_ref(),
-            &emitter,
-            &run_handle,
-            &run_id,
-            &conversation_id,
-            &config,
-            &working_history,
-            &current_user_message,
-            &session_context,
-            &tool_hints,
-        )
-        .await?;
-
-        match route {
-            super::llm::OpsAgentChatRoute::DirectReply { answer, reason } => {
-                append_debug_log(
-                    state.as_ref(),
-                    "orchestrator.gateway.direct_reply",
-                    Some(run_id.as_str()),
-                    Some(conversation_id.as_str()),
-                    format!("reason={reason} answer_chars={}", answer.chars().count()),
-                );
-                trace_agent_io(
-                    state.as_ref(),
-                    &run_id,
-                    1,
-                    OpsAgentKind::Orchestrator,
-                    &json!({ "gateway": "direct_reply", "reason": reason }),
-                    &json!({ "answer": answer }),
-                );
-                emitter.delta(answer.clone());
-                return finalize_chat_completion(&state, &conversation_id, answer, None, &emitter);
-            }
-            super::llm::OpsAgentChatRoute::Workflow { reason } => {
-                append_debug_log(
-                    state.as_ref(),
-                    "orchestrator.gateway.workflow",
-                    Some(run_id.as_str()),
-                    Some(conversation_id.as_str()),
-                    format!("reason={reason}"),
-                );
-                trace_event(
-                    &state,
-                    &run_id,
-                    &conversation_id,
-                    None,
-                    Some(OpsAgentKind::Orchestrator),
-                    "gateway.workflow",
-                    reason.as_str(),
-                );
-            }
-        }
-    }
 
     let plan = if let Some(resume) = executor_resume.as_ref() {
         append_debug_log(
@@ -304,46 +235,6 @@ pub(crate) async fn process_chat_stream(
         executor_output.report.pending_action,
         &emitter,
     )
-}
-
-async fn run_gateway(
-    state: &AppState,
-    emitter: &OpsAgentEventEmitter,
-    run_handle: &OpsAgentRunHandle,
-    run_id: &str,
-    conversation_id: &str,
-    config: &AiConfig,
-    history: &[OpsAgentMessage],
-    current_user_message: &OpsAgentMessage,
-    session_context: &OpsAgentSessionContext,
-    tool_hints: &[super::prompting::OpsAgentToolPromptHint],
-) -> AppResult<super::llm::OpsAgentChatRoute> {
-    execute_ai_agent_with_retry(
-        state,
-        emitter,
-        run_handle,
-        run_id,
-        conversation_id,
-        OpsAgentRunPhase::Planning,
-        OpsAgentKind::Orchestrator,
-        "Routing request",
-        || {
-            super::llm::route_chat(
-                state,
-                config,
-                history,
-                current_user_message,
-                session_context,
-                tool_hints,
-                Some(OpsAgentLogContext::new(
-                    state,
-                    Some(run_id),
-                    Some(conversation_id),
-                )),
-            )
-        },
-    )
-    .await
 }
 
 async fn run_planner(

@@ -404,7 +404,7 @@ pub trait OpsAgentTool: Send + Sync {
 ```
 process_chat_stream():
   1. 检查取消状态
-  2. 自动压缩对话（如果 token 超限）
+  2. 读取 runtime 已准备好的“模型用历史视图”
   3. 分割历史消息和当前用户消息
   4. 加载会话上下文和工具提示
   5. FOR step in 1..=MAX_REACT_STEPS(8):
@@ -535,25 +535,49 @@ struct OpsAgentRunRegistryInner {
 
 ## 会话压缩
 
-[`core/compaction.rs`](src-tauri/src/ops_agent/core/compaction.rs) 解决长对话的 token 超限问题：
+[`core/compaction.rs`](src-tauri/src/ops_agent/core/compaction.rs) 解决长对话的 token 超限问题，同时保持用户可见聊天历史不变。
 
 ### 自动压缩
 
-每次 ReAct 循环开始时调用 `auto_compact_conversation_if_needed()`：
+每次 chat run 在 runtime routing 前调用 `auto_compact_conversation_if_needed()`，因此 `direct_reply`、Lite/ReAct、Pro/multi-agent 都会先获得必要的私有上下文摘要：
 
 1. 估算当前对话的 token 数（粗略算法：字符数 / 4）
 2. 如果超过 `max_context_tokens`，触发压缩
 3. 从历史消息中确定**保留窗口**（尾部消息，最少保留 2 条，最多 1/4 上下文或 24k tokens）
 4. 将**头部消息**送给 AI 生成摘要
-5. 用两条消息替换头部历史：
-   - System 消息："Context compaction boundary..."
-   - Assistant 消息：摘要内容
-6. 清理被移除消息引用的附件
-7. 更新持久化存储
+5. 将摘要写入 `.eshell-data/ops_agent_context_summaries/<conversation-id>.json`
+6. 不改写 `.eshell-data/ops_agent_conversations/<conversation-id>.json`
+7. 不删除附件，因为旧消息仍然在用户可见历史中引用它们
+
+如果已有私有摘要，自动压缩会先估算当前“模型上下文视图”（旧摘要 + `sourceMessageId` 之后的原始消息）。只有这个视图再次超过 `max_context_tokens` 时才继续压缩，避免因为完整可见历史越来越长而每轮重复全量摘要。
+
+### 模型上下文视图
+
+压缩完成后，后续模型请求不会直接使用完整可见历史，而是通过 `model_conversation_for_current_message()` 构造临时历史：
+
+1. 读取私有摘要 snapshot
+2. 找到 snapshot 记录的 `sourceMessageId`
+3. 拼接：
+   - 一个私有 `System` boundary message
+   - 一个私有 `Assistant` summary message
+   - `sourceMessageId` 之后的近期原始消息
+4. 如果当前用户消息不在这个临时历史里，说明 snapshot 已不适合本轮请求，后端会忽略 snapshot 并回退完整可见历史
+
+### 重复压缩与 summary-of-summary
+
+每个会话只维护一个最新 snapshot。重复压缩不是从完整可见历史开头重做摘要，而是滚动合并：
+
+1. 读取旧 snapshot，构造当前模型上下文视图
+2. 对这个视图重新选择保留窗口
+3. 将“旧私有 summary + 新增原文前缀”合并为一个新的扁平 summary
+4. 新 snapshot 的 `sourceMessageId` 指向本轮被折叠进去的最后一个真实可见消息
+5. 如果本轮只是压缩旧 summary 本身，没有新增真实可见消息被折叠，则沿用旧 `sourceMessageId`
+
+压缩提示词明确要求模型把旧 summary 当成既有压缩状态，不要把它描述成一次对话事件，也不要生成嵌套的“summary of summary”措辞。
 
 ### 手动压缩
 
-用户也可主动触发，走相同的 `compact_conversation_history()` 逻辑，但 mode=`Manual`。
+用户也可主动触发，走相同的 `compact_conversation_history()` 逻辑，但 mode=`Manual`。手动压缩同样只刷新私有上下文摘要，不改变聊天记录。
 
 ### 回退摘要
 
@@ -635,8 +659,12 @@ pub async fn sftp_list_dir(state: State<'_, Arc<AppState>>, input: SftpListInput
     ↓
 [core/runtime.rs] spawn_chat_run_task() → 异步任务
     ↓
-[core/react_loop.rs] process_chat_stream()
-    ├── [core/compaction.rs] 自动压缩（如需）
+[core/runtime.rs] 统一网关：direct_reply / lite / pro
+    ├── [core/compaction.rs] 生成私有摘要并构造模型上下文（如需）
+    ├── direct_reply → 单次模型回复，跳过 planner/ReAct/multi-agent
+    ├── lite → [core/react_loop.rs] process_chat_stream()
+    └── pro → [core/orchestrator.rs] planner/executor/reviewer/validator
+        ↓
     ├── [core/llm.rs] plan_reply() → 调用 Provider
     │       ↓
     │   [providers/] OpenAI / Anthropic HTTP 请求
@@ -666,4 +694,4 @@ eShell 后端的设计特点：
 5. **审批可恢复**：拒绝/批准后自动恢复 ReAct 循环，无需用户重复输入
 6. **多协议适配**：OpenAI Chat/Responses + Anthropic Messages 统一抽象
 7. **全链路日志**：ops_agent_debug.log 记录每次运行的完整上下文
-8. **会话压缩**：自动/手动压缩长对话，控制 token 消耗
+8. **非破坏式会话压缩**：自动/手动生成私有上下文摘要，控制 token 消耗但不改变用户可见历史
