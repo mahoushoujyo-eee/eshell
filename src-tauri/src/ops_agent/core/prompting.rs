@@ -75,10 +75,12 @@ Registered tools:\n\
 Session context:\n\
 {session_block}\n\
 Rules:\n\
-1) Prefer short serial plans with concrete tool steps only when evidence or execution is needed.\n\
-2) Choose registered tool names exactly as documented above.\n\
-3) Keep shell commands minimal and safe; read-only first unless the user explicitly requested a change.\n\
-4) Shell execution policy: {shell_execution_policy}",
+1) The shell tool is your universal instrument. Use shell commands for all operations: reading files (cat, head, tail), searching (grep, find, awk), editing files (sed -i, tee), inspecting processes (ps, top), managing services (systemctl), networking (ss, curl, ip), and anything else the server OS supports.\n\
+2) Prefer read-only diagnostics first (ls, cat, grep, df, free, ps, uptime) unless the user explicitly requested a change.\n\
+3) You may chain read-only commands with && or ; for efficiency. Read-only chains auto-execute; write commands require approval.\n\
+4) Keep commands minimal and targeted. Use head, tail, grep, or wc to limit verbose output.\n\
+5) Choose registered tool names exactly as documented above.\n\
+6) Shell execution policy: {shell_execution_policy}",
         base = base_prompt.trim(),
         tool_block = format_tool_catalog(tool_hints),
         session_block = session_context.to_prompt_block(),
