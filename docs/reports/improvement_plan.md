@@ -166,7 +166,7 @@
 **现状**
 - `"SSH connection cancelled by user"`
 - `"shell command cannot be empty"`
-- `"read_shell does not allow command chaining"`
+- `"read_shell does not allow multi-line commands"`
 - 中文 UI 下 `toErrorMessage` 直接展示英文原文 → 体验不一致
 
 **建议**
@@ -265,26 +265,27 @@
 
 ---
 
-### 12. Ops Agent 工具集过窄
+### 12. Shell Harness 优化（shell-as-universal-tool）
 
-**现状**
-- 只有 `ShellTool`（命令白名单）+ `UiContextTool`
-- AI 要读目录、读文件、查状态只能组合 shell 命令
-- 白名单维护成本高，非只读命令统统走审批
+**设计方向**
+参考 OpenAI Codex 的设计哲学：shell 就是万能 harness，模型通过 `cat`/`sed`/`grep`/`systemctl` 等命令完成一切操作，不需要大量专用工具。eShell 的 `ShellTool` 已经走在这个方向上。
 
-**建议** 新增以下「原生只读」工具，不经过 shell 白名单：
-- `fs_list_remote(path, depth)` — 直接走 SFTP，返回 JSON 结构
-- `fs_read_remote(path, max_bytes)` — 读取文本（带大小上限）
-- `server_status_snapshot()` — 返回 `status_cache` 里已有数据
-- `journal_read(unit, lines)` — 封装 `journalctl -u <unit> -n <lines> --no-pager`（内置调参）
-- `search_file_content(path, pattern, max_matches)` — 封装 `grep -rn`（限制输出）
+**已完成** ✅
+- 只读命令链（`&&`、`;`、`||`）自动放行：每段独立校验，全部只读则免审批
+- 白名单扩展 `cd`/`echo`/`printf`/`test`/`true`/`false`
+- Prompt 强化 shell-as-universal-instrument 引导
 
-**收益**：结构化返回，模型解析更准；白名单只用覆盖交互类 shell 需求，不再承担「所有只读查询」职责。
+**待做**
+- 大输出自动截断：超过 4000 字符时保留头尾 + 显示被截断提示，引导模型用 `head`/`tail`/`grep` 精确查看
+- 工作目录状态跟踪：在 session context 中维护 effective cwd，或在 prompt 中引导模型使用 `cd /target && command` 模式
+- 命令超时保护：长时间运行的命令（如 `top`、`tail -f`）需要超时机制，防止 agent 卡死
+- 用户自定义白名单：允许在 AI 设置中配置额外的只读命令 pattern（如 `java -version`、`hadoop version`）
 
 **涉及**
-- `src-tauri/src/ops_agent/tools/mod.rs`
-- 新增 `src-tauri/src/ops_agent/tools/fs.rs`、`tools/status.rs` 等
-- `src-tauri/src/ops_agent/tools/shell.rs`（精简部分职责）
+- `src-tauri/src/ops_agent/tools/shell.rs`
+- `src-tauri/src/ops_agent/core/prompting.rs`
+- `src-tauri/src/server_ops/service.rs`（超时）
+- `src/components/sidebar/AiSettingsModal.jsx`（用户自定义白名单 UI）
 
 ---
 
@@ -472,26 +473,156 @@
 
 ---
 
-## 建议推进顺序
+## P1 · Agent 架构演进（来自 TODO.md）
 
-分三个 milestone，让每一步都有闭环价值：
+### 22. Pro 模式重构：灵活 Agent 路由
+
+**现状**
+- Pro 模式是固定流水线：Planner → Executor → Reviewer → Validator
+- Reviewer 在很多场景中不必要，增加延迟
+- 子 Agent 不能动态选择下一步
+
+**目标**（TODO #5）
+- 删去 Reviewer
+- 改为灵活自动调整模式：每个 Agent 执行完后可以选择下一步跳入的 Agent 或结束
+- 由最开始的 Master Agent 安排初始入口
+- 每个子 Agent 的输出包含 `next_agent: Option<OpsAgentKind>` 字段
+
+**建议**
+- `OpsSubAgent::run()` 返回值扩展：`Output` 包含 `next: AgentRouting`（`Continue(OpsAgentKind)` | `Done`）
+- Orchestrator 变为循环调度：`while let Continue(next) = current_agent.run(input).next { ... }`
+- Master Agent 通过 LLM 决定首个子 Agent
+- 保留 Validator 作为可选终结步骤
+
+**涉及**
+- `src-tauri/src/ops_agent/core/orchestrator.rs`
+- `src-tauri/src/ops_agent/core/agents/mod.rs`（trait 修改）
+- `src-tauri/src/ops_agent/core/agents/reviewer.rs`（删除或降级为可选）
+- 新增 `src-tauri/src/ops_agent/core/agents/master.rs`
+
+---
+
+### 23. 子 Agent 上下文隔离与调试持久化
+
+**现状**（TODO #1）
+- 子 Agent 共享主对话的 conversation 消息列表
+- 调试时难以追溯单个子 Agent 的输入/输出
+
+**目标**
+- 子 Agent 使用临时上下文执行，用户不需要看到
+- 只有 Master Agent 保持完整任务上下文
+- 子 Agent 的收发消息和中间流程需要日志/持久化为文件
+
+**建议**
+- 每个子 Agent run 创建独立的 `SubAgentContext { messages: Vec<Message>, trace_id }` 而非共享 conversation
+- Master Agent 维护 `TaskContext`：任务目标、已完成步骤摘要、当前状态
+- Master Agent 只把必要摘要传递给子 Agent，而非完整历史
+- 子 Agent 执行记录写入 `.eshell-data/agent_traces/<run_id>/<agent_kind>_<step>.json`
+- 已有 `agent_trace_store.rs` 可以扩展
+
+**涉及**
+- `src-tauri/src/ops_agent/core/orchestrator.rs`
+- `src-tauri/src/ops_agent/infrastructure/agent_trace_store.rs`
+- `src-tauri/src/ops_agent/domain/types.rs`（新增 `SubAgentContext`、`TaskContext`）
+
+---
+
+### 24. 前端 Agent 阶段感知
+
+**现状**（TODO #2）
+- 前端已有 `OpsAgentStreamStage` 包含 `PhaseChanged`、`AgentStarted`、`AgentProgress`、`AgentCompleted`
+- 但 UI 侧没有充分展示这些阶段信息
+
+**目标**
+- 用户可以看到当前处于 planning / executing / reviewing / answering 哪个阶段
+- 展示 plan 内容、执行进度、执行结果
+
+**建议**
+- 在聊天气泡上方添加阶段指示器（步骤条或标签）
+- Plan 阶段：展示生成的步骤列表（可折叠）
+- Execute 阶段：逐步标记完成状态（✓ / ✗ / 进行中）
+- 复用 `agentProgress` 事件的 `phase` 和 `detail` 字段
+- 与 #14 合并推进
+
+**涉及**
+- `src/lib/ops-agent-stream.js`（扩展 reducer 处理阶段数据）
+- `src/components/panels/ai-assistant/`（新增阶段指示组件）
+- `src-tauri/src/ops_agent/transport/events.rs`（确保阶段事件携带足够信息）
+
+---
+
+### 25. AGENTS.md 上下文配置
+
+**现状**（TODO #3）
+- 没有机制让用户注入全局或 per-server 的 Agent 上下文
+
+**目标**
+- `.eshell-data/AGENTS.md` — 全局用户上下文，每次对话注入
+- `.eshell-data/servers/<config_id>/AGENTS.md` — 每个 server 独立上下文
+- 用户可在 AI 设置界面编辑这两个文件
+
+**建议**
+- Rust 侧：`prompting.rs` 构建 system prompt 时读取并拼接 AGENTS.md 内容
+- 优先级：server 级 > 全局级（server 级覆盖全局级同 key 段落，或简单拼接）
+- 前端：AI 设置面板新增 AGENTS.md 编辑器（两个 tab：全局 / 当前 server）
+- 首次启动时从 `resources/default/AGENTS.md` 拷贝模板
+
+**涉及**
+- `src-tauri/src/ops_agent/core/prompting.rs`
+- `src-tauri/src/ops_agent/infrastructure/store.rs`（读写 AGENTS.md）
+- `src/components/sidebar/AiSettingsModal.jsx`（编辑 UI）
+- 新增 `src-tauri/resources/default/AGENTS.md`（模板）
+
+---
+
+### 26. 长时间运行命令的终止机制
+
+**现状**（TODO #4）
+- Agent 执行 `top`、`tail -f`、`ping` 等持续命令时无法退出
+- `execute_command` 通过 `channel_session()` 执行，没有超时
+- 用户取消 agent run 后，SSH channel 仍在阻塞
+
+**建议**
+- `execute_remote_command` 添加 `timeout` 参数（默认 30s，可配置）
+- 使用 `tokio::time::timeout` 包裹 SSH 执行
+- 超时后向 channel 发送 `SIGINT`（`channel.send_eof()` 或 `channel.close()`）
+- Agent run 取消时同步取消正在运行的 SSH channel
+- Prompt 中提醒模型避免使用交互式/持续命令，或加 timeout 参数（如 `timeout 10 ping -c 3 host`）
+
+**涉及**
+- `src-tauri/src/ops_agent/tools/shell.rs`（超时参数）
+- `src-tauri/src/server_ops/service.rs::execute_command`（超时实现）
+- `src-tauri/src/ops_agent/core/runtime.rs`（取消联动）
+- `src-tauri/src/ops_agent/core/prompting.rs`（提示词补充）
+
+---
+
+## 建议推进顺序（更新）
+
+分四个 milestone：
 
 **M1 · 安全与连通性加固**
 - #1 凭据加密（keyring）
 - #2 host key 校验
 - #3 公钥 / agent 认证
-- #19 仓库清理（先清掉已泄露的 `.eshell-data/`）
+- #19 仓库清理
 
 **M2 · 性能与稳定**
 - #4 SSH Session 复用池
 - #5 SFTP 大文件流式上传
 - #6 + #17 日志 rotation + `tracing` 迁移
-- #15 SFTP helper 抽取（与 #4 同步）
+- #15 SFTP helper 抽取
+- #26 长时间命令终止机制
 
-**M3 · Agent 与体验**
-- #12 Ops Agent 原生工具扩展
-- #13 token 估算精度
-- #14 会话 / 运行态可视化（与 `docs/TODO.md` #2 合并）
+**M3 · Agent 架构演进**
+- #22 Pro 模式重构（灵活 Agent 路由 + Master Agent）
+- #23 子 Agent 上下文隔离与调试持久化
+- #24 前端阶段感知（与 #14 合并）
+- #25 AGENTS.md 上下文配置
+- #12 Shell Harness 持续优化（输出截断、超时、用户自定义白名单）
+- #13 Token 估算精度
+
+**M4 · 体验与工程质量**
 - #7 + #16 错误码结构化与 i18n
 - #10 快捷键 / 命令面板
 - #8、#9、#11、#18、#20、#21 穿插推进
@@ -503,12 +634,7 @@
 对每个 P0/P1 改动都应满足：
 - `cargo check` + `cargo test` 通过
 - `npm test` + `npm run build` 通过
-- 相关文档同步更新：
-  - `README.md` 若有用户可见变化
-  - `docs/specs/openapi.yaml` 若有命令签名变化
-  - `docs/guides/features/*.md` 若有行为变化
-  - `docs/guides/architecture/*.md` 若层级或边界变化
-  - `docs/releases/unreleased.md` 列出用户可见变化
+- 相关文档同步更新
 
 ---
 
