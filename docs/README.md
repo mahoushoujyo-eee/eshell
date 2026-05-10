@@ -34,4 +34,5 @@
 - [SFTP Transfer Guide](guides/features/sftp_transfer.md) — SFTP browser operations, transfers, cancellation, and context-menu behavior
 - [Server Status Guide](guides/features/server_status.md) — Status panel data semantics and UI behavior
 - [Ops Agent Guide](guides/features/ops_agent.md) — Ops Agent request flow, approvals, streaming, attachments, and cancellation
+- [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
