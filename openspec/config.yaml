@@ -1,0 +1,29 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+context: |
+  eShell is a local-first desktop operations workbench built with Tauri 2, React 19,
+  Vite 7, Tailwind CSS 4, and a Rust backend.
+  Core workflows include SSH sessions, PTY terminal I/O, SFTP file operations,
+  server status monitoring, script execution, and Ops Agent chat/approval flows.
+  Frontend code lives under src/, backend Tauri/Rust code lives under src-tauri/src/.
+  User-facing frontend copy should go through src/lib/i18n.js for en-US and zh-CN.
+  Prefer focused specs that preserve local-first desktop behavior and explicit
+  approval flows for risky operations.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours

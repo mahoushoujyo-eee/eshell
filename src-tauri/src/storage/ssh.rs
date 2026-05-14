@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{now_rfc3339, SshConfig, SshConfigInput};
+use crate::models::{now_rfc3339, SshAuthType, SshConfig, SshConfigInput};
 
 use super::io::write_json_pretty;
 use super::Storage;
@@ -29,6 +29,7 @@ impl Storage {
         if input.port == 0 {
             return Err(AppError::Validation("port must be in 1-65535".to_string()));
         }
+        validate_ssh_credentials(&input)?;
 
         let now = now_rfc3339();
         let mut guard = self.ssh_configs.write().expect("ssh config lock poisoned");
@@ -46,7 +47,11 @@ impl Storage {
                     host: input.host.trim().to_string(),
                     port: input.port,
                     username: input.username.trim().to_string(),
+                    auth_type: input.auth_type,
                     password: input.password,
+                    private_key_path: input.private_key_path.trim().to_string(),
+                    private_key_passphrase: input.private_key_passphrase,
+                    use_password_fallback: input.use_password_fallback,
                     description: input.description.unwrap_or_default().trim().to_string(),
                     created_at: existing.created_at.clone(),
                     updated_at: now,
@@ -61,7 +66,11 @@ impl Storage {
                     host: input.host.trim().to_string(),
                     port: input.port,
                     username: input.username.trim().to_string(),
+                    auth_type: input.auth_type,
                     password: input.password,
+                    private_key_path: input.private_key_path.trim().to_string(),
+                    private_key_passphrase: input.private_key_passphrase,
+                    use_password_fallback: input.use_password_fallback,
                     description: input.description.unwrap_or_default().trim().to_string(),
                     created_at: now.clone(),
                     updated_at: now,
@@ -98,4 +107,29 @@ impl Storage {
             .cloned()
             .ok_or_else(|| AppError::NotFound(format!("ssh config {id}")))
     }
+}
+
+fn validate_ssh_credentials(input: &SshConfigInput) -> AppResult<()> {
+    match input.auth_type {
+        SshAuthType::Password => {
+            if input.password.is_empty() {
+                return Err(AppError::Validation(
+                    "password cannot be empty for password authentication".to_string(),
+                ));
+            }
+        }
+        SshAuthType::PrivateKey => {
+            if input.private_key_path.trim().is_empty() {
+                return Err(AppError::Validation(
+                    "private key path cannot be empty for private key authentication".to_string(),
+                ));
+            }
+            if input.use_password_fallback && input.password.is_empty() {
+                return Err(AppError::Validation(
+                    "password fallback requires a password".to_string(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }

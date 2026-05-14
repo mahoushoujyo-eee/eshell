@@ -1,6 +1,7 @@
 mod ai_profiles;
 mod agent_context;
 mod io;
+mod known_hosts;
 mod scripts;
 mod ssh;
 
@@ -9,12 +10,13 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 
 use crate::error::AppResult;
-use crate::models::{AiConfig, AiProfilesState, ScriptDefinition, SshConfig};
+use crate::models::{AiConfig, AiProfilesState, ScriptDefinition, SshConfig, SshKnownHost};
 
 use ai_profiles::{ensure_ai_profiles_state, load_ai_profiles_state};
 use io::{read_json_or_default, write_json_pretty};
 
 const SSH_CONFIGS_FILE: &str = "ssh_configs.json";
+const KNOWN_HOSTS_FILE: &str = "known_hosts.json";
 const SCRIPTS_FILE: &str = "scripts.json";
 const AI_PROFILES_FILE: &str = "ai_profiles.json";
 const LEGACY_AI_CONFIG_FILE: &str = "ai_config.json";
@@ -27,11 +29,13 @@ const SERVER_AGENTS_DIR: &str = "server_agents";
 /// The legacy `ai_config.json` is read once for migration when profiles are missing.
 pub struct Storage {
     ssh_configs_path: PathBuf,
+    known_hosts_path: PathBuf,
     scripts_path: PathBuf,
     ai_profiles_path: PathBuf,
     global_agents_path: PathBuf,
     server_agents_dir: PathBuf,
     ssh_configs: RwLock<Vec<SshConfig>>,
+    known_hosts: RwLock<Vec<SshKnownHost>>,
     scripts: RwLock<Vec<ScriptDefinition>>,
     ai_profiles: RwLock<AiProfilesState>,
 }
@@ -42,6 +46,7 @@ impl Storage {
         fs::create_dir_all(&root)?;
 
         let ssh_configs_path = root.join(SSH_CONFIGS_FILE);
+        let known_hosts_path = root.join(KNOWN_HOSTS_FILE);
         let scripts_path = root.join(SCRIPTS_FILE);
         let ai_profiles_path = root.join(AI_PROFILES_FILE);
         let global_agents_path = root.join(GLOBAL_AGENTS_FILE);
@@ -50,6 +55,7 @@ impl Storage {
         fs::create_dir_all(&server_agents_dir)?;
 
         let ssh_configs = read_json_or_default::<Vec<SshConfig>>(&ssh_configs_path)?;
+        let known_hosts = read_json_or_default::<Vec<SshKnownHost>>(&known_hosts_path)?;
         let scripts = read_json_or_default::<Vec<ScriptDefinition>>(&scripts_path)?;
         let mut ai_profiles = load_ai_profiles_state(&ai_profiles_path)?;
 
@@ -59,6 +65,7 @@ impl Storage {
 
         // Ensure files always exist after bootstrap for easier debugging and manual inspection.
         write_json_pretty(&ssh_configs_path, &ssh_configs)?;
+        write_json_pretty(&known_hosts_path, &known_hosts)?;
         write_json_pretty(&scripts_path, &scripts)?;
         write_json_pretty(&ai_profiles_path, &ai_profiles)?;
         if !global_agents_path.exists() {
@@ -72,11 +79,13 @@ impl Storage {
 
         Ok(Self {
             ssh_configs_path,
+            known_hosts_path,
             scripts_path,
             ai_profiles_path,
             global_agents_path,
             server_agents_dir,
             ssh_configs: RwLock::new(ssh_configs),
+            known_hosts: RwLock::new(known_hosts),
             scripts: RwLock::new(scripts),
             ai_profiles: RwLock::new(ai_profiles),
         })

@@ -22,6 +22,17 @@ pub fn default_ai_api_type() -> AiApiType {
     AiApiType::OpenAiChatCompletions
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SshAuthType {
+    Password,
+    PrivateKey,
+}
+
+pub fn default_ssh_auth_type() -> SshAuthType {
+    SshAuthType::Password
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SshConfig {
@@ -30,7 +41,16 @@ pub struct SshConfig {
     pub host: String,
     pub port: u16,
     pub username: String,
+    #[serde(default = "default_ssh_auth_type")]
+    pub auth_type: SshAuthType,
+    #[serde(default)]
     pub password: String,
+    #[serde(default)]
+    pub private_key_path: String,
+    #[serde(default)]
+    pub private_key_passphrase: String,
+    #[serde(default)]
+    pub use_password_fallback: bool,
     pub description: String,
     pub created_at: String,
     pub updated_at: String,
@@ -44,8 +64,55 @@ pub struct SshConfigInput {
     pub host: String,
     pub port: u16,
     pub username: String,
+    #[serde(default = "default_ssh_auth_type")]
+    pub auth_type: SshAuthType,
+    #[serde(default)]
     pub password: String,
+    #[serde(default)]
+    pub private_key_path: String,
+    #[serde(default)]
+    pub private_key_passphrase: String,
+    #[serde(default)]
+    pub use_password_fallback: bool,
     pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SshKnownHost {
+    pub host: String,
+    pub port: u16,
+    pub key_type: String,
+    pub fingerprint: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrustSshHostKeyInput {
+    pub host: String,
+    pub port: u16,
+    pub key_type: String,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshHostKeyTrustChallenge {
+    pub reason: SshHostKeyTrustReason,
+    pub host: String,
+    pub port: u16,
+    pub key_type: String,
+    pub fingerprint: String,
+    pub trusted_fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SshHostKeyTrustReason {
+    Unknown,
+    Changed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

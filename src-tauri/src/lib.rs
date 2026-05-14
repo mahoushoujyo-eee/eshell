@@ -7,9 +7,12 @@ mod server_ops;
 mod state;
 mod storage;
 
+#[cfg(not(test))]
 use std::path::PathBuf;
+#[cfg(not(test))]
 use std::sync::Arc;
 
+#[cfg(not(test))]
 use state::AppState;
 
 /// Application bootstrap entry.
@@ -19,6 +22,7 @@ use state::AppState;
 /// - Registers all Tauri commands used by frontend.
 /// - Starts Tauri event loop.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg(not(test))]
 pub fn run() {
     let storage_root = resolve_storage_root();
     let app_state = AppState::new(storage_root).expect("failed to initialize app state");
@@ -31,6 +35,7 @@ pub fn run() {
             commands::config::list_ssh_configs,
             commands::config::save_ssh_config,
             commands::config::delete_ssh_config,
+            commands::config::trust_ssh_host_key,
             server_ops::commands::list_shell_sessions,
             server_ops::commands::open_shell_session,
             server_ops::commands::cancel_open_shell_session,
@@ -83,6 +88,10 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+#[cfg(test)]
+pub fn run() {}
+
+#[cfg(not(test))]
 fn resolve_storage_root() -> PathBuf {
     std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))

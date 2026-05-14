@@ -145,6 +145,7 @@ const zhMessages = {
   "Hide status panel": "隐藏状态面板",
   "Hide tool details": "隐藏工具详情",
   "Host": "主机",
+  "Key type": "密钥类型",
   "Horizontal": "水平",
   "Idle": "空闲",
   "Importing...": "导入中……",
@@ -221,6 +222,11 @@ const zhMessages = {
   "Operation Warning": "操作警告",
   "Operations Console": "运维控制台",
   "Ops Agent": "运维助手",
+  "Authentication": "认证方式",
+  "Fallback password": "备用密码",
+  "Private key": "私钥",
+  "Private key path": "私钥路径",
+  "Private key passphrase (optional)": "私钥密码短语（可选）",
   "Password": "密码",
   "Parameter label": "参数标签",
   "Parameter name": "参数名",
@@ -298,6 +304,9 @@ const zhMessages = {
   "Size: {size}": "大小：{size}",
   "SSH Profiles": "SSH 配置",
   "SSH connection cancelled": "SSH 连接已取消",
+  "SSH host fingerprint changed": "SSH 主机指纹已变化",
+  "SSH host fingerprint trusted": "已信任 SSH 主机指纹",
+  "SSH host fingerprint was not trusted": "未信任 SSH 主机指纹",
   "SSH Servers": "SSH 服务器",
   "Start a conversation about ops troubleshooting, diagnostics, or safe command planning.":
     "开始一段关于运维排障、诊断分析或安全命令规划的对话。",
@@ -325,6 +334,7 @@ const zhMessages = {
   "Transfers": "传输",
   "Untitled conversation": "未命名会话",
   "unknown": "未知",
+  "Unknown": "未知",
   "Update Config": "更新配置",
   "Update Script": "更新脚本",
   "Update Server": "更新服务器",
@@ -334,6 +344,7 @@ const zhMessages = {
   "Upload file": "上传文件",
   "Upload Wallpaper": "上传壁纸",
   "Use": "使用",
+  "Use password fallback": "使用密码作为备用认证",
   "Use a name without slashes.": "名称不能包含斜杠。",
   "Use placeholders like {{name}} in the command, or parameters are appended in order.":
     "可在命令中使用 {{name}} 占位符；未使用占位符时会按顺序追加参数。",
@@ -345,6 +356,21 @@ const zhMessages = {
   "Wallpaper: {label}": "壁纸：{label}",
   "Warning: Server status polling failed for this cycle due to a transient network fluctuation. The app will retry automatically.":
     "警告：本轮服务器状态轮询因临时网络波动失败，应用会自动重试。",
+  "Trust new SSH host?": "信任新的 SSH 主机？",
+  "Trust and connect": "信任并连接",
+  "Update trusted key": "更新信任密钥",
+  "Trusted fingerprint": "已信任指纹",
+  "Presented fingerprint": "当前指纹",
+  "Fingerprint": "指纹",
+  "This host is not in your trusted SSH host list yet.":
+    "此主机尚未在你的 SSH 信任列表中。",
+  "Only continue if you expected this server key to change.":
+    "仅在你确认服务器密钥应当变化时继续。",
+  "Shell session is closing": "Shell 会话正在关闭",
+  "This is the first time eShell has seen {host}:{port}.\n\nKey type: {keyType}\nFingerprint: {fingerprint}\n\nTrust this host and continue connecting?":
+    "这是 eShell 第一次连接 {host}:{port}。\n\n密钥类型：{keyType}\n指纹：{fingerprint}\n\n是否信任此主机并继续连接？",
+  "The SSH host fingerprint for {host}:{port} changed.\n\nTrusted fingerprint: {trustedFingerprint}\nPresented fingerprint: {fingerprint}\nKey type: {keyType}\n\nOnly continue if you expected this server key to change.":
+    "{host}:{port} 的 SSH 主机指纹已变化。\n\n已信任指纹：{trustedFingerprint}\n当前指纹：{fingerprint}\n密钥类型：{keyType}\n\n仅在你确认服务器密钥应当变化时继续。",
   "will be removed from the remote server immediately.": "会立即从远端服务器删除。",
   "You": "你",
   "Zoom": "缩放",

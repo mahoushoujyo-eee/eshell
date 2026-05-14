@@ -73,7 +73,11 @@ export const EMPTY_SSH = {
   host: "",
   port: 22,
   username: "",
+  authType: "password",
   password: "",
+  privateKeyPath: "",
+  privateKeyPassphrase: "",
+  usePasswordFallback: false,
   description: "",
 };
 

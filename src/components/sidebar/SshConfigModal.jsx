@@ -8,7 +8,11 @@ const EMPTY_SSH_FORM = {
   host: "",
   port: 22,
   username: "",
+  authType: "password",
   password: "",
+  privateKeyPath: "",
+  privateKeyPassphrase: "",
+  usePasswordFallback: false,
   description: "",
 };
 
@@ -55,7 +59,11 @@ export default function SshConfigModal({
   };
 
   const openEditForm = (item) => {
-    setSshForm(item);
+    setSshForm({
+      ...EMPTY_SSH_FORM,
+      ...item,
+      authType: item.authType || "password",
+    });
     setMode("form");
   };
 
@@ -151,6 +159,9 @@ export default function SshConfigModal({
                     <div className="font-medium">{item.name}</div>
                     <div className="text-muted">
                       {item.username}@{item.host}:{item.port}
+                    </div>
+                    <div className="text-muted">
+                      {item.authType === "privateKey" ? t("Private key") : t("Password")}
                     </div>
                     <div className="mt-2 flex gap-1">
                       <button
@@ -249,12 +260,86 @@ export default function SshConfigModal({
                 />
               </div>
               <input
-                type="password"
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                placeholder={t("Password")}
-                value={sshForm.password}
-                onChange={(event) => setSshForm((prev) => ({ ...prev, password: event.target.value }))}
+                placeholder={t("Description")}
+                value={sshForm.description}
+                onChange={(event) => setSshForm((prev) => ({ ...prev, description: event.target.value }))}
               />
+              <div className="rounded border border-border/80 bg-surface/60 p-2">
+                <div className="mb-2 text-xs font-medium text-muted">{t("Authentication")}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className={[
+                      "rounded border px-2 py-1.5 text-xs",
+                      (sshForm.authType || "password") === "password"
+                        ? "border-accent bg-accent-soft text-accent"
+                        : "border-border",
+                    ].join(" ")}
+                    onClick={() => setSshForm((prev) => ({ ...prev, authType: "password" }))}
+                  >
+                    {t("Password")}
+                  </button>
+                  <button
+                    type="button"
+                    className={[
+                      "rounded border px-2 py-1.5 text-xs",
+                      sshForm.authType === "privateKey"
+                        ? "border-accent bg-accent-soft text-accent"
+                        : "border-border",
+                    ].join(" ")}
+                    onClick={() => setSshForm((prev) => ({ ...prev, authType: "privateKey" }))}
+                  >
+                    {t("Private key")}
+                  </button>
+                </div>
+              </div>
+              {(sshForm.authType || "password") === "password" ? (
+                <input
+                  type="password"
+                  className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+                  placeholder={t("Password")}
+                  value={sshForm.password}
+                  onChange={(event) => setSshForm((prev) => ({ ...prev, password: event.target.value }))}
+                />
+              ) : (
+                <div className="space-y-2">
+                  <input
+                    className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+                    placeholder={t("Private key path")}
+                    value={sshForm.privateKeyPath}
+                    onChange={(event) => setSshForm((prev) => ({ ...prev, privateKeyPath: event.target.value }))}
+                  />
+                  <input
+                    type="password"
+                    className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+                    placeholder={t("Private key passphrase (optional)")}
+                    value={sshForm.privateKeyPassphrase}
+                    onChange={(event) =>
+                      setSshForm((prev) => ({ ...prev, privateKeyPassphrase: event.target.value }))
+                    }
+                  />
+                  <label className="flex items-center gap-2 text-xs text-muted">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(sshForm.usePasswordFallback)}
+                      onChange={(event) =>
+                        setSshForm((prev) => ({ ...prev, usePasswordFallback: event.target.checked }))
+                      }
+                    />
+                    {t("Use password fallback")}
+                  </label>
+                  {sshForm.usePasswordFallback ? (
+                    <input
+                      type="password"
+                      className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+                      placeholder={t("Fallback password")}
+                      value={sshForm.password}
+                      onChange={(event) => setSshForm((prev) => ({ ...prev, password: event.target.value }))}
+                    />
+                  ) : null}
+                </div>
+              )}
               <div className="flex justify-end">
                 <button type="submit" className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white">
                   <Save className="h-3.5 w-3.5" aria-hidden="true" />

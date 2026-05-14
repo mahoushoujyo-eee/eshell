@@ -460,7 +460,7 @@ fn mock_agent_tool_flow_can_queue_approval_action() {
     assert_eq!(action.tool_kind, OpsAgentToolKind::new("mock_danger"));
     assert_eq!(action.status, OpsAgentActionStatus::Pending);
     assert!(action.source_user_message_id.is_some());
-    assert!(assistant_message.contains("approval request"));
+    assert_eq!(assistant_message, "该操作有风险，我先发起审批。");
 
     let resolved = tauri::async_runtime::block_on(resolve_pending_action(
         Arc::clone(&state),
