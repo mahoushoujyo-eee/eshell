@@ -29,6 +29,22 @@ const isTransferCancelledError = (err) =>
 const isConnectionCancelledError = (err) =>
   toErrorMessage(err).toLowerCase().includes("ssh connection cancelled");
 
+const SSH_HOST_KEY_TRUST_REQUIRED_PREFIX = "SSH_HOST_KEY_TRUST_REQUIRED:";
+
+const parseHostKeyTrustChallenge = (err) => {
+  const message = toErrorMessage(err);
+  const index = message.indexOf(SSH_HOST_KEY_TRUST_REQUIRED_PREFIX);
+  if (index === -1) {
+    return null;
+  }
+  const raw = message.slice(index + SSH_HOST_KEY_TRUST_REQUIRED_PREFIX.length).trim();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
 const isValidRemoteEntryName = (value) => {
   const name = String(value || "").trim();
   return Boolean(name) && name !== "." && name !== ".." && !/[\\/]/.test(name);
@@ -140,6 +156,7 @@ export function useWorkbenchOperations({
   setDownloadDirectory,
   setError,
   reconnectingSessionsRef,
+  closingSessionsRef,
   sessionAliasRef,
   statusRequestTokenRef,
   aiStreamRef,
@@ -148,6 +165,7 @@ export function useWorkbenchOperations({
   runWithSessionReconnectRef,
   pushUiNotice,
   dismissUiNotice,
+  requestHostKeyTrust,
   runBusy,
   onError,
 }) {
@@ -218,6 +236,20 @@ export function useWorkbenchOperations({
     }
     return sessionAliasRef.current.get(sessionId) || sessionId;
   }, []);
+
+  const isSessionClosing = useCallback(
+    (sessionId) => {
+      if (!sessionId) {
+        return false;
+      }
+      const resolvedSessionId = sessionAliasRef.current.get(sessionId) || sessionId;
+      return (
+        closingSessionsRef.current.has(sessionId) ||
+        closingSessionsRef.current.has(resolvedSessionId)
+      );
+    },
+    [closingSessionsRef, sessionAliasRef],
+  );
 
   const clearSessionArtifacts = useCallback((sessionId) => {
     if (!sessionId) {
@@ -300,6 +332,9 @@ export function useWorkbenchOperations({
       if (!originSessionId) {
         throw new Error(tRef.current("No shell session selected"));
       }
+      if (isSessionClosing(originSessionId)) {
+        throw new Error(tRef.current("Shell session is closing"));
+      }
 
       const existing = reconnectingSessionsRef.current.get(originSessionId);
       if (existing) {
@@ -317,6 +352,15 @@ export function useWorkbenchOperations({
         }
 
         const reopened = await api.openShellSession(staleSession.configId);
+        if (isSessionClosing(originSessionId)) {
+          try {
+            await api.closeShellSession(reopened.id);
+          } catch (_err) {
+            // The close path is already removing this session from the UI; avoid
+            // surfacing cleanup errors from a reconnect that lost the race.
+          }
+          throw new Error(tRef.current("Shell session is closing"));
+        }
         sessionAliasRef.current.set(originSessionId, reopened.id);
 
         const restoreDir = normalizeRemotePath(staleSession.currentDir || reopened.currentDir || "/");
@@ -386,7 +430,7 @@ export function useWorkbenchOperations({
         reconnectingSessionsRef.current.delete(originSessionId);
       }
     },
-    [appendLog, resolveSessionAlias, sessions],
+    [appendLog, isSessionClosing, resolveSessionAlias, sessions],
   );
 
   const runWithSessionReconnect = useCallback(
@@ -395,6 +439,9 @@ export function useWorkbenchOperations({
       if (!resolvedSessionId) {
         throw new Error(tRef.current("No shell session selected"));
       }
+      if (isSessionClosing(resolvedSessionId)) {
+        throw new Error(tRef.current("Shell session is closing"));
+      }
 
       try {
         return await action(resolvedSessionId);
@@ -402,11 +449,14 @@ export function useWorkbenchOperations({
         if (!isSessionLostError(err)) {
           throw err;
         }
+        if (isSessionClosing(resolvedSessionId)) {
+          throw err;
+        }
         const reopened = await reconnectSession(resolvedSessionId);
         return action(reopened.id);
       }
     },
-    [reconnectSession, resolveSessionAlias],
+    [isSessionClosing, reconnectSession, resolveSessionAlias],
   );
 
   useEffect(() => {
@@ -567,7 +617,11 @@ export function useWorkbenchOperations({
             host: sshForm.host,
             port: Number(sshForm.port || 22),
             username: sshForm.username,
+            authType: sshForm.authType || "password",
             password: sshForm.password,
+            privateKeyPath: sshForm.privateKeyPath || "",
+            privateKeyPassphrase: sshForm.privateKeyPassphrase || "",
+            usePasswordFallback: Boolean(sshForm.usePasswordFallback),
             description: sshForm.description,
           }),
         );
@@ -639,6 +693,57 @@ export function useWorkbenchOperations({
           });
           return false;
         }
+        const hostKeyChallenge = parseHostKeyTrustChallenge(err);
+        if (hostKeyChallenge) {
+          const isChanged = hostKeyChallenge.reason === "changed";
+          const title = isChanged
+            ? tRef.current("SSH host fingerprint changed")
+            : tRef.current("Trust new SSH host?");
+          const body = isChanged
+            ? tRef.current(
+                "The SSH host fingerprint for {host}:{port} changed.\n\nTrusted fingerprint: {trustedFingerprint}\nPresented fingerprint: {fingerprint}\nKey type: {keyType}\n\nOnly continue if you expected this server key to change.",
+                {
+                  host: hostKeyChallenge.host,
+                  port: hostKeyChallenge.port,
+                  trustedFingerprint: hostKeyChallenge.trustedFingerprint || tRef.current("Unknown"),
+                  fingerprint: hostKeyChallenge.fingerprint,
+                  keyType: hostKeyChallenge.keyType,
+                },
+              )
+            : tRef.current(
+                "This is the first time eShell has seen {host}:{port}.\n\nKey type: {keyType}\nFingerprint: {fingerprint}\n\nTrust this host and continue connecting?",
+                {
+                  host: hostKeyChallenge.host,
+                  port: hostKeyChallenge.port,
+                  keyType: hostKeyChallenge.keyType,
+                  fingerprint: hostKeyChallenge.fingerprint,
+                },
+              );
+          const accepted = await requestHostKeyTrust?.({
+            ...hostKeyChallenge,
+            isChanged,
+            title,
+            body,
+          });
+          if (!accepted) {
+            pushUiNotice(tRef.current("SSH host fingerprint was not trusted"), {
+              tone: "warning",
+              ttlMs: 4200,
+            });
+            return false;
+          }
+          await api.trustSshHostKey({
+            host: hostKeyChallenge.host,
+            port: Number(hostKeyChallenge.port || 22),
+            keyType: hostKeyChallenge.keyType,
+            fingerprint: hostKeyChallenge.fingerprint,
+          });
+          pushUiNotice(tRef.current("SSH host fingerprint trusted"), {
+            tone: "success",
+            ttlMs: 3200,
+          });
+          return connectServer(configId, null);
+        }
         const reason = toErrorMessage(err);
         const message = tRef.current("Failed to connect to {target}: {reason}", {
           target: targetLabel,
@@ -654,6 +759,7 @@ export function useWorkbenchOperations({
       dismissUiNotice,
       pushUiNotice,
       reloadSessions,
+      requestHostKeyTrust,
       runBusy,
       setError,
       sshConfigs,
@@ -666,37 +772,70 @@ export function useWorkbenchOperations({
         return;
       }
       const resolvedSessionId = resolveSessionAlias(sessionId);
-      let rows = null;
-      try {
-        await runBusy(tRef.current("Close session"), () => api.closeShellSession(resolvedSessionId));
-        rows = await reloadSessions();
-      } catch (err) {
-        if (!isSessionLostError(err)) {
-          onError(err);
-          return;
+      const relatedSessionIds = new Set([sessionId, resolvedSessionId]);
+      relatedSessionIds.forEach((id) => {
+        if (id) {
+          closingSessionsRef.current.add(id);
         }
-        rows = await reloadSessions().catch(() => null);
+      });
+      const remainingSessions = sessions.filter(
+        (item) => item.id !== sessionId && item.id !== resolvedSessionId,
+      );
+      setSessions(remainingSessions);
+      if (activeSessionId === sessionId || activeSessionId === resolvedSessionId) {
+        setActiveSessionId(remainingSessions[0]?.id || null);
       }
-
       clearSessionArtifacts(resolvedSessionId);
       if (resolvedSessionId !== sessionId) {
         clearSessionArtifacts(sessionId);
       }
 
-      if (rows) {
-        if (activeSessionId === sessionId || activeSessionId === resolvedSessionId) {
-          setActiveSessionId(rows[0]?.id || null);
-        }
-      } else {
-        setSessions((prev) =>
-          prev.filter((item) => item.id !== sessionId && item.id !== resolvedSessionId),
+      try {
+        await runBusy(tRef.current("Close session"), () => api.closeShellSession(resolvedSessionId));
+        const rows = await reloadSessions();
+        const filteredRows = rows.filter(
+          (item) => item.id !== sessionId && item.id !== resolvedSessionId,
         );
+        if (filteredRows.length !== rows.length) {
+          setSessions(filteredRows);
+        }
+        if (
+          (activeSessionId === sessionId || activeSessionId === resolvedSessionId) &&
+          filteredRows[0]
+        ) {
+          setActiveSessionId(filteredRows[0].id);
+        }
+      } catch (err) {
+        if (!isSessionLostError(err)) {
+          onError(err);
+        }
+      } finally {
+        relatedSessionIds.forEach((id) => {
+          if (id) {
+            closingSessionsRef.current.delete(id);
+          }
+        });
         if (activeSessionId === sessionId || activeSessionId === resolvedSessionId) {
-          setActiveSessionId(null);
+          const fallbackSessionId = remainingSessions[0]?.id || null;
+          setSessions((prev) =>
+            prev.filter((item) => item.id !== sessionId && item.id !== resolvedSessionId),
+          );
+          setActiveSessionId((prev) =>
+            prev === sessionId || prev === resolvedSessionId ? fallbackSessionId : prev,
+          );
         }
       }
     },
-    [activeSessionId, clearSessionArtifacts, onError, reloadSessions, resolveSessionAlias, runBusy],
+    [
+      activeSessionId,
+      clearSessionArtifacts,
+      closingSessionsRef,
+      onError,
+      reloadSessions,
+      resolveSessionAlias,
+      runBusy,
+      sessions,
+    ],
   );
 
   const execCommand = useCallback(

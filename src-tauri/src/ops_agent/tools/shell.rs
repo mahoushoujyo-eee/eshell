@@ -61,6 +61,12 @@ const READ_ONLY_ROOT_COMMANDS: &[&str] = &[
     "sort",
     "uniq",
     "wc",
+    "cd",
+    "echo",
+    "printf",
+    "test",
+    "true",
+    "false",
 ];
 
 const READ_ONLY_SYSTEMCTL_ACTIONS: &[&str] = &[
@@ -158,9 +164,13 @@ impl OpsAgentTool for ShellTool {
             description: "Execute shell commands. Read-only diagnostics run immediately; anything that cannot be auto-executed is queued for approval."
                 .to_string(),
             usage_notes: vec![
+                "The shell is your universal tool for all server operations: file reading (cat/head/tail), searching (grep/find/awk), file editing (sed -i/tee), process management (ps/top), service control (systemctl), network diagnostics (ss/curl/ip), and anything else the OS supports."
+                    .to_string(),
                 "Prefer read-only diagnostics first (ls, cat, grep, df, free, ps, top, uptime)."
                     .to_string(),
-                "If automatic execution is blocked by policy or validation, the tool will queue an approval action instead of failing the chat."
+                "Read-only commands and read-only chains (&&, ;) auto-execute. Write operations require user approval."
+                    .to_string(),
+                "If automatic execution is blocked, the tool queues an approval action instead of failing."
                     .to_string(),
             ],
             requires_approval: false,
@@ -467,24 +477,54 @@ fn validate_read_shell_command(command: &str) -> AppResult<String> {
         ));
     }
 
-    if normalized.contains('\n')
-        || normalized.contains('\r')
-        || normalized.contains(';')
-        || normalized.contains("&&")
-        || normalized.contains("||")
-    {
+    if normalized.contains('\n') || normalized.contains('\r') {
         return Err(AppError::Validation(
-            "read_shell does not allow command chaining".to_string(),
+            "read_shell does not allow multi-line commands".to_string(),
         ));
     }
 
-    validate_read_shell_redirection_and_substitution(&normalized)?;
-
-    for segment in normalized.split('|') {
-        validate_read_shell_segment(segment.trim())?;
+    for chain_segment in split_command_chain(&normalized) {
+        let trimmed = chain_segment.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        validate_read_shell_redirection_and_substitution(trimmed)?;
+        for pipe_segment in trimmed.split('|') {
+            validate_read_shell_segment(pipe_segment.trim())?;
+        }
     }
 
     Ok(normalized)
+}
+
+/// Splits a command string by chain operators (`&&`, `||`, `;`).
+fn split_command_chain(command: &str) -> Vec<&str> {
+    let mut segments = Vec::new();
+    let mut start = 0;
+    let bytes = command.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        if bytes[i] == b';' {
+            segments.push(&command[start..i]);
+            start = i + 1;
+            i += 1;
+        } else if i + 1 < len && bytes[i] == b'&' && bytes[i + 1] == b'&' {
+            segments.push(&command[start..i]);
+            start = i + 2;
+            i += 2;
+        } else if i + 1 < len && bytes[i] == b'|' && bytes[i + 1] == b'|' {
+            segments.push(&command[start..i]);
+            start = i + 2;
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+
+    segments.push(&command[start..]);
+    segments
 }
 
 fn validate_read_shell_redirection_and_substitution(command: &str) -> AppResult<()> {
@@ -747,12 +787,45 @@ mod tests {
     }
 
     #[test]
-    fn validate_read_shell_rejects_mutation_and_chaining() {
+    fn validate_read_shell_rejects_mutation() {
         let command = validate_read_shell_command("rm -rf /tmp/foo");
         assert!(command.is_err());
 
-        let chained = validate_read_shell_command("ls && systemctl restart nginx");
-        assert!(chained.is_err());
+        let mixed_chain = validate_read_shell_command("ls && systemctl restart nginx");
+        assert!(mixed_chain.is_err());
+
+        let mutating_chain = validate_read_shell_command("ls && rm -rf /tmp/foo");
+        assert!(mutating_chain.is_err());
+
+        let semi_mutating = validate_read_shell_command("df -h; systemctl restart nginx");
+        assert!(semi_mutating.is_err());
+    }
+
+    #[test]
+    fn validate_read_shell_allows_read_only_chains() {
+        let and_chain = validate_read_shell_command("cd /var/log && tail -20 syslog")
+            .expect("read-only && chain");
+        assert_eq!(and_chain, "cd /var/log && tail -20 syslog");
+
+        let semi_chain =
+            validate_read_shell_command("ps aux; free -m; df -h").expect("read-only ; chain");
+        assert_eq!(semi_chain, "ps aux; free -m; df -h");
+
+        let or_chain = validate_read_shell_command("ls /tmp || echo 'not found'")
+            .expect("read-only || chain");
+        assert_eq!(or_chain, "ls /tmp || echo 'not found'");
+    }
+
+    #[test]
+    fn split_command_chain_handles_all_operators() {
+        assert_eq!(split_command_chain("ls"), vec!["ls"]);
+        assert_eq!(split_command_chain("ls && df"), vec!["ls ", " df"]);
+        assert_eq!(split_command_chain("ls; df"), vec!["ls", " df"]);
+        assert_eq!(split_command_chain("ls || df"), vec!["ls ", " df"]);
+        assert_eq!(
+            split_command_chain("a && b; c || d"),
+            vec!["a ", " b", " c ", " d"]
+        );
     }
 
     #[test]

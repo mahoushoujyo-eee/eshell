@@ -2,6 +2,7 @@ import AiConfigModal from "../sidebar/AiConfigModal";
 import ScriptConfigModal from "../sidebar/ScriptConfigModal";
 import SshConfigModal from "../sidebar/SshConfigModal";
 import WallpaperModal from "../sidebar/WallpaperModal";
+import SshHostTrustDialog from "./SshHostTrustDialog";
 
 export default function AppModals({
   workbench,
@@ -30,6 +31,8 @@ export default function AppModals({
     selectAiProfile,
     wallpaper,
     setWallpaper,
+    hostKeyTrustPrompt,
+    resolveHostKeyTrust,
   } = workbench;
   const {
     isSshModalOpen,
@@ -85,6 +88,11 @@ export default function AppModals({
         onClose={onCloseWallpaperModal}
         wallpaper={wallpaper}
         onChangeWallpaper={setWallpaper}
+      />
+
+      <SshHostTrustDialog
+        challenge={hostKeyTrustPrompt}
+        onResolve={resolveHostKeyTrust}
       />
     </>
   );

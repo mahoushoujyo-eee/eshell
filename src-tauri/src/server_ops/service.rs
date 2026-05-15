@@ -8,9 +8,11 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::engine::general_purpose::{
+    STANDARD as BASE64_STANDARD, STANDARD_NO_PAD as BASE64_STANDARD_NO_PAD,
+};
 use base64::Engine;
-use ssh2::{ErrorCode, FileStat, Session};
+use ssh2::{ErrorCode, FileStat, HashType, HostKeyType, Session};
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
@@ -23,7 +25,8 @@ use crate::models::{
     NetworkInterfaceStatus, PtyOutputEvent, SftpCreateInput, SftpDeleteInput, SftpDownloadInput,
     SftpDownloadPayload, SftpDownloadToLocalInput, SftpEntry, SftpEntryType, SftpFileContent,
     SftpListInput, SftpListResponse, SftpReadInput, SftpTransferEvent, SftpTransferResult,
-    SftpUploadInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshConfig,
+    SftpUploadInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshAuthType,
+    SshConfig, SshHostKeyTrustChallenge, SshHostKeyTrustReason,
 };
 use crate::state::{AppState, PtyCommand};
 
@@ -40,6 +43,7 @@ const SSH_CONNECT_TOTAL_TIMEOUT: Duration = Duration::from_secs(45);
 const SSH_CONNECT_SLICE_TIMEOUT: Duration = Duration::from_millis(500);
 const SSH_CONNECT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SSH_CONNECTION_CANCELLED_MESSAGE: &str = "SSH connection cancelled by user";
+const SSH_HOST_KEY_TRUST_REQUIRED_PREFIX: &str = "SSH_HOST_KEY_TRUST_REQUIRED:";
 
 /// Creates a shell session and starts a long-lived PTY worker for interactive terminal IO.
 pub fn open_shell_session(
@@ -68,7 +72,7 @@ fn open_shell_session_inner(
     request_id: Option<&str>,
 ) -> AppResult<ShellSession> {
     let config = state.storage.find_ssh_config(config_id)?;
-    let ssh = connect_with_cancellation(&config, request_id.map(|id| (&*state, id)))?;
+    let ssh = connect_with_cancellation(&state, &config, request_id.map(|id| (&*state, id)))?;
     let (pwd_out, _, status) = run_channel_command(&ssh, "pwd")?;
     if status != 0 {
         return Err(AppError::Runtime(format!(
@@ -135,7 +139,7 @@ pub fn execute_command(
     let started_at = now_rfc3339();
     let started_clock = Instant::now();
 
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
 
     let trimmed = command.trim();
     if trimmed.is_empty() {
@@ -198,7 +202,7 @@ pub fn execute_command(
 pub fn sftp_list_dir(state: &AppState, input: SftpListInput) -> AppResult<SftpListResponse> {
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
     let sftp = ssh.sftp()?;
     let requested_path = normalize_remote_path(&input.path);
     let raw_entries = sftp.readdir(Path::new(&requested_path))?;
@@ -241,7 +245,7 @@ pub fn sftp_list_dir(state: &AppState, input: SftpListInput) -> AppResult<SftpLi
 pub fn sftp_read_file(state: &AppState, input: SftpReadInput) -> AppResult<SftpFileContent> {
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
     let mut file = sftp.open(Path::new(&remote_path))?;
@@ -258,7 +262,7 @@ pub fn sftp_read_file(state: &AppState, input: SftpReadInput) -> AppResult<SftpF
 pub fn sftp_write_file(state: &AppState, input: SftpWriteInput) -> AppResult<()> {
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
     let mut file = sftp.create(Path::new(&remote_path))?;
@@ -270,7 +274,7 @@ pub fn sftp_write_file(state: &AppState, input: SftpWriteInput) -> AppResult<()>
 pub fn sftp_create_file(state: &AppState, input: SftpCreateInput) -> AppResult<()> {
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
     ensure_creatable_remote_path(&sftp, &remote_path)?;
@@ -283,7 +287,7 @@ pub fn sftp_create_file(state: &AppState, input: SftpCreateInput) -> AppResult<(
 pub fn sftp_create_directory(state: &AppState, input: SftpCreateInput) -> AppResult<()> {
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
     ensure_creatable_remote_path(&sftp, &remote_path)?;
@@ -295,7 +299,7 @@ pub fn sftp_create_directory(state: &AppState, input: SftpCreateInput) -> AppRes
 pub fn sftp_upload_file(state: &AppState, input: SftpUploadInput) -> AppResult<()> {
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let mut file = sftp.create(Path::new(&remote_path))?;
@@ -308,7 +312,7 @@ pub fn sftp_upload_file(state: &AppState, input: SftpUploadInput) -> AppResult<(
 pub fn sftp_delete_entry(state: &AppState, input: SftpDeleteInput) -> AppResult<()> {
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
     if remote_path == "/" {
@@ -333,7 +337,7 @@ pub fn sftp_upload_file_with_progress(
     let _transfer_guard = SftpTransferGuard::new(state, &input.transfer_id);
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let file_name = input
@@ -478,7 +482,7 @@ pub fn sftp_download_file(
 ) -> AppResult<SftpDownloadPayload> {
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let mut file = sftp.open(Path::new(&remote_path))?;
@@ -508,7 +512,7 @@ pub fn sftp_download_file_to_local(
     let _transfer_guard = SftpTransferGuard::new(state, &input.transfer_id);
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let file_name = extract_remote_file_name(&remote_path);
@@ -719,7 +723,7 @@ pub fn fetch_server_status(
 ) -> AppResult<crate::models::ServerStatus> {
     let session = state.get_session(&input.session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&config)?;
+    let ssh = connect(&state, &config)?;
 
     let top_output = run_channel_command(&ssh, "LANG=C top -bn1 | head -n 10")?.0;
     let cpu_percent = parse_cpu_percent(&top_output).unwrap_or(0.0);
@@ -1296,11 +1300,12 @@ fn is_transient_pty_io_error(err: &std::io::Error) -> bool {
         || message.contains("timed out")
 }
 
-fn connect(config: &SshConfig) -> AppResult<Session> {
-    connect_with_cancellation(config, None)
+fn connect(state: &AppState, config: &SshConfig) -> AppResult<Session> {
+    connect_with_cancellation(state, config, None)
 }
 
 fn connect_with_cancellation(
+    state: &AppState,
     config: &SshConfig,
     cancellation: Option<(&AppState, &str)>,
 ) -> AppResult<Session> {
@@ -1315,7 +1320,9 @@ fn connect_with_cancellation(
         .handshake()
         .map_err(|err| map_handshake_error(config, err))?;
     check_shell_connection_cancelled(cancellation)?;
-    session.userauth_password(&config.username, &config.password)?;
+    verify_host_key_trust(state, config, &session)?;
+    check_shell_connection_cancelled(cancellation)?;
+    authenticate_session(config, &mut session)?;
 
     if !session.authenticated() {
         return Err(AppError::Runtime(format!(
@@ -1325,6 +1332,130 @@ fn connect_with_cancellation(
     }
 
     Ok(session)
+}
+
+fn verify_host_key_trust(
+    state: &AppState,
+    config: &SshConfig,
+    session: &Session,
+) -> AppResult<()> {
+    let host_key = extract_host_key_fingerprint(session).ok_or_else(|| {
+        AppError::Runtime(format!(
+            "SSH host key is unavailable for {}:{}",
+            config.host, config.port
+        ))
+    })?;
+
+    match state.storage.find_known_host(&config.host, config.port) {
+        Some(known_host) if known_host.fingerprint == host_key.fingerprint => Ok(()),
+        Some(known_host) => Err(host_key_trust_required(SshHostKeyTrustChallenge {
+            reason: SshHostKeyTrustReason::Changed,
+            host: config.host.clone(),
+            port: config.port,
+            key_type: host_key.key_type,
+            fingerprint: host_key.fingerprint,
+            trusted_fingerprint: Some(known_host.fingerprint),
+        })),
+        None => Err(host_key_trust_required(SshHostKeyTrustChallenge {
+            reason: SshHostKeyTrustReason::Unknown,
+            host: config.host.clone(),
+            port: config.port,
+            key_type: host_key.key_type,
+            fingerprint: host_key.fingerprint,
+            trusted_fingerprint: None,
+        })),
+    }
+}
+
+fn authenticate_session(config: &SshConfig, session: &mut Session) -> AppResult<()> {
+    match config.auth_type {
+        SshAuthType::Password => authenticate_with_password(config, session),
+        SshAuthType::PrivateKey => {
+            let key_path = Path::new(config.private_key_path.trim());
+            if config.private_key_path.trim().is_empty() {
+                return Err(AppError::Validation(
+                    "private key path cannot be empty for private key authentication".to_string(),
+                ));
+            }
+            if !key_path.exists() {
+                return Err(AppError::Validation(format!(
+                    "private key file does not exist: {}",
+                    key_path.display()
+                )));
+            }
+
+            let passphrase = if config.private_key_passphrase.is_empty() {
+                None
+            } else {
+                Some(config.private_key_passphrase.as_str())
+            };
+            let key_result =
+                session.userauth_pubkey_file(&config.username, None, key_path, passphrase);
+
+            match key_result {
+                Ok(()) => Ok(()),
+                Err(err) if config.use_password_fallback && !config.password.is_empty() => {
+                    authenticate_with_password(config, session)
+                        .map_err(|fallback_err| map_key_auth_error(config, fallback_err))?;
+                    if session.authenticated() {
+                        Ok(())
+                    } else {
+                        Err(map_key_auth_error(config, AppError::Ssh(err)))
+                    }
+                }
+                Err(err) => Err(map_key_auth_error(config, AppError::Ssh(err))),
+            }
+        }
+    }
+}
+
+fn authenticate_with_password(config: &SshConfig, session: &mut Session) -> AppResult<()> {
+    if config.password.is_empty() {
+        return Err(AppError::Validation(
+            "password cannot be empty for password authentication".to_string(),
+        ));
+    }
+    session.userauth_password(&config.username, &config.password)?;
+    Ok(())
+}
+
+struct HostKeyFingerprint {
+    key_type: String,
+    fingerprint: String,
+}
+
+fn extract_host_key_fingerprint(session: &Session) -> Option<HostKeyFingerprint> {
+    let (_, key_type) = session.host_key()?;
+    let hash = session.host_key_hash(HashType::Sha256)?;
+    Some(HostKeyFingerprint {
+        key_type: normalize_host_key_type(key_type),
+        fingerprint: format!("SHA256:{}", BASE64_STANDARD_NO_PAD.encode(hash)),
+    })
+}
+
+fn normalize_host_key_type(key_type: HostKeyType) -> String {
+    match key_type {
+        HostKeyType::Rsa => "ssh-rsa".to_string(),
+        HostKeyType::Dss => "ssh-dss".to_string(),
+        HostKeyType::Ecdsa256 => "ecdsa-sha2-nistp256".to_string(),
+        HostKeyType::Ecdsa384 => "ecdsa-sha2-nistp384".to_string(),
+        HostKeyType::Ecdsa521 => "ecdsa-sha2-nistp521".to_string(),
+        HostKeyType::Ed25519 => "ssh-ed25519".to_string(),
+        _ => format!("{key_type:?}"),
+    }
+}
+
+fn host_key_trust_required(challenge: SshHostKeyTrustChallenge) -> AppError {
+    let payload = serde_json::to_string(&challenge).unwrap_or_else(|_| "{}".to_string());
+    AppError::Runtime(format!("{SSH_HOST_KEY_TRUST_REQUIRED_PREFIX}{payload}"))
+}
+
+fn map_key_auth_error(config: &SshConfig, err: AppError) -> AppError {
+    let detail = err.to_string();
+    AppError::Runtime(format!(
+        "private key authentication failed for {}@{}:{}: {detail}. Check the private key path and passphrase.",
+        config.username, config.host, config.port
+    ))
 }
 
 fn connect_tcp_with_cancellation(

@@ -19,7 +19,6 @@ const PROVIDER_LOG_BODY_PREVIEW_CHARS: usize = 640;
 const PROVIDER_LOG_EVENT_PREVIEW_CHARS: usize = 220;
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 struct ChatCompletionsRequest {
     model: String,
     messages: Vec<ProviderChatMessage>,

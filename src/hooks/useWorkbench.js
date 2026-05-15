@@ -37,6 +37,7 @@ export function useWorkbench() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [uiNotices, setUiNotices] = useState([]);
+  const [hostKeyTrustPrompt, setHostKeyTrustPrompt] = useState(null);
 
   const [sshConfigs, setSshConfigs] = useState([]);
   const [sshForm, setSshForm] = useState(EMPTY_SSH);
@@ -85,6 +86,7 @@ export function useWorkbench() {
 
   const saveTimerRef = useRef(null);
   const reconnectingSessionsRef = useRef(new Map());
+  const closingSessionsRef = useRef(new Set());
   const sessionAliasRef = useRef(new Map());
   const statusRequestTokenRef = useRef(new Map());
   const aiStreamRef = useRef(EMPTY_OPS_AGENT_STREAM);
@@ -205,6 +207,25 @@ export function useWorkbench() {
     } finally {
       setBusy("");
     }
+  }, []);
+
+  const hostKeyTrustResolverRef = useRef(null);
+
+  const requestHostKeyTrust = useCallback((challenge) => {
+    if (hostKeyTrustResolverRef.current) {
+      hostKeyTrustResolverRef.current(false);
+    }
+    return new Promise((resolve) => {
+      hostKeyTrustResolverRef.current = resolve;
+      setHostKeyTrustPrompt(challenge);
+    });
+  }, []);
+
+  const resolveHostKeyTrust = useCallback((accepted) => {
+    const resolver = hostKeyTrustResolverRef.current;
+    hostKeyTrustResolverRef.current = null;
+    setHostKeyTrustPrompt(null);
+    resolver?.(Boolean(accepted));
   }, []);
 
   const onError = useCallback((err) => {
@@ -329,6 +350,7 @@ export function useWorkbench() {
     setDownloadDirectory,
     setError,
     reconnectingSessionsRef,
+    closingSessionsRef,
     sessionAliasRef,
     statusRequestTokenRef,
     aiStreamRef,
@@ -337,6 +359,7 @@ export function useWorkbench() {
     runWithSessionReconnectRef,
     pushUiNotice,
     dismissUiNotice,
+    requestHostKeyTrust,
     runBusy,
     onError,
   });
@@ -422,6 +445,8 @@ export function useWorkbench() {
     error,
     uiNotices,
     dismissUiNotice,
+    hostKeyTrustPrompt,
+    resolveHostKeyTrust,
     sshConfigs,
     sshForm,
     setSshForm,

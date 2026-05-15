@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::{
-    AiAgentMode, AiApiType, AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput, AiProfilesState,
-    ScriptInput, SshConfigInput,
+    AiAgentMode, AiApiType, AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput,
+    AiProfilesState,
+    ScriptInput, SshAuthType, SshConfigInput, TrustSshHostKeyInput,
 };
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -68,7 +69,11 @@ fn ssh_config_crud_works() {
             host: "10.0.0.8".to_string(),
             port: 22,
             username: "root".to_string(),
+            auth_type: SshAuthType::Password,
             password: "secret".to_string(),
+            private_key_path: String::new(),
+            private_key_passphrase: String::new(),
+            use_password_fallback: false,
             description: Some("prod server".to_string()),
         })
         .expect("create");
@@ -83,7 +88,11 @@ fn ssh_config_crud_works() {
             host: "10.0.0.9".to_string(),
             port: 22,
             username: "admin".to_string(),
+            auth_type: SshAuthType::Password,
             password: "changed".to_string(),
+            private_key_path: String::new(),
+            private_key_passphrase: String::new(),
+            use_password_fallback: false,
             description: Some(String::new()),
         })
         .expect("update");
@@ -91,6 +100,103 @@ fn ssh_config_crud_works() {
 
     storage.delete_ssh_config(&created.id).expect("delete");
     assert!(storage.list_ssh_configs().is_empty());
+}
+
+#[test]
+fn ssh_config_private_key_profile_is_persisted() {
+    let storage = Storage::new(temp_dir("ssh-key")).expect("create storage");
+    let created = storage
+        .upsert_ssh_config(SshConfigInput {
+            id: None,
+            name: "key-prod".to_string(),
+            host: "example.com".to_string(),
+            port: 2222,
+            username: "deploy".to_string(),
+            auth_type: SshAuthType::PrivateKey,
+            password: String::new(),
+            private_key_path: "C:\\Users\\me\\.ssh\\id_ed25519".to_string(),
+            private_key_passphrase: "phrase".to_string(),
+            use_password_fallback: false,
+            description: None,
+        })
+        .expect("create key profile");
+
+    assert_eq!(created.auth_type, SshAuthType::PrivateKey);
+    assert_eq!(created.private_key_path, "C:\\Users\\me\\.ssh\\id_ed25519");
+    assert_eq!(created.private_key_passphrase, "phrase");
+}
+
+#[test]
+fn ssh_config_private_key_requires_key_path() {
+    let storage = Storage::new(temp_dir("ssh-key-validation")).expect("create storage");
+    let err = storage
+        .upsert_ssh_config(SshConfigInput {
+            id: None,
+            name: "missing-key".to_string(),
+            host: "example.com".to_string(),
+            port: 22,
+            username: "deploy".to_string(),
+            auth_type: SshAuthType::PrivateKey,
+            password: String::new(),
+            private_key_path: String::new(),
+            private_key_passphrase: String::new(),
+            use_password_fallback: false,
+            description: None,
+        })
+        .expect_err("missing key path should fail");
+
+    assert!(err.to_string().contains("private key path"));
+}
+
+#[test]
+fn ssh_config_legacy_password_profile_deserializes_with_defaults() {
+    let raw = r#"{
+        "id": "legacy",
+        "name": "legacy",
+        "host": "10.0.0.8",
+        "port": 22,
+        "username": "root",
+        "password": "secret",
+        "description": "",
+        "createdAt": "2026-01-01T00:00:00Z",
+        "updatedAt": "2026-01-01T00:00:00Z"
+    }"#;
+    let config: crate::models::SshConfig = serde_json::from_str(raw).expect("deserialize legacy");
+
+    assert_eq!(config.auth_type, SshAuthType::Password);
+    assert!(config.private_key_path.is_empty());
+    assert!(!config.use_password_fallback);
+}
+
+#[test]
+fn ssh_known_host_trust_is_shared_by_host_and_port() {
+    let storage = Storage::new(temp_dir("known-host")).expect("create storage");
+    let trusted = storage
+        .trust_ssh_host_key(TrustSshHostKeyInput {
+            host: "Example.COM ".to_string(),
+            port: 22,
+            key_type: "ssh-ed25519".to_string(),
+            fingerprint: "SHA256:first".to_string(),
+        })
+        .expect("trust host");
+
+    assert_eq!(trusted.host, "example.com");
+
+    let updated = storage
+        .trust_ssh_host_key(TrustSshHostKeyInput {
+            host: "example.com".to_string(),
+            port: 22,
+            key_type: "ssh-ed25519".to_string(),
+            fingerprint: "SHA256:second".to_string(),
+        })
+        .expect("replace host key");
+
+    let found = storage
+        .find_known_host("EXAMPLE.com", 22)
+        .expect("known host");
+    assert_eq!(found.fingerprint, "SHA256:second");
+    assert_eq!(found.created_at, trusted.created_at);
+    assert_eq!(found.updated_at, updated.updated_at);
 }
 
 #[test]

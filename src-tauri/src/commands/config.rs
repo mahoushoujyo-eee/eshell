@@ -6,7 +6,8 @@ use crate::error::to_command_error;
 use crate::models::{
     AgentContextContent, AgentContextInput, AiConfig, AiConfigInput, AiProfileInput,
     AiProfilesState, SaveAgentContextInput, ScriptDefinition, ScriptInput, SetActiveAiProfileInput,
-    SetAiAgentModeInput, SetAiApprovalModeInput, SshConfig, SshConfigInput,
+    SetAiAgentModeInput, SetAiApprovalModeInput, SshConfig, SshConfigInput, SshKnownHost,
+    TrustSshHostKeyInput,
 };
 use crate::state::AppState;
 
@@ -91,6 +92,18 @@ pub fn delete_ai_profile(
     state
         .storage
         .delete_ai_profile(&id)
+        .map_err(to_command_error)
+}
+
+/// Stores or replaces a trusted SSH host key fingerprint.
+#[tauri::command]
+pub fn trust_ssh_host_key(
+    state: State<'_, Arc<AppState>>,
+    input: TrustSshHostKeyInput,
+) -> Result<SshKnownHost, String> {
+    state
+        .storage
+        .trust_ssh_host_key(input)
         .map_err(to_command_error)
 }
 

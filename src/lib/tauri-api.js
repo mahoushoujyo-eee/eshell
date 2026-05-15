@@ -4,6 +4,7 @@ export const api = {
   listSshConfigs: () => invoke("list_ssh_configs"),
   saveSshConfig: (input) => invoke("save_ssh_config", { input }),
   deleteSshConfig: (id) => invoke("delete_ssh_config", { id }),
+  trustSshHostKey: (input) => invoke("trust_ssh_host_key", { input }),
 
   listShellSessions: () => invoke("list_shell_sessions"),
   openShellSession: (configId, requestId = null) =>

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [
+      "Skill(update-config)",
+      "Skill(update-config:*)"
+    ]
+  }
+}
