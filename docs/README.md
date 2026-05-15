@@ -2,6 +2,11 @@
 
 `docs/` is organized by document purpose so prompts, specs, guides, and working notes stay separate.
 
+Root project introductions:
+
+- [English README](../README.md)
+- [中文 README](../README.zh-CN.md)
+
 ## Structure
 
 - `assets/`: documentation images and static assets
@@ -36,3 +41,4 @@
 - [Ops Agent Guide](guides/features/ops_agent.md) — Ops Agent request flow, approvals, streaming, attachments, and cancellation
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
+- [Release Notes 1.4.0](releases/v1.4.0.md) — Runtime gateway, non-destructive compaction, and README refresh

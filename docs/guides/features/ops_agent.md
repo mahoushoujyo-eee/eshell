@@ -126,17 +126,22 @@ This keeps conversation files small and avoids duplicating large base64 payloads
 4. The backend ensures or creates the target conversation, appends the user message, and stores only attachment ids on that message.
 5. The backend registers one active run for that conversation.
 6. The backend emits `started` on `ops-agent-stream`.
-7. Before the planner loop runs, the backend estimates prompt size. If the conversation is already above `AiConfig.maxContextTokens`, it attempts automatic history compaction.
-8. The ReAct loop runs with a hard limit of `8` tool-planning steps.
-9. Each step either:
+7. Before runtime routing, the backend estimates prompt size. If the visible conversation is above `AiConfig.maxContextTokens`, it creates or refreshes a private model-context summary.
+8. Runtime routing chooses one of:
+   - `direct_reply`: answer immediately with a single model response and skip planner / ReAct / multi-agent execution
+   - `lite`: run the compact ReAct loop
+   - `pro`: run the serial planner / executor / reviewer / validator workflow
+9. The selected route receives a model-only history view: private summary plus recent raw messages when compaction exists, otherwise the full visible conversation.
+10. The ReAct loop runs with a hard limit of `8` tool-planning steps.
+11. Each step either:
    - returns a final assistant reply without tool use
    - executes a registered tool and appends a `Tool` message
    - creates a pending action that must be approved in the UI
-10. When user history is serialized for the provider, the backend resolves `attachmentIds` back into local image content and emits a multimodal provider message.
-11. On successful completion, the backend appends the final assistant message and emits `completed`.
-12. On failure, the backend emits `error`.
-13. On user cancellation, the run registry is marked cancelled and the backend emits `completed` with an empty answer so the frontend can clear the active streaming state.
-14. If the user changes the active profile while a run is already streaming, that change does not alter the current run; it applies to the next chat request.
+12. When user history is serialized for the provider, the backend resolves `attachmentIds` back into local image content and emits a multimodal provider message.
+13. On successful completion, the backend appends the final assistant message and emits `completed`.
+14. On failure, the backend emits `error`.
+15. On user cancellation, the run registry is marked cancelled and the backend emits `completed` with an empty answer so the frontend can clear the active streaming state.
+16. If the user changes the active profile while a run is already streaming, that change does not alter the current run; it applies to the next chat request.
 
 Important code paths:
 
@@ -255,17 +260,19 @@ Important code paths:
 
 ## 9. Conversation Compaction
 
-Compaction exists to keep a long-running conversation inside the configured context window.
+Compaction exists to keep a long-running conversation inside the configured context window without changing what the user sees in chat history.
 
 Manual compaction:
 
 - frontend invokes `ops_agent_compact_conversation`
-- backend rewrites the conversation history immediately
+- backend creates or refreshes a private model-context summary
+- visible conversation messages remain unchanged
 
 Automatic compaction:
 
 - triggered at chat-run start when the estimated prompt size is above `AiConfig.maxContextTokens`
-- runs before the planner loop continues
+- runs before runtime routing, so direct replies, lite ReAct runs, and pro workflows all use the same compacted model context when needed
+- estimates the current model-context view, not the full visible transcript, when a private summary already exists
 
 Compaction strategy:
 
@@ -273,11 +280,23 @@ Compaction strategy:
 - always keep at least the most recent `2` messages
 - summarize the older prefix using the configured model
 - if summary generation fails, fall back to a local heuristic summary
-- replace the old prefix with:
-  - one `System` boundary message
-  - one `Assistant` summary message
-  - the preserved recent tail
-- if compacted-away messages referenced images that are no longer kept, the backend also deletes those orphaned attachment files
+- write one private summary snapshot under `.eshell-data/ops_agent_context_summaries/<conversation-id>.json`
+- keep `ops_agent_conversations/<conversation-id>.json` unchanged
+- build provider history from:
+  - one private `System` boundary message
+  - one private `Assistant` summary message
+  - the preserved recent raw messages after the summarized prefix
+- do not delete attachments during compaction, because visible historical messages still reference them
+
+Repeated compaction:
+
+- each conversation has one latest private summary snapshot
+- when a snapshot already exists, the next compaction starts from the current model-context view:
+  - existing private summary
+  - raw messages after the previous `sourceMessageId`
+- the new snapshot anchors `sourceMessageId` to the last real visible message folded into the summary
+- if only the existing private summary is being re-compressed, the previous `sourceMessageId` is preserved
+- the summary prompt treats an existing private summary as compressed state to merge and rewrite, not as a user-visible event, to avoid nested summary-of-summary drift
 
 Result fields returned by the RPC:
 
@@ -286,6 +305,12 @@ Result fields returned by the RPC:
 - `note`
 - `estimatedTokensBefore`
 - `estimatedTokensAfter`
+
+Important behavior:
+
+- the chat UI and conversation JSON still contain the full original message history
+- compaction only changes the model input assembled by `core/compaction.rs`
+- if a snapshot does not include the current user message, the backend ignores that snapshot for the current run and falls back to the full visible conversation
 
 Important code paths:
 
@@ -298,6 +323,7 @@ Persistent files under `.eshell-data/`:
 
 - `ops_agent_conversation_list.json`
 - `ops_agent_conversations/<conversation-id>.json`
+- `ops_agent_context_summaries/<conversation-id>.json`
 - `ops_agent_attachments/<attachment-id>.bin`
 - `ops_agent_attachments/<attachment-id>.json`
 - `ops_agent_debug.log`
@@ -306,6 +332,7 @@ Persistence rules:
 
 - conversation summaries, active conversation id, and pending actions are stored in the list file
 - full message history for each conversation is stored as a separate JSON document
+- private compaction summaries are stored separately and never replace visible conversation messages
 - image bytes are stored separately from conversation JSON
 - user messages only reference images through `attachmentIds`
 - pending actions are not stored inside individual conversation files
@@ -326,7 +353,7 @@ Debug log coverage in `ops_agent_debug.log`:
 - high-level request assembly logs capture user message previews, shell context previews, attachment counts, and native tool-call parsing outcomes
 - provider logs capture `api_type`, outbound request metadata, message previews, tool schema previews, non-2xx response previews, and JSON parse failures
 - stream logs capture chunk/event progression plus final stream statistics
-- compaction logs capture trigger reason, preserved tail sizing, summary source, estimated token deltas, and orphaned attachment cleanup
+- compaction logs capture trigger reason, preserved tail sizing, summary source, model-context application, and estimated token deltas
 
 Important code paths:
 
@@ -347,6 +374,6 @@ Important code paths:
 - Frontend image preview is on-demand by attachment id; there is no inline full-resolution history preload.
 - Chat runs are not resumable after app restart.
 - Stream cancellation does not have its own stage; consumers must treat empty `completed` events as a cancelled-or-empty terminal state.
-- Compaction is destructive by design: older raw messages are replaced by a summary.
+- Compaction is non-destructive for user-visible history: older raw messages remain in conversation JSON, while model input may use a private summary plus recent messages.
 - Summary quality depends on the configured model and fallback heuristics.
 - AI profile selection is still global. A conversation does not yet pin its own provider or model snapshot.

@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::{
-    AiAgentMode, AiApiType, AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput, AiProfilesState,
+    AiAgentMode, AiApiType, AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput,
+    AiProfilesState,
     ScriptInput, SshAuthType, SshConfigInput, TrustSshHostKeyInput,
 };
 

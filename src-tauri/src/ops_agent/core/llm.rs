@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{AiAgentMode, AiApprovalMode, AiConfig};
+use crate::models::{AiApprovalMode, AiConfig};
 use crate::state::AppState;
 
 use super::prompting::{
@@ -36,6 +36,13 @@ pub enum OpsAgentChatRoute {
     Workflow { reason: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpsAgentRuntimeRoute {
+    DirectReply { answer: String, reason: String },
+    Lite { reason: String },
+    Pro { reason: String },
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum RawChatRouteMode {
@@ -56,6 +63,7 @@ struct RawChatRouteDecision {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum RawAgentModeRoute {
+    DirectReply,
     Lite,
     Pro,
 }
@@ -64,6 +72,8 @@ enum RawAgentModeRoute {
 #[serde(rename_all = "camelCase")]
 struct RawAgentModeDecision {
     mode: RawAgentModeRoute,
+    #[serde(default)]
+    answer: String,
     #[serde(default)]
     reason: String,
 }
@@ -152,7 +162,7 @@ pub async fn route_agent_mode(
     session_context: &OpsAgentSessionContext,
     tool_hints: &[OpsAgentToolPromptHint],
     log_context: Option<OpsAgentLogContext<'_>>,
-) -> AppResult<(AiAgentMode, String)> {
+) -> AppResult<OpsAgentRuntimeRoute> {
     validate_ai_config(config)?;
     log_request_context(
         log_context,
@@ -203,12 +213,19 @@ pub async fn route_agent_mode(
 
     parse_agent_mode_from_response(&response).map(|decision| {
         if let Some(log_context) = log_context {
+            let (mode_label, reason) = match &decision {
+                OpsAgentRuntimeRoute::DirectReply { reason, .. } => {
+                    ("direct_reply", reason.as_str())
+                }
+                OpsAgentRuntimeRoute::Lite { reason } => ("lite", reason.as_str()),
+                OpsAgentRuntimeRoute::Pro { reason } => ("pro", reason.as_str()),
+            };
             log_context.append(
                 "ai.agent_mode_gateway.parsed",
                 format!(
-                    "mode={:?} reason={}",
-                    decision.0,
-                    truncate_for_log(decision.1.as_str(), AI_LOG_MESSAGE_PREVIEW_CHARS)
+                    "mode={} reason={}",
+                    mode_label,
+                    truncate_for_log(reason, AI_LOG_MESSAGE_PREVIEW_CHARS)
                 ),
             );
         }
@@ -364,7 +381,7 @@ pub async fn compact_history_summary(
     let messages = vec![
         ProviderChatMessage {
             role: "system".to_string(),
-            content: ProviderChatMessageContent::text("You compress prior ops troubleshooting conversations so the session can continue inside a limited context window.\nSummarize only durable information that should survive compaction:\n- user goals and constraints\n- important environment facts, hosts, file paths, and config values\n- diagnoses, findings, and failed or successful actions\n- pending approvals, open questions, and next steps\nKeep it concise and structured in markdown bullets. Do not repeat low-signal chatter or verbatim logs.".to_string()),
+            content: ProviderChatMessageContent::text("You compress prior ops troubleshooting conversations so the session can continue inside a limited context window.\nSummarize only durable information that should survive compaction:\n- user goals and constraints\n- important environment facts, hosts, file paths, and config values\n- diagnoses, findings, and failed or successful actions\n- pending approvals, open questions, and next steps\nThe transcript may contain an existing private context summary from an earlier compaction followed by newer raw messages. Treat that existing summary as prior compressed state, merge it with the newer raw messages, and produce one fresh flat summary. Do not describe the prior summary as an event, do not nest summary-of-summary wording, and do not repeat low-signal chatter or verbatim logs.\nKeep it concise and structured in markdown bullets.".to_string()),
         },
         ProviderChatMessage {
             role: "user".to_string(),
@@ -677,16 +694,17 @@ fn build_agent_mode_gateway_prompt(
 ) -> String {
     format!(
         "{base}\n\nYou are the runtime gateway for an operations assistant.\n\
-Choose whether the latest user request should use lite mode or pro mode.\n\
+Choose whether the latest user request should be answered directly, use lite mode, or use pro mode.\n\
 \n\
-lite mode is a compact ReAct loop: it can answer directly, use one tool at a time, and iterate from observations. Choose lite for normal chat, explanations, quick troubleshooting, simple diagnostics, and most day-to-day tasks.\n\
+direct_reply is a single model answer with no planner, ReAct loop, tools, shell inspection, review, or validation. Choose direct_reply for greetings, API smoke tests, normal conversation, definitions, explanations, small clarifying questions, and advice that does not need live environment evidence. Do not claim to have executed commands or inspected live state.\n\
+lite mode is a compact ReAct loop: it can use one tool at a time and iterate from observations. Choose lite for quick troubleshooting, simple diagnostics, and day-to-day tasks that may need at most a few direct tool observations.\n\
 pro mode is a serial multi-agent workflow with planner, executor, reviewer, validator, and final answer. Choose pro for complex or risky operational work, multi-step changes, tasks needing explicit verification, unclear safety tradeoffs, or anything where independent review/validation is valuable.\n\
 \n\
-Prefer lite unless pro's review and validation would clearly improve correctness or safety.\n\
+Prefer direct_reply when tools are unnecessary. Prefer lite unless pro's review and validation would clearly improve correctness or safety.\n\
 \n\
 Available tools:\n{tool_block}\n\n\
 Session context:\n{session_block}\n\n\
-Submit exactly one decision via the submit_agent_mode tool.",
+Submit exactly one decision via the submit_agent_mode tool. If mode is direct_reply, put the final user-facing response in answer; otherwise leave answer empty.",
         base = base_prompt.trim(),
         tool_block = format_tool_catalog_for_prompt(tool_hints),
         session_block = session_context.to_prompt_block(),
@@ -742,27 +760,34 @@ fn build_submit_route_tool_definition() -> ProviderToolDefinition {
 fn build_submit_agent_mode_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition {
         name: "submit_agent_mode".to_string(),
-        description: "Choose lite or pro runtime mode for the latest user message.".to_string(),
+        description: "Choose direct reply, lite, or pro runtime mode for the latest user message."
+            .to_string(),
         parameters: json!({
             "type": "object",
             "additionalProperties": false,
             "properties": {
                 "mode": {
                     "type": "string",
-                    "enum": ["lite", "pro"],
-                    "description": "lite uses the compact ReAct loop; pro uses the serial multi-agent workflow."
+                    "enum": ["direct_reply", "lite", "pro"],
+                    "description": "direct_reply answers immediately; lite uses the compact ReAct loop; pro uses the serial multi-agent workflow."
+                },
+                "answer": {
+                    "type": "string",
+                    "description": "Final user-facing answer when mode is direct_reply; empty for lite/pro."
                 },
                 "reason": {
                     "type": "string",
                     "description": "Short routing rationale."
                 }
             },
-            "required": ["mode", "reason"]
+            "required": ["mode", "answer", "reason"]
         }),
     }
 }
 
-fn build_react_tool_definitions(tool_hints: &[OpsAgentToolPromptHint]) -> Vec<ProviderToolDefinition> {
+fn build_react_tool_definitions(
+    tool_hints: &[OpsAgentToolPromptHint],
+) -> Vec<ProviderToolDefinition> {
     tool_hints
         .iter()
         .map(|tool| {
@@ -784,14 +809,9 @@ fn build_react_tool_definitions(tool_hints: &[OpsAgentToolPromptHint]) -> Vec<Pr
 
             ProviderToolDefinition {
                 name: tool.kind.to_string(),
-                description: format!(
-                    "{} {}{}",
-                    tool.description.trim(),
-                    approval,
-                    usage_notes
-                )
-                .trim()
-                .to_string(),
+                description: format!("{} {}{}", tool.description.trim(), approval, usage_notes)
+                    .trim()
+                    .to_string(),
                 parameters: json!({
                     "type": "object",
                     "additionalProperties": false,
@@ -955,7 +975,7 @@ fn parse_chat_route_from_response(
 
 fn parse_agent_mode_from_response(
     response: &ProviderChatMessageResponse,
-) -> AppResult<(AiAgentMode, String)> {
+) -> AppResult<OpsAgentRuntimeRoute> {
     let raw = response
         .tool_calls
         .iter()
@@ -971,11 +991,20 @@ fn parse_agent_mode_from_response(
 
     let decision: RawAgentModeDecision = serde_json::from_str(raw)?;
     let reason = normalize_single_line(decision.reason.as_str());
-    let mode = match decision.mode {
-        RawAgentModeRoute::Lite => AiAgentMode::Lite,
-        RawAgentModeRoute::Pro => AiAgentMode::Pro,
+    let route = match decision.mode {
+        RawAgentModeRoute::DirectReply => {
+            let answer = decision.answer.trim().to_string();
+            if answer.is_empty() {
+                return Err(AppError::Runtime(
+                    "agent mode gateway selected direct_reply without an answer".to_string(),
+                ));
+            }
+            OpsAgentRuntimeRoute::DirectReply { answer, reason }
+        }
+        RawAgentModeRoute::Lite => OpsAgentRuntimeRoute::Lite { reason },
+        RawAgentModeRoute::Pro => OpsAgentRuntimeRoute::Pro { reason },
     };
-    Ok((mode, reason))
+    Ok(route)
 }
 
 fn parse_planned_reply_from_response(
@@ -1655,6 +1684,79 @@ mod tests {
             parse_chat_route_from_response(&response).expect("parse route"),
             OpsAgentChatRoute::Workflow {
                 reason: "Needs live shell inspection.".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_runtime_gateway_direct_reply_tool_call() {
+        let response = ProviderChatMessageResponse {
+            tool_calls: vec![crate::ops_agent::providers::types::ProviderToolCall {
+                id: Some("call-1".to_string()),
+                name: "submit_agent_mode".to_string(),
+                arguments: json!({
+                    "mode": "direct_reply",
+                    "answer": "你好，API 正常。",
+                    "reason": "Greeting/API smoke test."
+                })
+                .to_string(),
+            }],
+            ..ProviderChatMessageResponse::default()
+        };
+
+        assert_eq!(
+            parse_agent_mode_from_response(&response).expect("parse runtime route"),
+            OpsAgentRuntimeRoute::DirectReply {
+                answer: "你好，API 正常。".to_string(),
+                reason: "Greeting/API smoke test.".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_runtime_gateway_lite_tool_call() {
+        let response = ProviderChatMessageResponse {
+            tool_calls: vec![crate::ops_agent::providers::types::ProviderToolCall {
+                id: Some("call-1".to_string()),
+                name: "submit_agent_mode".to_string(),
+                arguments: json!({
+                    "mode": "lite",
+                    "answer": "",
+                    "reason": "Needs a quick read-only check."
+                })
+                .to_string(),
+            }],
+            ..ProviderChatMessageResponse::default()
+        };
+
+        assert_eq!(
+            parse_agent_mode_from_response(&response).expect("parse runtime route"),
+            OpsAgentRuntimeRoute::Lite {
+                reason: "Needs a quick read-only check.".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_runtime_gateway_pro_tool_call() {
+        let response = ProviderChatMessageResponse {
+            tool_calls: vec![crate::ops_agent::providers::types::ProviderToolCall {
+                id: Some("call-1".to_string()),
+                name: "submit_agent_mode".to_string(),
+                arguments: json!({
+                    "mode": "pro",
+                    "answer": "",
+                    "reason": "Multi-step change with validation."
+                })
+                .to_string(),
+            }],
+            ..ProviderChatMessageResponse::default()
+        };
+
+        assert_eq!(
+            parse_agent_mode_from_response(&response).expect("parse runtime route"),
+            OpsAgentRuntimeRoute::Pro {
+                reason: "Multi-step change with validation.".to_string(),
             }
         );
     }

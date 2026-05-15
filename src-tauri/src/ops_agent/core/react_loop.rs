@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::ops_agent::domain::types::{
-    OpsAgentMessage, OpsAgentPendingAction, OpsAgentRole, OpsAgentToolCall,
-    OpsAgentToolCallStatus, OpsAgentToolKind,
+    OpsAgentMessage, OpsAgentPendingAction, OpsAgentRole, OpsAgentToolCall, OpsAgentToolCallStatus,
+    OpsAgentToolKind,
 };
 use crate::ops_agent::infrastructure::logging::{
     append_debug_log, resolve_ops_agent_log_path, OpsAgentLogContext,
@@ -50,27 +50,14 @@ pub(crate) async fn process_chat_stream(
     ensure_run_not_cancelled(&run_handle)?;
 
     let config = state.storage.get_ai_config();
-    if let Some(compaction) = super::compaction::auto_compact_conversation_if_needed(
+    let conversation = state.ops_agent.get_conversation(&conversation_id)?;
+    let conversation = super::compaction::model_conversation_for_current_message(
         state.as_ref(),
-        &conversation_id,
+        conversation,
+        &current_user_message_id,
         session_id.as_deref(),
         &config,
-    )
-    .await?
-    {
-        append_debug_log(
-            state.as_ref(),
-            "react.auto_compact",
-            Some(run_id.as_str()),
-            Some(conversation_id.as_str()),
-            format!(
-                "estimated_before={} estimated_after={}",
-                compaction.estimated_tokens_before, compaction.estimated_tokens_after
-            ),
-        );
-    }
-
-    let conversation = state.ops_agent.get_conversation(&conversation_id)?;
+    )?;
     let (history, current_user_message) =
         split_history_for_current_message(conversation.messages, &current_user_message_id)?;
     let session_context = super::prompting::load_session_context(&state, session_id.as_deref());

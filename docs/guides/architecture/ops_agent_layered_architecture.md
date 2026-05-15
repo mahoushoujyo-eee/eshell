@@ -100,7 +100,7 @@ Responsibilities:
 - prompt assembly
 - request planning and final-answer generation
 - retry handling
-- auto-compaction
+- non-destructive model-context compaction
 - run lifecycle orchestration
 
 Main files:
@@ -114,6 +114,10 @@ Main files:
 Important runtime detail:
 
 - `react_loop.rs` reads `AiConfig` once at run start
+- `runtime.rs` performs the first gateway decision before selecting direct reply, lite ReAct, or pro multi-agent execution
+- `runtime.rs` triggers automatic compaction before gateway routing so even direct replies use compacted model context when needed
+- `core/compaction.rs` stores private summaries under `.eshell-data/ops_agent_context_summaries/` and never rewrites visible conversation messages
+- repeated compaction rolls the existing private summary forward with newer raw messages after `sourceMessageId`; it does not restart from the full visible transcript
 - changing the active AI profile during streaming affects the next request only
 
 ### Tools
@@ -162,6 +166,7 @@ Responsibilities:
 - detached attachment persistence
 - debug logging
 - active run registry
+- private model-context summary files
 - AI profile persistence
 
 Main files:
@@ -170,6 +175,7 @@ Main files:
 - `infrastructure/attachments.rs`
 - `infrastructure/logging.rs`
 - `infrastructure/run_registry.rs`
+- `.eshell-data/ops_agent_context_summaries/<conversation-id>.json`
 - `src-tauri/src/storage/ai_profiles.rs`
 
 ### Domain
@@ -248,7 +254,7 @@ Debug logs in `.eshell-data/ops_agent_debug.log` should make it possible to reco
 - request assembly
 - provider selection and request kind
 - stream progress
-- compaction decisions
+- compaction decisions and private model-context application
 - attachment save/load/delete lifecycle
 
 Useful prefixes:

@@ -4,130 +4,129 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**v1.3.5** - Desktop operations workbench built with **Tauri 2 + React + Rust**.
+**eShell v1.4.0** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
 
-eShell combines SSH, PTY terminal, SFTP file operations, server status monitoring,
-script execution, and Ops Agent workflows in one integrated application.
+It combines SSH sessions, PTY terminals, SFTP file operations, server status monitoring, reusable scripts, and an Ops Agent for AI-assisted operations in one local-first application.
 
-## Key Features
+[中文说明](README.zh-CN.md)
 
-- **Multi-session SSH management** - configure and switch between multiple SSH profiles
-- **PTY terminal** (`xterm.js`) with input and resize sync; customizable wallpaper (built-in presets or custom upload with crop)
-- **Light / Dark theme toggle** from the sidebar
-- **English / Simplified Chinese UI** with persisted locale preference (`eshell:locale`)
-- **SFTP browser**:
-  - directory tree and file preview / edit
-  - upload and download with real-time progress
-  - configurable local download directory
-  - collapsible transfer queue overlay (direction, stage, progress, cancel)
-  - manual upload / download cancel
-- **Server status panel** - CPU, memory, network traffic, plus a switchable Processes / Disks detail view
-- **Script center** - save and execute scripts in the active session
-- **AI profile management**:
-  - multiple saved model profiles
-  - explicit provider protocol selection per profile
-  - global active profile switching from the AI chat footer
-- **Platform-adaptive title bar** - macOS traffic-light controls on macOS; standard minimize / maximize / close on Windows and Linux
-- **Ops Agent**:
-  - conversation management (create, switch, delete)
-  - conversation-level approval mode (`Approval` / `Full Access`)
-  - multi-provider model access:
-    - `openai_chat_completions`
-    - `openai_responses`
-    - `anthropic_messages`
-  - streaming assistant replies via `ops-agent-stream`
-  - pending action approval flow for risky shell commands
-  - automatic ReAct loop resume after approval resolution
-  - manual and automatic conversation compaction
-  - shell context attachment from terminal selection
-  - image upload with multimodal model input
-  - click-to-view image tags on sent user messages
-  - provider-aware model selector with local OpenAI / Anthropic icons
-  - debug logging in `.eshell-data/ops_agent_debug.log`
+## What It Does
+
+- Manage multiple SSH profiles and switch active sessions quickly.
+- Use an interactive `xterm.js` PTY terminal with resize sync and custom wallpaper.
+- Browse, preview, edit, upload, download, and delete files through SFTP.
+- Monitor remote server CPU, memory, network traffic, processes, and disks.
+- Save reusable scripts and run them against the active session.
+- Chat with an Ops Agent that can inspect context, propose commands, request approval, and resume after approvals.
+- Configure multiple AI provider profiles for OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages compatible APIs.
+- Use English or Simplified Chinese UI with persisted locale preference.
+
+## Ops Agent Highlights
+
+The Ops Agent is the main AI subsystem under `src-tauri/src/ops_agent/`.
+
+- Runtime gateway chooses `direct_reply`, `lite`, or `pro`.
+- `direct_reply` answers simple chat/API smoke-test messages without planner or ReAct overhead.
+- `lite` runs a compact ReAct loop for simple tool-assisted work.
+- `pro` runs planner, executor, reviewer, validator, and final-answer stages.
+- Risky shell actions create pending approvals instead of executing silently.
+- Approval resolution can resume the interrupted run automatically.
+- Long conversations use non-destructive model-context compaction:
+  - visible chat history stays unchanged
+  - private summaries are stored under `.eshell-data/ops_agent_context_summaries/`
+  - repeated compaction rolls the prior summary forward with newer raw messages
+- Image attachments are stored separately and rehydrated into multimodal model requests.
 
 ## Tech Stack
 
-**Frontend:**
+Frontend:
+
 - React 19
 - Vite 7
 - Tailwind CSS 4
 - xterm.js
 - Vitest
 
-**Backend:**
+Backend:
+
 - Tauri 2
 - Rust
 - ssh2
 - reqwest
 - serde / serde_json
 
-## Project Structure
+## Project Layout
 
 ```text
 src/
   components/
-    ai/            # provider icons and shared AI UI primitives
-    app/           # workspace shell, AI dock, modals
-    layout/        # title bar, top toolbar, notice stack
+    ai/            # provider icons and shared AI UI
+    app/           # app shell, AI dock, modal composition
+    layout/        # title bar, toolbar, notices
     panels/        # terminal, SFTP, status, AI assistant, file editor
-    sidebar/       # SSH / script / AI / wallpaper config modals
-  constants/
-    workbench.js   # wallpaper presets, panel constants
+    sidebar/       # SSH / script / AI / wallpaper settings
   hooks/
     useWorkbench.js
-    workbench/     # operations, effects, session, errors, aiProfiles
+    workbench/     # sessions, operations, effects, errors, AI profiles
   lib/
-    aiProviderTypes.js
-    i18n.js        # English / Simplified Chinese localization
-    tauri-api.js   # frontend invoke wrappers
-    sftp-transfer.js
+    tauri-api.js
     ops-agent-stream.js
     ops-agent-message-rendering.js
     ops-agent-shell-context.js
+    sftp-transfer.js
+    i18n.js
 
 src-tauri/src/
-  commands/
-  server_ops/      # shell, PTY, SFTP, status collection
-  ops_agent/       # chat runtime, provider dispatch, tool orchestration, approvals, compaction
-    providers/     # openai_compat, openai_responses, anthropic
-  storage/         # persistent data (ssh / scripts / ai profiles)
+  commands/        # Tauri command entry points
+  server_ops/      # SSH, PTY, SFTP, status collection
+  ops_agent/       # runtime gateway, agents, providers, tools, approvals, compaction
+  storage/         # persisted SSH / scripts / AI profiles / AGENTS.md context
   models.rs
   state.rs
+
+docs/
+  guides/
+  specs/
+  releases/
+  reports/
+  prompts/
+  refer_proj/
 ```
 
 ## Local Development
 
-**Prerequisites:**
-- Node.js >= 18
-- Rust stable
-- Tauri 2 prerequisites for your OS
+Prerequisites:
 
-**Install:**
+- Node.js 18+
+- Rust stable
+- Tauri 2 system prerequisites for your OS
+
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-**Frontend dev:**
+Run frontend only:
 
 ```bash
 npm run dev
 ```
 
-**Desktop app dev:**
+Run desktop app:
 
 ```bash
 npm run tauri dev
 ```
 
-**Build:**
+Build:
 
 ```bash
 npm run build
 npm run tauri build
 ```
 
-## Test and Validation
+## Test And Validation
 
 Frontend tests:
 
@@ -142,20 +141,25 @@ cd src-tauri
 cargo check
 ```
 
-Rust tests:
+Rust test build:
+
+```bash
+cd src-tauri
+cargo test --no-run
+```
+
+Full Rust tests:
 
 ```bash
 cd src-tauri
 cargo test
 ```
 
+Note: on some Windows environments, the test binary may compile but fail to start with a runtime DLL entry-point error. In that case, use `cargo check` and `cargo test --no-run` as the baseline until the local runtime issue is fixed.
+
 ## Runtime Data
 
-Runtime data is stored in `.eshell-data/` under the Tauri process working directory.
-
-During local development from this repository, that usually means:
-
-- `src-tauri/.eshell-data/` when you run `npm run tauri dev` from the project root
+Runtime data is stored in `.eshell-data/` under the Tauri process working directory. During local development this is usually `src-tauri/.eshell-data/`.
 
 Typical contents:
 
@@ -164,29 +168,34 @@ Typical contents:
   ssh_configs.json
   scripts.json
   ai_profiles.json
+  AGENTS.md
+  server_agents/
   ops_agent_conversation_list.json
   ops_agent_conversations/
+  ops_agent_context_summaries/
   ops_agent_attachments/
+  ops_agent_runs/
   ops_agent_debug.log
 ```
 
-Notes:
+Persistence notes:
 
-- `ai_profiles.json` is the single source of truth for AI profile persistence
-- legacy `ai_config.json` is migrated on startup when present
-- `ops_agent_attachments/` stores detached image payloads; conversation JSON only stores `attachmentIds`
+- `ai_profiles.json` is the source of truth for AI profiles, active profile, approval mode, and agent mode.
+- `ops_agent_conversations/` keeps the full visible chat history.
+- `ops_agent_context_summaries/` stores private model-context summaries and does not replace visible messages.
+- `ops_agent_attachments/` stores detached image payloads; conversation JSON stores only `attachmentIds`.
+- `AGENTS.md` and `server_agents/` provide user-maintained context injected into model requests.
 
-## Documentation Index
+## Documentation
 
 - [Docs Overview](docs/README.md)
-- [Project Description](docs/specs/project_description.md)
-- [Project Dev Guide](docs/guides/PROJECT_DEV_GUIDE.md)
+- [Backend Architecture](docs/guides/architecture/backend_architecture.md)
 - [Ops Agent Guide](docs/guides/features/ops_agent.md)
 - [Ops Agent Layered Architecture](docs/guides/architecture/ops_agent_layered_architecture.md)
+- [Project Dev Guide](docs/guides/PROJECT_DEV_GUIDE.md)
+- [Project Description](docs/specs/project_description.md)
 - [OpenAPI-style RPC Spec](docs/specs/openapi.yaml)
 - [Server Status Guide](docs/guides/features/server_status.md)
 - [SFTP Transfer Guide](docs/guides/features/sftp_transfer.md)
 - [Unreleased Notes](docs/releases/unreleased.md)
-- [Release Notes 1.3.0](docs/releases/v1.3.0.md)
-- [Release Notes 1.2.0](docs/releases/v1.2.0.md)
-- [Reference Projects](docs/refer_proj/README.md)
+- [Release Notes 1.4.0](docs/releases/v1.4.0.md)
