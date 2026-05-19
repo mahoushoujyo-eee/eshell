@@ -124,12 +124,21 @@ function DisksView({ rows = [] }) {
   );
 }
 
+const INTERVAL_OPTIONS = [
+  { label: "1s", value: 1000 },
+  { label: "3s", value: 3000 },
+  { label: "5s", value: 5000 },
+  { label: "10s", value: 10000 },
+];
+
 export default function StatusPanel({
   activeSessionId,
   currentStatus,
   currentNic,
   onNicChange,
   formatBytes,
+  refreshInterval = 5000,
+  onRefreshIntervalChange,
 }) {
   const { localeTag, t } = useI18n();
   const [trafficRate, setTrafficRate] = useState(emptyTrafficRate);
@@ -215,12 +224,35 @@ export default function StatusPanel({
           <Activity className="h-4 w-4 text-accent" aria-hidden="true" />
           {t("Server Status")}
         </div>
-        {currentStatus?.fetchedAt && (
-          <span className="inline-flex items-center gap-1 text-muted">
-            <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
-            {new Date(currentStatus.fetchedAt).toLocaleTimeString(localeTag)}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded border border-border">
+            {INTERVAL_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className={[
+                  "px-1.5 py-0.5 text-[10px] font-medium transition-colors first:rounded-l last:rounded-r",
+                  refreshInterval === opt.value
+                    ? "bg-accent text-white"
+                    : "text-muted hover:bg-accent-soft/70",
+                ].join(" ")}
+                onClick={() => {
+                  onRefreshIntervalChange?.(opt.value);
+                  window.localStorage?.setItem("eshell:status-refresh-interval", String(opt.value));
+                }}
+                title={t("Refresh every {interval}", { interval: opt.label })}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {currentStatus?.fetchedAt && (
+            <span className="inline-flex items-center gap-1 text-muted">
+              <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+              {new Date(currentStatus.fetchedAt).toLocaleTimeString(localeTag)}
+            </span>
+          )}
+        </div>
       </div>
 
       {!currentStatus && (

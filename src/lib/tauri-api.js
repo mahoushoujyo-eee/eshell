@@ -55,6 +55,8 @@ export const api = {
   sftpDefaultDownloadDir: () => invoke("sftp_default_download_dir"),
   sftpCancelTransfer: (transferId) =>
     invoke("sftp_cancel_transfer", { input: { transferId } }),
+  sshKiRespond: (requestId, responses) =>
+    invoke("ssh_ki_respond", { input: { requestId, responses } }),
 
   fetchServerStatus: (sessionId, selectedInterface) =>
     invoke("fetch_server_status", {

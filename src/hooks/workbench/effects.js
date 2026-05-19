@@ -10,6 +10,13 @@ import { normalizeSftpTransferEvent, upsertSftpTransfer } from "../../lib/sftp-t
 import { recordPtyChunk } from "../../lib/terminal-perf-debug";
 import { api } from "../../lib/tauri-api";
 
+const sftpRemoteParentDir = (path) => {
+  if (!path || path === "/") return "/";
+  const p = path.endsWith("/") ? path.slice(0, -1) : path;
+  const lastSlash = p.lastIndexOf("/");
+  return lastSlash <= 0 ? "/" : p.substring(0, lastSlash);
+};
+
 export function useWorkbenchEffects({
   theme,
   wallpaper,
@@ -47,6 +54,8 @@ export function useWorkbenchEffects({
   runBusy,
   runWithSessionReconnect,
   openFileContent,
+  setKiPrompt,
+  statusRefreshInterval,
 }) {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -237,6 +246,19 @@ export function useWorkbenchEffects({
         return;
       }
       setSftpTransfers((prev) => upsertSftpTransfer(prev, normalized));
+
+      if (
+        normalized.stage === "completed" &&
+        normalized.direction === "upload" &&
+        normalized.sessionId === activeSessionId &&
+        showSftpPanel &&
+        normalized.remotePath
+      ) {
+        const remoteParent = sftpRemoteParentDir(normalized.remotePath);
+        if (remoteParent === currentPath || normalized.remotePath === currentPath) {
+          void refreshSftp(currentPath);
+        }
+      }
     }).catch((error) => {
       if (!disposed) {
         console.warn("Failed to bind sftp-transfer listener", error);
@@ -252,7 +274,34 @@ export function useWorkbenchEffects({
         }
       });
     };
-  }, [setSftpTransfers]);
+  }, [activeSessionId, currentPath, refreshSftp, setSftpTransfers, showSftpPanel]);
+
+  useEffect(() => {
+    if (typeof setKiPrompt !== "function") {
+      return undefined;
+    }
+    let disposed = false;
+    const unlistenPromise = listen("ssh-ki-prompt", (event) => {
+      const payload = event.payload;
+      if (!payload || typeof payload !== "object" || !payload.requestId) {
+        return;
+      }
+      setKiPrompt(payload);
+    }).catch((error) => {
+      if (!disposed) {
+        console.warn("Failed to bind ssh-ki-prompt listener", error);
+      }
+      return null;
+    });
+    return () => {
+      disposed = true;
+      void unlistenPromise.then((unlisten) => {
+        if (typeof unlisten === "function") {
+          unlisten();
+        }
+      });
+    };
+  }, [setKiPrompt]);
 
   useEffect(() => {
     if (!activeAiConversationId) {
@@ -298,9 +347,12 @@ export function useWorkbenchEffects({
     }
 
     void refreshStatus(activeSessionId, currentNic);
+    const interval = typeof statusRefreshInterval === "number" && statusRefreshInterval >= 1000
+      ? statusRefreshInterval
+      : 5000;
     const timer = setInterval(() => {
       void refreshStatus(activeSessionId, currentNic);
-    }, 5000);
+    }, interval);
     return () => clearInterval(timer);
   }, [
     activeSessionId,
@@ -308,6 +360,7 @@ export function useWorkbenchEffects({
     refreshStatus,
     showSftpPanel,
     showStatusPanel,
+    statusRefreshInterval,
   ]);
 
   useEffect(() => {

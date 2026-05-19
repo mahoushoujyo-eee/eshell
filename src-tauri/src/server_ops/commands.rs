@@ -9,7 +9,7 @@ use crate::models::{
     RunScriptResult, SftpCancelTransferInput, SftpCreateInput, SftpDeleteInput, SftpDownloadInput,
     SftpDownloadPayload, SftpDownloadToLocalInput, SftpFileContent, SftpListInput,
     SftpListResponse, SftpReadInput, SftpTransferResult, SftpUploadInput,
-    SftpUploadWithProgressInput, SftpWriteInput, ShellSession,
+    SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshKiRespondInput,
 };
 use crate::state::AppState;
 
@@ -250,6 +250,15 @@ pub async fn run_script(
         })
     })
     .await
+}
+
+/// Delivers keyboard-interactive responses from the UI to the waiting SSH auth thread.
+#[tauri::command]
+pub fn ssh_ki_respond(
+    state: State<'_, Arc<AppState>>,
+    input: SshKiRespondInput,
+) -> Result<(), String> {
+    super::ssh_ki_respond(&state, &input.request_id, input.responses).map_err(to_command_error)
 }
 
 fn shell_quote(value: &str) -> String {

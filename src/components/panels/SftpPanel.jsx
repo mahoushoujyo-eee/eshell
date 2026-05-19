@@ -305,6 +305,16 @@ export default function SftpPanel({
               onToggleNode={toggleNode}
               onSelectDirectory={selectDirectory}
               onReloadRoot={() => loadTreeNode("/")}
+              onNodeContextMenu={(node, event) => {
+                const dirEntry = {
+                  path: node.path,
+                  name: node.name,
+                  entryType: "directory",
+                  size: 0,
+                  modifiedAt: null,
+                };
+                openEntryContextMenu(dirEntry, event);
+              }}
             />
           }
           secondary={

@@ -44,6 +44,8 @@ export default function AppMainWorkspace({
     handleNicChange,
     handleDownloadDirectoryChange,
     formatBytes,
+    statusRefreshInterval,
+    setStatusRefreshInterval,
   } = workbench;
 
   const terminalPanel = (
@@ -98,6 +100,8 @@ export default function AppMainWorkspace({
       currentNic={currentNic}
       onNicChange={handleNicChange}
       formatBytes={formatBytes}
+      refreshInterval={statusRefreshInterval}
+      onRefreshIntervalChange={setStatusRefreshInterval}
     />
   ) : null;
 

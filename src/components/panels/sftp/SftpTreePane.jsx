@@ -9,6 +9,7 @@ function TreeRow({
   isSelected,
   onToggle,
   onSelect,
+  onContextMenu,
   children,
 }) {
   const { t } = useI18n();
@@ -47,6 +48,7 @@ function TreeRow({
           type="button"
           className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1 text-left text-xs"
           onClick={() => void onSelect(node.path)}
+          onContextMenu={(event) => onContextMenu?.(node, event)}
           title={node.path}
         >
           {expanded ? (
@@ -72,6 +74,7 @@ export default function SftpTreePane({
   onToggleNode,
   onSelectDirectory,
   onReloadRoot,
+  onNodeContextMenu,
 }) {
   const { t } = useI18n();
 
@@ -90,6 +93,7 @@ export default function SftpTreePane({
           isSelected={selectedTreePath === node.path}
           onToggle={onToggleNode}
           onSelect={onSelectDirectory}
+          onContextMenu={onNodeContextMenu}
         >
           {renderTreeRows(node.path, depth + 1)}
         </TreeRow>
@@ -116,6 +120,7 @@ export default function SftpTreePane({
             isSelected={selectedTreePath === "/"}
             onToggle={onToggleNode}
             onSelect={onSelectDirectory}
+            onContextMenu={onNodeContextMenu}
           >
             {renderTreeRows("/", 1)}
           </TreeRow>

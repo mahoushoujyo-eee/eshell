@@ -33,11 +33,16 @@ export function useWorkbench() {
   });
   const [showSftpPanel, setShowSftpPanel] = useState(false);
   const [showStatusPanel, setShowStatusPanel] = useState(false);
+  const [statusRefreshInterval, setStatusRefreshInterval] = useState(() => {
+    if (typeof window === "undefined") return 5000;
+    return parseInt(window.localStorage.getItem("eshell:status-refresh-interval") || "5000", 10) || 5000;
+  });
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [uiNotices, setUiNotices] = useState([]);
   const [hostKeyTrustPrompt, setHostKeyTrustPrompt] = useState(null);
+  const [kiPrompt, setKiPrompt] = useState(null);
 
   const [sshConfigs, setSshConfigs] = useState([]);
   const [sshForm, setSshForm] = useState(EMPTY_SSH);
@@ -87,6 +92,7 @@ export function useWorkbench() {
   const saveTimerRef = useRef(null);
   const reconnectingSessionsRef = useRef(new Map());
   const closingSessionsRef = useRef(new Set());
+  const kiPromptDismissRef = useRef(null);
   const sessionAliasRef = useRef(new Map());
   const statusRequestTokenRef = useRef(new Map());
   const aiStreamRef = useRef(EMPTY_OPS_AGENT_STREAM);
@@ -226,6 +232,11 @@ export function useWorkbench() {
     hostKeyTrustResolverRef.current = null;
     setHostKeyTrustPrompt(null);
     resolver?.(Boolean(accepted));
+  }, []);
+
+  const dismissKiPrompt = useCallback(() => {
+    setKiPrompt(null);
+    kiPromptDismissRef.current = null;
   }, []);
 
   const onError = useCallback((err) => {
@@ -415,6 +426,8 @@ export function useWorkbench() {
     runBusy,
     runWithSessionReconnect,
     openFileContent,
+    setKiPrompt,
+    statusRefreshInterval,
   });
 
   const currentPtyOutput = activeSessionId ? ptyOutputBySession[activeSessionId] || "" : "";
@@ -439,6 +452,8 @@ export function useWorkbench() {
     setShowSftpPanel,
     showStatusPanel,
     setShowStatusPanel,
+    statusRefreshInterval,
+    setStatusRefreshInterval,
     showAiPanel,
     setShowAiPanel,
     busy,
@@ -447,6 +462,8 @@ export function useWorkbench() {
     dismissUiNotice,
     hostKeyTrustPrompt,
     resolveHostKeyTrust,
+    kiPrompt,
+    dismissKiPrompt,
     sshConfigs,
     sshForm,
     setSshForm,

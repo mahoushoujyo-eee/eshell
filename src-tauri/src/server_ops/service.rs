@@ -1,9 +1,9 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -26,7 +26,7 @@ use crate::models::{
     SftpDownloadPayload, SftpDownloadToLocalInput, SftpEntry, SftpEntryType, SftpFileContent,
     SftpListInput, SftpListResponse, SftpReadInput, SftpTransferEvent, SftpTransferResult,
     SftpUploadInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshAuthType,
-    SshConfig, SshHostKeyTrustChallenge, SshHostKeyTrustReason,
+    SshConfig, SshHostKeyTrustChallenge, SshHostKeyTrustReason, SshKiPromptEvent, SshKiPromptItem,
 };
 use crate::state::{AppState, PtyCommand};
 
@@ -44,6 +44,8 @@ const SSH_CONNECT_SLICE_TIMEOUT: Duration = Duration::from_millis(500);
 const SSH_CONNECT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SSH_CONNECTION_CANCELLED_MESSAGE: &str = "SSH connection cancelled by user";
 const SSH_HOST_KEY_TRUST_REQUIRED_PREFIX: &str = "SSH_HOST_KEY_TRUST_REQUIRED:";
+const SSH_KI_PROMPT_EVENT: &str = "ssh-ki-prompt";
+const SSH_KI_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Creates a shell session and starts a long-lived PTY worker for interactive terminal IO.
 pub fn open_shell_session(
@@ -72,7 +74,12 @@ fn open_shell_session_inner(
     request_id: Option<&str>,
 ) -> AppResult<ShellSession> {
     let config = state.storage.find_ssh_config(config_id)?;
-    let ssh = connect_with_cancellation(&state, &config, request_id.map(|id| (&*state, id)))?;
+    let ssh = connect_with_app(
+        &state,
+        Some(&app),
+        &config,
+        request_id.map(|id| (&*state, id)),
+    )?;
     let (pwd_out, _, status) = run_channel_command(&ssh, "pwd")?;
     if status != 0 {
         return Err(AppError::Runtime(format!(
@@ -1301,17 +1308,26 @@ fn is_transient_pty_io_error(err: &std::io::Error) -> bool {
 }
 
 fn connect(state: &AppState, config: &SshConfig) -> AppResult<Session> {
-    connect_with_cancellation(state, config, None)
+    connect_with_app(state, None, config, None)
 }
 
-fn connect_with_cancellation(
+fn connect_with_app(
     state: &AppState,
+    app: Option<&AppHandle>,
     config: &SshConfig,
     cancellation: Option<(&AppState, &str)>,
 ) -> AppResult<Session> {
-    let tcp = connect_tcp_with_cancellation(config, cancellation)?;
-    tcp.set_read_timeout(Some(std::time::Duration::from_secs(20)))?;
-    tcp.set_write_timeout(Some(std::time::Duration::from_secs(20)))?;
+    let tcp = if let Some(jump_id) = config.jump_host_id.as_deref().filter(|s| !s.is_empty()) {
+        let jump_config = state.storage.find_ssh_config(jump_id).map_err(|_| {
+            AppError::Runtime(format!("jump host config {jump_id} not found"))
+        })?;
+        open_jump_host_stream(state, app, &jump_config, &config.host, config.port, cancellation)?
+    } else {
+        let stream = connect_tcp_with_cancellation(config, cancellation)?;
+        stream.set_read_timeout(Some(Duration::from_secs(20)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(20)))?;
+        stream
+    };
 
     let mut session = Session::new()?;
     session.set_tcp_stream(tcp);
@@ -1322,7 +1338,7 @@ fn connect_with_cancellation(
     check_shell_connection_cancelled(cancellation)?;
     verify_host_key_trust(state, config, &session)?;
     check_shell_connection_cancelled(cancellation)?;
-    authenticate_session(config, &mut session)?;
+    authenticate_session(state, app, config, &mut session)?;
 
     if !session.authenticated() {
         return Err(AppError::Runtime(format!(
@@ -1332,6 +1348,98 @@ fn connect_with_cancellation(
     }
 
     Ok(session)
+}
+
+#[allow(dead_code)]
+fn connect_with_cancellation(
+    state: &AppState,
+    config: &SshConfig,
+    cancellation: Option<(&AppState, &str)>,
+) -> AppResult<Session> {
+    connect_with_app(state, None, config, cancellation)
+}
+
+fn open_jump_host_stream(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    jump_config: &SshConfig,
+    target_host: &str,
+    target_port: u16,
+    cancellation: Option<(&AppState, &str)>,
+) -> AppResult<TcpStream> {
+    let jump_session = connect_with_app(state, app, jump_config, cancellation)?;
+    jump_session.set_blocking(true);
+
+    let channel = jump_session
+        .channel_direct_tcpip(target_host, target_port, Some(("127.0.0.1", 0)))
+        .map_err(|err| {
+            AppError::Runtime(format!(
+                "failed to open jump channel to {target_host}:{target_port}: {err}"
+            ))
+        })?;
+
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let local_port = listener.local_addr()?.port();
+
+    thread::spawn(move || {
+        let Ok((local_stream, _)) = listener.accept() else {
+            return;
+        };
+        let Ok(mut local_w) = local_stream.try_clone() else {
+            return;
+        };
+        let mut local_r = local_stream;
+
+        let channel_arc = Arc::new(Mutex::new(channel));
+        let channel_arc2 = Arc::clone(&channel_arc);
+
+        let ch_to_local = thread::spawn(move || {
+            let mut buf = [0u8; 32_768];
+            loop {
+                let n = {
+                    let mut ch = match channel_arc2.lock() {
+                        Ok(g) => g,
+                        Err(_) => break,
+                    };
+                    match ch.read(&mut buf) {
+                        Ok(n) => n,
+                        Err(_) => 0,
+                    }
+                };
+                if n == 0 {
+                    break;
+                }
+                if local_w.write_all(&buf[..n]).is_err() {
+                    break;
+                }
+            }
+        });
+
+        let _keep_alive = jump_session;
+        let mut buf = [0u8; 32_768];
+        loop {
+            let n = match local_r.read(&mut buf) {
+                Ok(n) => n,
+                Err(_) => 0,
+            };
+            if n == 0 {
+                break;
+            }
+            let mut ch = match channel_arc.lock() {
+                Ok(g) => g,
+                Err(_) => break,
+            };
+            if ch.write_all(&buf[..n]).is_err() {
+                break;
+            }
+        }
+        let _ = ch_to_local.join();
+    });
+
+    let stream = TcpStream::connect(format!("127.0.0.1:{local_port}"))?;
+    stream.set_read_timeout(Some(Duration::from_secs(20)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(20)))?;
+    Ok(stream)
 }
 
 fn verify_host_key_trust(
@@ -1367,7 +1475,12 @@ fn verify_host_key_trust(
     }
 }
 
-fn authenticate_session(config: &SshConfig, session: &mut Session) -> AppResult<()> {
+fn authenticate_session(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    config: &SshConfig,
+    session: &mut Session,
+) -> AppResult<()> {
     match config.auth_type {
         SshAuthType::Password => authenticate_with_password(config, session),
         SshAuthType::PrivateKey => {
@@ -1406,7 +1519,94 @@ fn authenticate_session(config: &SshConfig, session: &mut Session) -> AppResult<
                 Err(err) => Err(map_key_auth_error(config, AppError::Ssh(err))),
             }
         }
+        SshAuthType::KeyboardInteractive => {
+            let app = app.ok_or_else(|| {
+                AppError::Runtime(
+                    "keyboard-interactive auth requires an app handle".to_string(),
+                )
+            })?;
+            let request_id = Uuid::new_v4().to_string();
+            let mut prompter = FrontendKiPrompter {
+                state,
+                app,
+                request_id: request_id.clone(),
+            };
+            session
+                .userauth_keyboard_interactive(&config.username, &mut prompter)
+                .map_err(|err| {
+                    state.clear_ki_pending(&request_id);
+                    AppError::Runtime(format!(
+                        "keyboard-interactive authentication failed for {}@{}:{}: {err}",
+                        config.username, config.host, config.port
+                    ))
+                })
+        }
     }
+}
+
+struct FrontendKiPrompter<'a> {
+    state: &'a AppState,
+    app: &'a AppHandle,
+    request_id: String,
+}
+
+impl<'a> ssh2::KeyboardInteractivePrompt for FrontendKiPrompter<'a> {
+    fn prompt(
+        &mut self,
+        username: &str,
+        instructions: &str,
+        prompts: &[ssh2::Prompt<'_>],
+    ) -> Vec<String> {
+        if prompts.is_empty() {
+            return vec![];
+        }
+
+        let (tx, rx) = mpsc::channel::<Vec<String>>();
+        self.state.put_ki_pending(&self.request_id, tx);
+
+        let event = SshKiPromptEvent {
+            request_id: self.request_id.clone(),
+            username: username.to_string(),
+            instructions: instructions.to_string(),
+            prompts: prompts
+                .iter()
+                .map(|p| SshKiPromptItem {
+                    text: p.text.to_string(),
+                    echo: p.echo,
+                })
+                .collect(),
+        };
+
+        if self.app.emit(SSH_KI_PROMPT_EVENT, &event).is_err() {
+            self.state.clear_ki_pending(&self.request_id);
+            return vec![String::new(); prompts.len()];
+        }
+
+        match rx.recv_timeout(SSH_KI_TIMEOUT) {
+            Ok(responses) => {
+                if responses.len() == prompts.len() {
+                    responses
+                } else {
+                    let mut r = responses;
+                    r.resize(prompts.len(), String::new());
+                    r
+                }
+            }
+            Err(_) => {
+                self.state.clear_ki_pending(&self.request_id);
+                vec![String::new(); prompts.len()]
+            }
+        }
+    }
+}
+
+/// Delivers keyboard-interactive responses from frontend to waiting auth thread.
+pub fn ssh_ki_respond(
+    state: &AppState,
+    request_id: &str,
+    responses: Vec<String>,
+) -> AppResult<()> {
+    state.respond_ki(request_id, responses)
 }
 
 fn authenticate_with_password(config: &SshConfig, session: &mut Session) -> AppResult<()> {

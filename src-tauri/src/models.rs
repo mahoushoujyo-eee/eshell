@@ -27,6 +27,7 @@ pub fn default_ai_api_type() -> AiApiType {
 pub enum SshAuthType {
     Password,
     PrivateKey,
+    KeyboardInteractive,
 }
 
 pub fn default_ssh_auth_type() -> SshAuthType {
@@ -51,6 +52,8 @@ pub struct SshConfig {
     pub private_key_passphrase: String,
     #[serde(default)]
     pub use_password_fallback: bool,
+    #[serde(default)]
+    pub jump_host_id: Option<String>,
     pub description: String,
     pub created_at: String,
     pub updated_at: String,
@@ -74,7 +77,32 @@ pub struct SshConfigInput {
     pub private_key_passphrase: String,
     #[serde(default)]
     pub use_password_fallback: bool,
+    #[serde(default)]
+    pub jump_host_id: Option<String>,
     pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshKiPromptItem {
+    pub text: String,
+    pub echo: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshKiPromptEvent {
+    pub request_id: String,
+    pub username: String,
+    pub instructions: String,
+    pub prompts: Vec<SshKiPromptItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshKiRespondInput {
+    pub request_id: String,
+    pub responses: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

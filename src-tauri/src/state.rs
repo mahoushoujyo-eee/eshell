@@ -37,6 +37,7 @@ pub struct AppState {
     pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>,
     shell_connection_cancellations: RwLock<HashMap<String, bool>>,
     sftp_transfer_cancellations: RwLock<HashMap<String, bool>>,
+    ki_pending: RwLock<HashMap<String, Sender<Vec<String>>>>,
 }
 
 impl AppState {
@@ -62,6 +63,7 @@ impl AppState {
             pty_channels: RwLock::new(HashMap::new()),
             shell_connection_cancellations: RwLock::new(HashMap::new()),
             sftp_transfer_cancellations: RwLock::new(HashMap::new()),
+            ki_pending: RwLock::new(HashMap::new()),
         })
     }
 
@@ -254,5 +256,34 @@ impl AppState {
             .write()
             .expect("sftp cancellation lock poisoned")
             .remove(transfer_id);
+    }
+
+    /// Registers a sender to receive keyboard-interactive responses for one auth challenge.
+    pub fn put_ki_pending(&self, request_id: &str, sender: Sender<Vec<String>>) {
+        self.ki_pending
+            .write()
+            .expect("ki pending lock poisoned")
+            .insert(request_id.to_string(), sender);
+    }
+
+    /// Delivers keyboard-interactive responses to the waiting auth thread.
+    pub fn respond_ki(&self, request_id: &str, responses: Vec<String>) -> AppResult<()> {
+        let sender = self
+            .ki_pending
+            .write()
+            .expect("ki pending lock poisoned")
+            .remove(request_id)
+            .ok_or_else(|| AppError::NotFound(format!("ki challenge {request_id}")))?;
+        sender.send(responses).map_err(|_| {
+            AppError::Runtime(format!("ki challenge {request_id} receiver already gone"))
+        })
+    }
+
+    /// Removes stale KI pending entry (cleanup on timeout or cancel).
+    pub fn clear_ki_pending(&self, request_id: &str) {
+        self.ki_pending
+            .write()
+            .expect("ki pending lock poisoned")
+            .remove(request_id);
     }
 }
