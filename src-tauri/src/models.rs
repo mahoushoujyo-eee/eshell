@@ -251,6 +251,16 @@ pub struct SftpUploadWithProgressInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SftpUploadLocalWithProgressInput {
+    pub session_id: String,
+    pub remote_path: String,
+    pub local_path: String,
+    pub transfer_id: String,
+    pub local_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SftpDownloadInput {
     pub session_id: String,
     pub remote_path: String,
@@ -271,6 +281,14 @@ pub struct SftpDeleteInput {
     pub session_id: String,
     pub path: String,
     pub entry_type: SftpEntryType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpRenameInput {
+    pub session_id: String,
+    pub path: String,
+    pub new_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

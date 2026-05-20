@@ -77,11 +77,15 @@ export default function SftpToolbar({
           {t("Folder")}
         </button>
 
-        <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft">
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
+          onClick={uploadFile}
+          disabled={!activeSessionId}
+        >
           <Upload className="h-3.5 w-3.5" aria-hidden="true" />
           {t("Upload")}
-          <input type="file" className="hidden" onChange={uploadFile} disabled={!activeSessionId} />
-        </label>
+        </button>
 
         <button
           type="button"

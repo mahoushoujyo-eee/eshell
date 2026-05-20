@@ -33,6 +33,7 @@ export default function AppMainWorkspace({
     createSftpEntry,
     downloadFile,
     deleteSftpEntry,
+    renameSftpEntry,
     copySftpEntryPath,
     cancelSftpTransfer,
     attachAiShellContext,
@@ -79,6 +80,7 @@ export default function AppMainWorkspace({
       createSftpEntry={createSftpEntry}
       downloadFile={downloadFile}
       deleteSftpEntry={deleteSftpEntry}
+      renameSftpEntry={renameSftpEntry}
       copySftpEntryPath={copySftpEntryPath}
       cancelTransfer={cancelSftpTransfer}
       downloadDirectory={downloadDirectory}

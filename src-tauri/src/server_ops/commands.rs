@@ -8,8 +8,9 @@ use crate::models::{
     FetchServerStatusInput, OpenShellInput, PtyResizeInput, PtyWriteInput, RunScriptInput,
     RunScriptResult, SftpCancelTransferInput, SftpCreateInput, SftpDeleteInput, SftpDownloadInput,
     SftpDownloadPayload, SftpDownloadToLocalInput, SftpFileContent, SftpListInput,
-    SftpListResponse, SftpReadInput, SftpTransferResult, SftpUploadInput,
-    SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshKiRespondInput,
+    SftpListResponse, SftpReadInput, SftpRenameInput, SftpTransferResult, SftpUploadInput,
+    SftpUploadLocalWithProgressInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession,
+    SshKiRespondInput,
 };
 use crate::state::AppState;
 
@@ -92,70 +93,88 @@ pub async fn execute_shell_command(
 #[tauri::command]
 pub async fn sftp_list_dir(
     state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
     input: SftpListInput,
 ) -> Result<SftpListResponse, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_list_dir(&app_state, input)).await
+    run_blocking(move || super::sftp_list_dir(&app_state, Some(&app), input)).await
 }
 
 /// Reads remote text file content for editor view.
 #[tauri::command]
 pub async fn sftp_read_file(
     state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
     input: SftpReadInput,
 ) -> Result<SftpFileContent, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_read_file(&app_state, input)).await
+    run_blocking(move || super::sftp_read_file(&app_state, Some(&app), input)).await
 }
 
 /// Writes text editor content back to remote file through SFTP.
 #[tauri::command]
 pub async fn sftp_write_file(
     state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
     input: SftpWriteInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_write_file(&app_state, input)).await
+    run_blocking(move || super::sftp_write_file(&app_state, Some(&app), input)).await
 }
 
 /// Creates an empty remote file through SFTP.
 #[tauri::command]
 pub async fn sftp_create_file(
     state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
     input: SftpCreateInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_create_file(&app_state, input)).await
+    run_blocking(move || super::sftp_create_file(&app_state, Some(&app), input)).await
 }
 
 /// Creates one remote directory through SFTP.
 #[tauri::command]
 pub async fn sftp_create_directory(
     state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
     input: SftpCreateInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_create_directory(&app_state, input)).await
+    run_blocking(move || super::sftp_create_directory(&app_state, Some(&app), input)).await
 }
 
 /// Uploads local file bytes (base64 payload) to a remote path via SFTP.
 #[tauri::command]
 pub async fn sftp_upload_file(
     state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
     input: SftpUploadInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_upload_file(&app_state, input)).await
+    run_blocking(move || super::sftp_upload_file(&app_state, Some(&app), input)).await
 }
 
 /// Deletes one remote file or symlink via SFTP.
 #[tauri::command]
 pub async fn sftp_delete_entry(
     state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
     input: SftpDeleteInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_delete_entry(&app_state, input)).await
+    run_blocking(move || super::sftp_delete_entry(&app_state, Some(&app), input)).await
+}
+
+/// Renames one remote file, symlink, or directory via SFTP.
+#[tauri::command]
+pub async fn sftp_rename_entry(
+    state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
+    input: SftpRenameInput,
+) -> Result<(), String> {
+    let app_state = Arc::clone(state.inner());
+    run_blocking(move || super::sftp_rename_entry(&app_state, Some(&app), input)).await
 }
 
 /// Uploads local file bytes (base64 payload) and emits transfer progress events.
@@ -169,14 +188,26 @@ pub async fn sftp_upload_file_with_progress(
     run_blocking(move || super::sftp_upload_file_with_progress(&app_state, &app, input)).await
 }
 
+/// Streams a local file path to a remote path and emits transfer progress events.
+#[tauri::command]
+pub async fn sftp_upload_local_file_with_progress(
+    state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
+    input: SftpUploadLocalWithProgressInput,
+) -> Result<SftpTransferResult, String> {
+    let app_state = Arc::clone(state.inner());
+    run_blocking(move || super::sftp_upload_local_file_with_progress(&app_state, &app, input)).await
+}
+
 /// Downloads remote file content via SFTP and returns base64 payload.
 #[tauri::command]
 pub async fn sftp_download_file(
     state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
     input: SftpDownloadInput,
 ) -> Result<SftpDownloadPayload, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_download_file(&app_state, input)).await
+    run_blocking(move || super::sftp_download_file(&app_state, Some(&app), input)).await
 }
 
 /// Downloads one remote file directly to a local directory with progress events.
@@ -209,10 +240,11 @@ pub fn sftp_cancel_transfer(
 #[tauri::command]
 pub async fn fetch_server_status(
     state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
     input: FetchServerStatusInput,
 ) -> Result<crate::models::ServerStatus, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::fetch_server_status(&app_state, input)).await
+    run_blocking(move || super::fetch_server_status(&app_state, Some(&app), input)).await
 }
 
 /// Returns cached metrics for instant UI render when switching tabs.

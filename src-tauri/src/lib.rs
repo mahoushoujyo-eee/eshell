@@ -31,6 +31,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(shared_state)
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::config::list_ssh_configs,
             commands::config::save_ssh_config,
@@ -50,7 +51,9 @@ pub fn run() {
             server_ops::commands::sftp_create_directory,
             server_ops::commands::sftp_upload_file,
             server_ops::commands::sftp_delete_entry,
+            server_ops::commands::sftp_rename_entry,
             server_ops::commands::sftp_upload_file_with_progress,
+            server_ops::commands::sftp_upload_local_file_with_progress,
             server_ops::commands::sftp_download_file,
             server_ops::commands::sftp_download_file_to_local,
             server_ops::commands::sftp_default_download_dir,

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
-use std::sync::RwLock;
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::error::{AppError, AppResult};
 use crate::models::{ServerStatus, ShellSession};
@@ -11,6 +11,9 @@ use crate::ops_agent::infrastructure::run_registry::OpsAgentRunRegistry;
 use crate::ops_agent::infrastructure::store::OpsAgentStore;
 use crate::ops_agent::tools::{default_ops_agent_tool_registry, OpsAgentToolRegistry};
 use crate::storage::Storage;
+use ssh2::Session;
+
+pub type SharedSshSession = Arc<Mutex<Session>>;
 
 #[derive(Debug, Clone)]
 pub enum PtyCommand {
@@ -33,6 +36,7 @@ pub struct AppState {
     pub ops_agent_tools: OpsAgentToolRegistry,
     pub ops_agent_runs: OpsAgentRunRegistry,
     sessions: RwLock<HashMap<String, ShellSession>>,
+    ssh_sessions: RwLock<HashMap<String, SharedSshSession>>,
     status_cache: RwLock<HashMap<String, ServerStatus>>,
     pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>,
     shell_connection_cancellations: RwLock<HashMap<String, bool>>,
@@ -59,6 +63,7 @@ impl AppState {
             ops_agent_tools,
             ops_agent_runs: OpsAgentRunRegistry::new(),
             sessions: RwLock::new(HashMap::new()),
+            ssh_sessions: RwLock::new(HashMap::new()),
             status_cache: RwLock::new(HashMap::new()),
             pty_channels: RwLock::new(HashMap::new()),
             shell_connection_cancellations: RwLock::new(HashMap::new()),
@@ -124,7 +129,56 @@ impl AppState {
             .write()
             .expect("status cache lock poisoned")
             .remove(session_id);
+        self.remove_ssh_session(session_id);
         Ok(())
+    }
+
+    /// Returns the cached SSH operation session for a shell session, creating it once when absent.
+    pub fn get_or_insert_ssh_session<F>(
+        &self,
+        session_id: &str,
+        connect: F,
+    ) -> AppResult<SharedSshSession>
+    where
+        F: FnOnce() -> AppResult<Session>,
+    {
+        if let Some(session) = self
+            .ssh_sessions
+            .read()
+            .expect("ssh session lock poisoned")
+            .get(session_id)
+            .cloned()
+        {
+            return Ok(session);
+        }
+
+        let mut guard = self
+            .ssh_sessions
+            .write()
+            .expect("ssh session lock poisoned");
+        if let Some(session) = guard.get(session_id).cloned() {
+            return Ok(session);
+        }
+
+        let session = Arc::new(Mutex::new(connect()?));
+        guard.insert(session_id.to_string(), Arc::clone(&session));
+        Ok(session)
+    }
+
+    /// Removes the cached SSH operation session for one shell session.
+    pub fn remove_ssh_session(&self, session_id: &str) {
+        self.ssh_sessions
+            .write()
+            .expect("ssh session lock poisoned")
+            .remove(session_id);
+    }
+
+    #[cfg(test)]
+    pub fn has_ssh_session(&self, session_id: &str) -> bool {
+        self.ssh_sessions
+            .read()
+            .expect("ssh session lock poisoned")
+            .contains_key(session_id)
     }
 
     /// Registers or replaces PTY control channel for one shell session.
@@ -285,5 +339,64 @@ impl AppState {
             .write()
             .expect("ki pending lock poisoned")
             .remove(request_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::now_rfc3339;
+    use ssh2::Session;
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_state(name: &str) -> AppState {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("eshell-state-{name}-{nonce}"));
+        AppState::new(root).expect("create app state")
+    }
+
+    fn shell_session(id: &str) -> ShellSession {
+        let now = now_rfc3339();
+        ShellSession {
+            id: id.to_string(),
+            config_id: "config-1".to_string(),
+            config_name: "Test host".to_string(),
+            current_dir: "/home/test".to_string(),
+            last_output: String::new(),
+            created_at: now.clone(),
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn ssh_operation_session_is_reused_for_the_same_shell_session() {
+        let state = temp_state("ssh-reuse");
+        state.put_session(shell_session("session-1"));
+
+        let first = state
+            .get_or_insert_ssh_session("session-1", || Ok(Session::new()?))
+            .expect("first ssh session");
+        let second = state
+            .get_or_insert_ssh_session("session-1", || Ok(Session::new()?))
+            .expect("second ssh session");
+
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn remove_session_drops_cached_ssh_operation_session() {
+        let state = temp_state("ssh-cleanup");
+        state.put_session(shell_session("session-1"));
+        state
+            .get_or_insert_ssh_session("session-1", || Ok(Session::new()?))
+            .expect("cached ssh session");
+
+        state.remove_session("session-1").expect("remove shell");
+
+        assert!(!state.has_ssh_session("session-1"));
     }
 }
