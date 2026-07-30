@@ -1,4 +1,14 @@
-import { Check, Loader2, X } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Copy,
+  Loader2,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
@@ -7,11 +17,13 @@ import { useI18n } from "../../../lib/i18n";
 import { splitOpsAgentMessageContent } from "../../../lib/ops-agent-message-rendering";
 import {
   MARKDOWN_COMPONENTS,
+  copyText,
   formatTime,
   pendingRiskBadgeClass,
   pendingRiskLabel,
   toolStateBadgeClass,
   toolStateLabel,
+  toolLabel,
 } from "./aiAssistantUtils";
 import { ThinkMessageChip, ToolMessageChip } from "./AiAssistantControls";
 
@@ -205,6 +217,202 @@ export function ToolMessageSection({
           {message.content}
         </pre>
       ) : null}
+    </section>
+  );
+}
+
+function ToolCallRowContent({ message }) {
+  const { t } = useI18n();
+  const content = typeof message.content === "string" ? message.content : "";
+  const lines = content.length > 0 ? content.split("\n") : [];
+  const [copied, setCopied] = useState(false);
+  const lineNumberWidth = String(lines.length || 1).length;
+
+  const handleCopy = async () => {
+    const ok = await copyText(content);
+    if (!ok) {
+      return;
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  if (lines.length === 0) {
+    return (
+      <div className="px-3 py-2 font-mono text-[11px] italic text-muted">
+        {t("No output")}
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-border/45 bg-panel/72">
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] text-muted">
+        <span>{t("Full output ({count} lines)", { count: lines.length })}</span>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-md border border-border/55 bg-surface/55 px-1.5 py-0.5 font-mono text-[10px] text-muted transition-colors hover:border-accent/45 hover:bg-accent-soft hover:text-text"
+          onClick={handleCopy}
+          title={t("Copy")}
+        >
+          {copied ? (
+            <CheckCircle2 className="h-3 w-3 text-success" />
+          ) : (
+            <Copy className="h-3 w-3" />
+          )}
+          {copied ? t("Copied") : t("Copy")}
+        </button>
+      </div>
+      <div className="max-h-72 overflow-auto">
+        <pre className="m-0 whitespace-pre font-mono text-[11px] leading-[1.55] text-text">
+          {lines.map((line, index) => (
+            <div
+              key={index}
+              className="flex items-start gap-3 px-3 py-0.5 hover:bg-surface/35"
+            >
+              <span
+                className="select-none pt-px text-right text-muted/65"
+                style={{ minWidth: `${lineNumberWidth + 0.5}ch` }}
+              >
+                {index + 1}
+              </span>
+              <span className="min-w-0 flex-1 break-all">{line || " "}</span>
+            </div>
+          ))}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+function ToolCallRow({ message, expanded, onToggle }) {
+  const { t } = useI18n();
+  const toolState = toolStateLabel(message.toolState);
+
+  return (
+    <div className="border-b border-border/45 last:border-b-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-[11px] transition-colors hover:bg-accent-soft/35"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent">
+            <TerminalSquare className="h-3 w-3" aria-hidden="true" />
+          </span>
+          <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text">
+            {toolLabel(message.toolKind)}
+          </span>
+          {toolState ? (
+            <span
+              className={[
+                "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]",
+                toolStateBadgeClass(message.toolState),
+              ].join(" ")}
+            >
+              {t(toolState)}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+            {formatTime(message.createdAt)}
+          </span>
+          {expanded ? (
+            <ChevronDown className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
+          )}
+        </div>
+      </button>
+      {expanded ? <ToolCallRowContent message={message} /> : null}
+    </div>
+  );
+}
+
+export function ToolCallsGroupSection({
+  toolMessages,
+  withDivider = false,
+  expandedToolMessageIds,
+  onToggleToolMessage,
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { t } = useI18n();
+
+  if (!Array.isArray(toolMessages) || toolMessages.length === 0) {
+    return null;
+  }
+
+  const total = toolMessages.length;
+  const latestMessage = toolMessages[toolMessages.length - 1];
+  const latestTime = formatTime(latestMessage?.createdAt);
+  const summaryLabel = total === 1
+    ? t("Invoked 1 tool")
+    : t("Invoked {count} tools", { count: total });
+
+  return (
+    <section className={withDivider ? "mt-3 border-t border-border/60 pt-3" : ""}>
+      {expanded ? (
+        <div className="overflow-hidden rounded-2xl border border-border/75 bg-surface/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            aria-expanded={true}
+            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-accent-soft/35"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+                <TerminalSquare className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
+              <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text">
+                {t("Tool calls ({count})", { count: total })}
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+                {t("Hide tool calls")}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+                {latestTime}
+              </span>
+              <ChevronUp className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
+            </div>
+          </button>
+          <div>
+            {toolMessages.map((message) => (
+              <ToolCallRow
+                key={message.id}
+                message={message}
+                expanded={Boolean(expandedToolMessageIds?.[message.id])}
+                onToggle={() => onToggleToolMessage?.(message.id)}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          aria-expanded={false}
+          className="flex w-full items-center justify-between gap-2 rounded-2xl border border-border/75 bg-surface/65 px-3 py-2 text-left text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors hover:border-accent/45 hover:bg-accent-soft/45 hover:text-text"
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+              <TerminalSquare className="h-3.5 w-3.5" aria-hidden="true" />
+            </span>
+            <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em]">
+              {summaryLabel}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+              {latestTime}
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
+          </div>
+        </button>
+      )}
     </section>
   );
 }

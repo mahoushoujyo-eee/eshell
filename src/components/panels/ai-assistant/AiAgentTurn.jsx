@@ -8,6 +8,7 @@ import { messageActionButtonClass } from "./aiAssistantUtils";
 import {
   AssistantMessageSection,
   StreamingMessageSection,
+  ToolCallsGroupSection,
   ToolMessageSection,
 } from "./AiTurnSections";
 
@@ -129,6 +130,33 @@ export default function AiAgentTurn({
       getOpsAgentLatestAssistantReplyText(group.messages)
     : getOpsAgentLatestAssistantReplyText(group.messages);
 
+  // Collect completed (non-pending) tool messages to render as a single group
+  // when the turn has 2+ of them; pending-action tools stay standalone so the
+  // approval UI remains prominent.
+  const completedToolMessages = (Array.isArray(group.messages) ? group.messages : [])
+    .filter((message) => message && message.role === "tool" && !message.pendingAction);
+  const streamingCompletedTools = (
+    Array.isArray(group.streamingToolCalls) ? group.streamingToolCalls : []
+  ).filter((message) => message && !message.pendingAction);
+  const groupableToolMessages = [...completedToolMessages, ...streamingCompletedTools];
+  const shouldGroupToolMessages = groupableToolMessages.length >= 2;
+  const groupedToolIds = new Set(groupableToolMessages.map((message) => message.id));
+  // Pick an insertion index so the group renders in chronological position
+  // (the earliest tool message among the regular messages; falls back to the
+  // end of the assistant messages when only streaming tools are available).
+  const firstGroupedMessageIndex = (() => {
+    if (!shouldGroupToolMessages) {
+      return -1;
+    }
+    const earliestIndex = group.messages.findIndex(
+      (message) => message && message.role === "tool" && groupedToolIds.has(message.id),
+    );
+    if (earliestIndex !== -1) {
+      return earliestIndex;
+    }
+    return group.messages.length;
+  })();
+
   return (
     <div className="flex justify-center">
       <article
@@ -139,6 +167,35 @@ export default function AiAgentTurn({
       >
         {group.messages.map((message, index) => {
           if (message.role === "tool") {
+            // Pending-action tools always render standalone so users can act on them.
+            if (message.pendingAction) {
+              return (
+                <ToolMessageSection
+                  key={message.id}
+                  message={message}
+                  withDivider={index > 0}
+                  expanded={Boolean(expandedToolMessageIds[message.id])}
+                  resolvingActionId={resolvingActionId}
+                  onResolvePendingAction={onResolvePendingAction}
+                  onToggle={() => onToggleToolMessage(message.id)}
+                />
+              );
+            }
+            // Completed tools are merged into the group section below.
+            if (shouldGroupToolMessages && groupedToolIds.has(message.id)) {
+              if (index === firstGroupedMessageIndex) {
+                return (
+                  <ToolCallsGroupSection
+                    key={`tool-group:${group.id}`}
+                    toolMessages={groupableToolMessages}
+                    withDivider={index > 0}
+                    expandedToolMessageIds={expandedToolMessageIds}
+                    onToggleToolMessage={onToggleToolMessage}
+                  />
+                );
+              }
+              return null;
+            }
             return (
               <ToolMessageSection
                 key={message.id}
@@ -176,26 +233,23 @@ export default function AiAgentTurn({
         {group.isStreaming && group.streamingAgentProgress ? (
           <AgentProgressSection
             progress={group.streamingAgentProgress}
-            withDivider={group.messages.length > 0}
+            withDivider={
+              group.messages.length > 0 || firstGroupedMessageIndex !== -1
+            }
           />
         ) : null}
-        {Array.isArray(group.streamingToolCalls)
-          ? group.streamingToolCalls.map((message, index) => (
-              <ToolMessageSection
-                key={message.id}
-                message={message}
-                withDivider={
-                  group.messages.length > 0 ||
-                  Boolean(group.streamingAgentProgress) ||
-                  index > 0
-                }
-                expanded={Boolean(expandedToolMessageIds[message.id])}
-                resolvingActionId={resolvingActionId}
-                onResolvePendingAction={onResolvePendingAction}
-                onToggle={() => onToggleToolMessage(message.id)}
-              />
-            ))
-          : null}
+        {shouldGroupToolMessages && firstGroupedMessageIndex >= group.messages.length ? (
+          <ToolCallsGroupSection
+            key={`tool-group:streaming:${group.id}`}
+            toolMessages={groupableToolMessages}
+            withDivider={
+              group.messages.length > 0 ||
+              Boolean(group.streamingAgentProgress)
+            }
+            expandedToolMessageIds={expandedToolMessageIds}
+            onToggleToolMessage={onToggleToolMessage}
+          />
+        ) : null}
         {group.isStreaming ? (
           <StreamingMessageSection
             content={group.streamingText}
