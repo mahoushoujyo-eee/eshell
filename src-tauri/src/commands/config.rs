@@ -4,10 +4,12 @@ use tauri::State;
 
 use crate::error::to_command_error;
 use crate::models::{
-    AgentContextContent, AgentContextInput, AiConfig, AiConfigInput, AiProfileInput,
-    AiProfilesState, SaveAgentContextInput, ScriptDefinition, ScriptInput, SetActiveAiProfileInput,
-    SetAiAgentModeInput, SetAiApprovalModeInput, SshConfig, SshConfigInput, SshKnownHost,
-    TrustSshHostKeyInput,
+    AgentContextContent, AgentContextInput, AiConfig, AiConfigInput, AiImportSource,
+    AiImportSourceKind, AiImportSourcesInput, AiImportSourcesResult, AiProfileInput,
+    AiProfilesState, DetectAiImportInput, DetectAiImportResult, ImportAiProfilesInput,
+    ImportAiProfilesResult, SaveAgentContextInput, ScriptDefinition, ScriptInput,
+    SetActiveAiProfileInput, SetAiAgentModeInput, SetAiApprovalModeInput, SshConfig,
+    SshConfigInput, SshKnownHost, TrustSshHostKeyInput,
 };
 use crate::state::AppState;
 
@@ -177,4 +179,81 @@ pub fn save_ai_config(
         .storage
         .save_ai_config(input)
         .map_err(to_command_error)
+}
+
+/// Returns AI import sources the user can pick from, including well-known CLI tools.
+#[tauri::command]
+pub fn list_ai_import_sources(
+    state: State<'_, Arc<AppState>>,
+    input: Option<AiImportSourcesInput>,
+) -> Result<AiImportSourcesResult, String> {
+    let custom_paths = input
+        .map(|payload| payload.custom_paths)
+        .unwrap_or_default();
+    for path in &custom_paths {
+        crate::storage::ai_import::read_custom_path_for_detection(path).map_err(to_command_error)?;
+    }
+    Ok(AiImportSourcesResult {
+        sources: state.storage.list_ai_import_sources(&custom_paths),
+    })
+}
+
+/// Reads a single AI import source and returns candidate profiles the user can import.
+#[tauri::command]
+pub fn detect_ai_import_candidates(
+    state: State<'_, Arc<AppState>>,
+    input: DetectAiImportInput,
+) -> Result<DetectAiImportResult, String> {
+    let AiImportSource {
+        id,
+        kind,
+        label,
+        path,
+        available,
+        note,
+    } = input.source;
+    if !available {
+        return Err(format!(
+            "import source {label} is not available: {}",
+            note.unwrap_or_default()
+        ));
+    }
+    let source = AiImportSource {
+        id,
+        kind: kind.clone(),
+        label,
+        path,
+        available: true,
+        note: None,
+    };
+    let (candidates, warnings) = state
+        .storage
+        .detect_ai_import_candidates(&source)
+        .map_err(to_command_error)?;
+    Ok(DetectAiImportResult {
+        candidates,
+        warnings,
+    })
+}
+
+/// Persists the selected import candidates as new AI profiles.
+#[tauri::command]
+pub fn import_ai_profiles(
+    state: State<'_, Arc<AppState>>,
+    input: ImportAiProfilesInput,
+) -> Result<ImportAiProfilesResult, String> {
+    state
+        .storage
+        .import_ai_profiles(input.candidates)
+        .map_err(to_command_error)
+}
+
+/// Normalises an AI import source kind to keep frontend enums in sync.
+#[tauri::command]
+pub fn ai_import_source_kind_label(kind: AiImportSourceKind) -> String {
+    match kind {
+        AiImportSourceKind::ClaudeCode => "Claude Code".to_string(),
+        AiImportSourceKind::Codex => "Codex".to_string(),
+        AiImportSourceKind::CustomJson => "Custom".to_string(),
+    }
 }

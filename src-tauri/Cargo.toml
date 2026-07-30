@@ -30,3 +30,4 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["time"] }
+toml = "0.8"

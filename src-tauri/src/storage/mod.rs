@@ -1,3 +1,4 @@
+pub(crate) mod ai_import;
 mod ai_profiles;
 mod agent_context;
 mod io;
@@ -97,6 +98,38 @@ impl Storage {
             .parent()
             .map(|item| item.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."))
+    }
+
+    /// Lists every AI import source the user can pick from.
+    pub fn list_ai_import_sources(&self, custom_paths: &[String]) -> Vec<crate::models::AiImportSource> {
+        ai_import::list_ai_import_sources(custom_paths)
+    }
+
+    /// Detects importable AI profiles from a previously discovered source.
+    pub fn detect_ai_import_candidates(
+        &self,
+        source: &crate::models::AiImportSource,
+    ) -> crate::error::AppResult<(Vec<crate::models::AiImportCandidate>, Vec<String>)> {
+        ai_import::detect_ai_import_candidates(source)
+    }
+
+    /// Persists the supplied import candidates as new AI profiles.
+    pub fn import_ai_profiles(
+        &self,
+        candidates: Vec<crate::models::AiImportCandidate>,
+    ) -> crate::error::AppResult<crate::models::ImportAiProfilesResult> {
+        let mut guard = self
+            .ai_profiles
+            .write()
+            .expect("ai profiles lock poisoned");
+        ensure_ai_profiles_state(&mut guard, &AiConfig::default());
+        let (imported, skipped) = ai_import::merge_imported_profiles(&mut guard, candidates)?;
+        write_json_pretty(&self.ai_profiles_path, &*guard)?;
+        Ok(crate::models::ImportAiProfilesResult {
+            state: guard.clone(),
+            imported,
+            skipped,
+        })
     }
 }
 

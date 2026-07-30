@@ -5,7 +5,6 @@ import { EMPTY_OPS_AGENT_STREAM } from "../../lib/ops-agent-stream";
 import { createShellContextAttachment } from "../../lib/ops-agent-shell-context";
 import { createPtyInputSender } from "../../lib/pty-input-sender";
 import { createSftpTransferSeed, upsertSftpTransfer } from "../../lib/sftp-transfer";
-import { recordOutputBufferUpdate } from "../../lib/terminal-perf-debug";
 import { api } from "../../lib/tauri-api";
 import { copyTextToClipboard } from "../../utils/clipboard";
 import { arrayBufferToBase64 } from "../../utils/encoding";
@@ -21,7 +20,7 @@ import {
   isSessionLostError,
   toErrorMessage,
 } from "./errors";
-import { shellQuote, trimTerminalOutput } from "./session";
+import { shellQuote } from "./session";
 
 const isTransferCancelledError = (err) =>
   toErrorMessage(err).toLowerCase().includes("transfer cancelled by user");
@@ -107,7 +106,6 @@ export function useWorkbenchOperations({
   sshConfigs,
   sessions,
   activeSessionId,
-  commandInput,
   currentPath,
   downloadDirectory,
   selectedEntry,
@@ -121,7 +119,6 @@ export function useWorkbenchOperations({
   aiStream,
   activeAiConversationId,
   setLogs,
-  setPtyOutputBySession,
   setSftpPath,
   setStatusBySession,
   setNicBySession,
@@ -199,37 +196,6 @@ export function useWorkbenchOperations({
     });
   }, []);
 
-  const appendPtyOutput = useCallback((sessionId, chunk) => {
-    if (!sessionId || !chunk) {
-      return;
-    }
-    setPtyOutputBySession((prev) => {
-      const startedAt =
-        typeof performance !== "undefined" && typeof performance.now === "function"
-          ? performance.now()
-          : Date.now();
-      const previousOutput = prev[sessionId] || "";
-      const nextOutput = trimTerminalOutput(`${previousOutput}${chunk}`);
-      const finishedAt =
-        typeof performance !== "undefined" && typeof performance.now === "function"
-          ? performance.now()
-          : Date.now();
-
-      recordOutputBufferUpdate(
-        sessionId,
-        previousOutput.length,
-        chunk.length,
-        nextOutput.length,
-        finishedAt - startedAt,
-      );
-
-      return {
-        ...prev,
-        [sessionId]: nextOutput,
-      };
-    });
-  }, []);
-
   const resolveSessionAlias = useCallback((sessionId) => {
     if (!sessionId) {
       return null;
@@ -284,14 +250,6 @@ export function useWorkbenchOperations({
     reconnectingSessionsRef.current.delete(sessionId);
     statusRequestTokenRef.current.delete(sessionId);
 
-    setPtyOutputBySession((prev) => {
-      if (!(sessionId in prev)) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[sessionId];
-      return next;
-    });
     setSftpPath((prev) => {
       if (!(sessionId in prev)) {
         return prev;
@@ -385,12 +343,6 @@ export function useWorkbenchOperations({
             ...prev,
             [reopened.id]: normalizeRemotePath(rememberedPath),
           };
-          delete next[originSessionId];
-          return next;
-        });
-        setPtyOutputBySession((prev) => {
-          const rememberedOutput = prev[originSessionId] || "";
-          const next = { ...prev, [reopened.id]: rememberedOutput };
           delete next[originSessionId];
           return next;
         });
@@ -664,7 +616,6 @@ export function useWorkbenchOperations({
           ...prev,
           [session.id]: normalizeRemotePath(session.currentDir || "/"),
         }));
-        setPtyOutputBySession((prev) => ({ ...prev, [session.id]: "" }));
         appendLog(
           session.id,
           "SYSTEM",
@@ -838,14 +789,12 @@ export function useWorkbenchOperations({
     ],
   );
 
-  const execCommand = useCallback(
-    async (event) => {
-      event.preventDefault();
-      if (!activeSessionId || !commandInput.trim()) {
+  const sendCommandDraft = useCallback(
+    async (text) => {
+      const command = String(text || "").replace(/\r\n/g, "\n").trim();
+      if (!activeSessionId || !command) {
         return;
       }
-      const command = commandInput;
-      setCommandInput("");
       try {
         await runWithSessionReconnect(activeSessionId, (sessionId) =>
           api.ptyWriteInput(sessionId, `${command}\n`),
@@ -854,7 +803,7 @@ export function useWorkbenchOperations({
         onError(err);
       }
     },
-    [activeSessionId, commandInput, onError, runWithSessionReconnect],
+    [activeSessionId, onError, runWithSessionReconnect],
   );
 
   const requestSftpDir = useCallback(
@@ -1458,6 +1407,44 @@ export function useWorkbenchOperations({
     [applyAiProfilesState, onError, runBusy],
   );
 
+  const importAiProfiles = useCallback(
+    async (candidates) => {
+      if (!Array.isArray(candidates) || candidates.length === 0) {
+        return null;
+      }
+      let result;
+      try {
+        result = await runBusy(tRef.current("Import AI config"), () =>
+          api.importAiProfiles(candidates),
+        );
+      } catch (err) {
+        pushUiNotice(
+          tRef.current("Import failed: {reason}", {
+            reason: toErrorMessage(err),
+          }),
+          { tone: "danger", ttlMs: 5200 },
+        );
+        throw err;
+      }
+      applyAiProfilesState(result?.state);
+      if (result?.imported?.length) {
+        const first = result.imported[0];
+        setAiProfileForm(first);
+      }
+      pushUiNotice(
+        tRef.current("Imported {count} AI profile(s)", {
+          count: result?.imported?.length || 0,
+        }),
+        {
+          tone: (result?.imported?.length || 0) > 0 ? "success" : "info",
+          ttlMs: 4200,
+        },
+      );
+      return result;
+    },
+    [applyAiProfilesState, pushUiNotice, runBusy],
+  );
+
   const deleteAiProfile = useCallback(
     async (profileId) => {
       if (!profileId) {
@@ -1881,7 +1868,6 @@ export function useWorkbenchOperations({
 
   return {
     appendLog,
-    appendPtyOutput,
     resolveSessionAlias,
     runWithSessionReconnect,
     applyAiProfilesState,
@@ -1893,7 +1879,7 @@ export function useWorkbenchOperations({
     connectServer,
     cancelConnectServer,
     closeSession,
-    execCommand,
+    sendCommandDraft,
     requestSftpDir,
     refreshSftp,
     openEntry,
@@ -1912,6 +1898,7 @@ export function useWorkbenchOperations({
     saveAiProfile,
     selectAiProfile,
     deleteAiProfile,
+    importAiProfiles,
     saveAiApprovalMode,
     saveAiAgentMode,
     selectAiConversation,

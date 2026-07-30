@@ -29,6 +29,8 @@ export default function AppModals({
     saveAiProfile,
     deleteAiProfile,
     selectAiProfile,
+    importAiProfiles,
+    pushUiNotice,
     wallpaper,
     setWallpaper,
     hostKeyTrustPrompt,
@@ -81,6 +83,8 @@ export default function AppModals({
         onSaveAiProfile={saveAiProfile}
         onDeleteAiProfile={deleteAiProfile}
         onSelectAiProfile={selectAiProfile}
+        onImportAiProfiles={importAiProfiles}
+        onNotice={pushUiNotice}
       />
 
       <WallpaperModal

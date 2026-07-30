@@ -8,6 +8,7 @@ import {
   Languages,
   LoaderCircle,
   Moon,
+  NotebookPen,
   Server,
   Settings2,
   Sun,
@@ -26,12 +27,14 @@ export default function TopToolbar({
   wallpaperLabel,
   showSftpPanel,
   showStatusPanel,
+  showCommandDraftPanel,
   collapsed = false,
   onToggleCollapsed,
   onOpenSshConfig,
   onOpenScriptConfig,
   onToggleSftpPanel,
   onToggleStatusPanel,
+  onToggleCommandDraftPanel,
   onOpenWallpaperPicker,
   onToggleTheme,
   busy,
@@ -109,6 +112,14 @@ export default function TopToolbar({
             label={showStatusPanel ? t("Hide status panel") : t("Show status panel")}
             active={showStatusPanel}
             onClick={onToggleStatusPanel}
+            collapsed={collapsed}
+            trailing={panelVisibilityMarker}
+          />
+          <RailButton
+            icon={NotebookPen}
+            label={showCommandDraftPanel ? t("Hide command draft") : t("Show command draft")}
+            active={showCommandDraftPanel}
+            onClick={onToggleCommandDraftPanel}
             collapsed={collapsed}
             trailing={panelVisibilityMarker}
           />

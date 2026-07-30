@@ -1,4 +1,4 @@
-import { FolderOpen, Play, Terminal, X } from "lucide-react";
+import { FolderOpen, Terminal, X } from "lucide-react";
 import { useI18n } from "../../lib/i18n";
 import XtermConsole from "./XtermConsole";
 
@@ -8,10 +8,6 @@ export default function TerminalPanel({
   onSelectSession,
   onCloseSession,
   activeSession,
-  commandInput,
-  setCommandInput,
-  onExecCommand,
-  currentPtyOutput,
   onPtyInput,
   onPtyResize,
   onAttachSelectionToAi,
@@ -68,31 +64,9 @@ export default function TerminalPanel({
           )}
         </header>
 
-        <form className="flex gap-2 border-b border-border px-2 py-2" onSubmit={onExecCommand}>
-          <div className="relative flex-1">
-            <Terminal className="pointer-events-none absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
-            <input
-              className="w-full border border-border bg-surface px-8 py-2 text-sm"
-              placeholder={activeSession ? t("Run command") : t("Connect a session first")}
-              value={commandInput}
-              disabled={!activeSession}
-              onChange={(event) => setCommandInput(event.target.value)}
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={!activeSession}
-            className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-          >
-            <Play className="h-4 w-4" aria-hidden="true" />
-            {t("Run")}
-          </button>
-        </form>
-
         <XtermConsole
           activeSessionId={activeSession?.id || null}
           activeSessionName={activeSession?.configName || t("Shell")}
-          output={currentPtyOutput}
           onInput={onPtyInput}
           onResize={onPtyResize}
           onAttachSelection={onAttachSelectionToAi}

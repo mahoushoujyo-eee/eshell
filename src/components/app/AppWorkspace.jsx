@@ -20,6 +20,8 @@ export default function AppWorkspace({
     setShowSftpPanel,
     showStatusPanel,
     setShowStatusPanel,
+    showCommandDraftPanel,
+    setShowCommandDraftPanel,
     showAiPanel,
     setShowAiPanel,
     busy,
@@ -62,6 +64,7 @@ export default function AppWorkspace({
           wallpaperLabel={t(getWallpaperLabel(wallpaper))}
           showSftpPanel={showSftpPanel}
           showStatusPanel={showStatusPanel}
+          showCommandDraftPanel={showCommandDraftPanel}
           collapsed={sidebarCollapsed}
           onToggleCollapsed={onToggleSidebarCollapsed}
           onOpenSshConfig={onOpenSshConfig}
@@ -69,6 +72,7 @@ export default function AppWorkspace({
           onOpenWallpaperPicker={onOpenWallpaperPicker}
           onToggleSftpPanel={() => setShowSftpPanel((prev) => !prev)}
           onToggleStatusPanel={() => setShowStatusPanel((prev) => !prev)}
+          onToggleCommandDraftPanel={() => setShowCommandDraftPanel((prev) => !prev)}
           onToggleTheme={() => setTheme((prev) => (prev === "light" ? "dark" : "light"))}
           busy={busy}
           error={error}
@@ -80,6 +84,7 @@ export default function AppWorkspace({
               workbench={workbench}
               showSftpPanel={showSftpPanel}
               showStatusPanel={showStatusPanel}
+              showCommandDraftPanel={showCommandDraftPanel}
               onOpenFileEditor={onOpenFileEditor}
             />
           </div>

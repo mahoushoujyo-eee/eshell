@@ -33,6 +33,7 @@ export function useWorkbench() {
   });
   const [showSftpPanel, setShowSftpPanel] = useState(false);
   const [showStatusPanel, setShowStatusPanel] = useState(false);
+  const [showCommandDraftPanel, setShowCommandDraftPanel] = useState(false);
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -48,8 +49,7 @@ export function useWorkbench() {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [logs, setLogs] = useState({});
-  const [ptyOutputBySession, setPtyOutputBySession] = useState({});
-  const [commandInput, setCommandInput] = useState("");
+  const [commandDraft, setCommandDraft] = useState("");
   const [downloadDirectory, setDownloadDirectory] = useState(() => {
     if (typeof window === "undefined") {
       return "";
@@ -247,7 +247,6 @@ export function useWorkbench() {
 
   const {
     appendLog,
-    appendPtyOutput,
     resolveSessionAlias,
     runWithSessionReconnect,
     applyAiProfilesState,
@@ -259,7 +258,7 @@ export function useWorkbench() {
     connectServer,
     cancelConnectServer,
     closeSession,
-    execCommand,
+    sendCommandDraft,
     requestSftpDir,
     refreshSftp,
     openEntry,
@@ -278,6 +277,7 @@ export function useWorkbench() {
     saveAiProfile,
     selectAiProfile,
     deleteAiProfile,
+    importAiProfiles,
     saveAiApprovalMode,
     saveAiAgentMode,
     selectAiConversation,
@@ -301,7 +301,6 @@ export function useWorkbench() {
     sshConfigs,
     sessions,
     activeSessionId,
-    commandInput,
     currentPath,
     downloadDirectory,
     selectedEntry,
@@ -315,7 +314,6 @@ export function useWorkbench() {
     aiStream,
     activeAiConversationId,
     setLogs,
-    setPtyOutputBySession,
     setSftpPath,
     setStatusBySession,
     setNicBySession,
@@ -385,7 +383,6 @@ export function useWorkbench() {
     bootstrap,
     aiStream,
     aiStreamRef,
-    appendPtyOutput,
     activeSessionId,
     loadAiConversation,
     onError,
@@ -417,7 +414,6 @@ export function useWorkbench() {
     openFileContent,
   });
 
-  const currentPtyOutput = activeSessionId ? ptyOutputBySession[activeSessionId] || "" : "";
   const aiStreamingText =
     aiStream.conversationId === activeAiConversationId ? aiStream.text : "";
   const aiStreamingToolCalls =
@@ -439,6 +435,8 @@ export function useWorkbench() {
     setShowSftpPanel,
     showStatusPanel,
     setShowStatusPanel,
+    showCommandDraftPanel,
+    setShowCommandDraftPanel,
     showAiPanel,
     setShowAiPanel,
     busy,
@@ -457,11 +455,10 @@ export function useWorkbench() {
     activeSessionId,
     setActiveSessionId,
     activeSession,
-    commandInput,
-    setCommandInput,
+    commandDraft,
+    setCommandDraft,
     downloadDirectory,
     sftpTransfers,
-    currentPtyOutput,
     currentPath,
     currentStatus,
     currentNic,
@@ -494,7 +491,7 @@ export function useWorkbench() {
     connectServer,
     cancelConnectServer,
     closeSession,
-    execCommand,
+    sendCommandDraft,
     sendPtyInput,
     resizePty,
     uploadFile,
@@ -508,6 +505,7 @@ export function useWorkbench() {
     saveAiProfile,
     selectAiProfile,
     deleteAiProfile,
+    importAiProfiles,
     saveAiApprovalMode,
     saveAiAgentMode,
     selectAiConversation,

@@ -1,7 +1,7 @@
 const defaultSchedule = (fn, delayMs) => setTimeout(fn, delayMs);
 const defaultCancelScheduled = (timerId) => clearTimeout(timerId);
 
-export const DEFAULT_PTY_INPUT_FLUSH_DELAY_MS = 12;
+export const DEFAULT_PTY_INPUT_FLUSH_DELAY_MS = 2;
 export const DEFAULT_PTY_INPUT_MAX_CHUNK_CHARS = 4096;
 
 export function createPtyInputSender(options) {

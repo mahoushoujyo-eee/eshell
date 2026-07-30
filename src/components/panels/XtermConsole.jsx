@@ -1,20 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { getTerminalWallpaperStyle, normalizeWallpaperSelection } from "../../constants/workbench";
 import { useI18n } from "../../lib/i18n";
 import { normalizeShellContextContent } from "../../lib/ops-agent-shell-context";
-import { recordTerminalResize, recordXtermWrite } from "../../lib/terminal-perf-debug";
+import { recordTerminalResize, recordXtermWrite, recordPtyChunk } from "../../lib/terminal-perf-debug";
 import XtermSelectionAction from "./xterm/XtermSelectionAction";
 
-const inputFlushDelayMs = 18;
 const transparentTerminalBackground = "rgba(0, 0, 0, 0)";
 
 export default function XtermConsole({
   activeSessionId,
   activeSessionName,
-  output,
   onInput,
   onResize,
   onAttachSelection,
@@ -25,15 +24,12 @@ export default function XtermConsole({
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
   const resizeObserverRef = useRef(null);
-  const renderedLengthRef = useRef(0);
-  const renderedSessionIdRef = useRef(null);
   const activeSessionIdRef = useRef(activeSessionId);
   const activeSessionNameRef = useRef(activeSessionName);
   const onInputRef = useRef(onInput);
   const onResizeRef = useRef(onResize);
   const onAttachSelectionRef = useRef(onAttachSelection);
-  const pendingInputRef = useRef("");
-  const flushTimerRef = useRef(null);
+  const unlistenRef = useRef(null);
   const [selectionText, setSelectionText] = useState("");
   const normalizedWallpaper = useMemo(() => normalizeWallpaperSelection(wallpaper), [wallpaper]);
   const wallpaperStyle = useMemo(() => getTerminalWallpaperStyle(normalizedWallpaper), [normalizedWallpaper]);
@@ -62,6 +58,7 @@ export default function XtermConsole({
     setSelectionText("");
   }, [activeSessionId]);
 
+  // Initialize xterm.js terminal (once)
   useEffect(() => {
     if (!hostRef.current) {
       return undefined;
@@ -85,6 +82,18 @@ export default function XtermConsole({
     const fitAddon = new FitAddon();
 
     term.loadAddon(fitAddon);
+
+    // Canvas renderer for GPU-accelerated rendering (major perf win over DOM renderer)
+    import("@xterm/addon-canvas").then(({ CanvasAddon }) => {
+      try {
+        term.loadAddon(new CanvasAddon());
+      } catch {
+        // Canvas renderer is optional; DOM fallback is fine if addon fails.
+      }
+    }).catch(() => {
+      // Addon not available, DOM renderer will be used
+    });
+
     term.attachCustomKeyEventHandler((event) => {
       const isSaveShortcut =
         event.type === "keydown" &&
@@ -106,28 +115,25 @@ export default function XtermConsole({
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    const flushInput = () => {
-      flushTimerRef.current = null;
-      if (!pendingInputRef.current) {
-        return;
-      }
-      const data = pendingInputRef.current;
-      pendingInputRef.current = "";
+    // Direct input: send keystrokes immediately, no batching delay
+    const dataDisposable = term.onData((data) => {
       const sessionId = activeSessionIdRef.current;
       if (sessionId) {
         onInputRef.current?.(sessionId, data);
       }
-    };
+    });
 
-    const queueInput = (chunk) => {
-      if (!activeSessionIdRef.current) {
-        return;
+    const resizeDisposable = term.onResize(({ cols, rows }) => {
+      const sessionId = activeSessionIdRef.current;
+      if (sessionId && cols > 0 && rows > 0) {
+        recordTerminalResize(sessionId, cols, rows, "xterm");
+        onResizeRef.current?.(sessionId, cols, rows);
       }
-      pendingInputRef.current += chunk;
-      if (!flushTimerRef.current) {
-        flushTimerRef.current = window.setTimeout(flushInput, inputFlushDelayMs);
-      }
-    };
+    });
+
+    const selectionDisposable = term.onSelectionChange(() => {
+      setSelectionText(normalizeShellContextContent(term.getSelection()) || "");
+    });
 
     const fitTerminal = () => {
       try {
@@ -141,18 +147,6 @@ export default function XtermConsole({
         // Ignore transient layout errors during mount / resize races.
       }
     };
-
-    const dataDisposable = term.onData(queueInput);
-    const resizeDisposable = term.onResize(({ cols, rows }) => {
-      const sessionId = activeSessionIdRef.current;
-      if (sessionId && cols > 0 && rows > 0) {
-        recordTerminalResize(sessionId, cols, rows, "xterm");
-        onResizeRef.current?.(sessionId, cols, rows);
-      }
-    });
-    const selectionDisposable = term.onSelectionChange(() => {
-      setSelectionText(normalizeShellContextContent(term.getSelection()) || "");
-    });
 
     fitTerminal();
 
@@ -168,9 +162,6 @@ export default function XtermConsole({
       dataDisposable.dispose();
       resizeDisposable.dispose();
       selectionDisposable.dispose();
-      if (flushTimerRef.current) {
-        window.clearTimeout(flushTimerRef.current);
-      }
       if (resizeObserverRef.current) {
         resizeObserverRef.current.disconnect();
       }
@@ -180,47 +171,66 @@ export default function XtermConsole({
     };
   }, []);
 
+  // Subscribe to PTY output events directly, bypassing React state entirely.
+  // Only re-subscribes when the active session changes.
   useEffect(() => {
     const term = termRef.current;
     if (!term) {
-      return;
+      return undefined;
     }
 
-    const isSessionChanged = renderedSessionIdRef.current !== activeSessionId;
-    if (isSessionChanged) {
+    // Clean up previous listener
+    if (unlistenRef.current) {
+      unlistenRef.current();
+      unlistenRef.current = null;
+    }
+
+    if (!activeSessionId) {
       term.reset();
-      renderedSessionIdRef.current = activeSessionId;
-      renderedLengthRef.current = 0;
-      if (!activeSessionId) {
-        term.writeln(`\x1b[38;5;245m${t("No active sessions")}\x1b[0m`);
-      } else if (!output) {
-        term.writeln(`\x1b[38;5;245m${t("PTY connected. Type directly in terminal.")}\x1b[0m`);
+      term.writeln(`\x1b[38;5;245m${t("No active sessions")}\x1b[0m`);
+      return undefined;
+    }
+
+    term.reset();
+    term.focus();
+
+    // Notify backend of current terminal size for the new session
+    if (term.cols > 0 && term.rows > 0) {
+      recordTerminalResize(activeSessionId, term.cols, term.rows, "session-change");
+      onResizeRef.current?.(activeSessionId, term.cols, term.rows);
+    }
+
+    let disposed = false;
+    const sessionId = activeSessionId;
+
+    listen("pty-output", (event) => {
+      if (disposed) return;
+      const payload = event.payload;
+      if (!payload || typeof payload !== "object") return;
+      if (payload.sessionId !== sessionId) return;
+      const chunk = payload.chunk;
+      if (typeof chunk !== "string" || !chunk) return;
+      recordPtyChunk(sessionId, chunk.length);
+      recordXtermWrite(sessionId, chunk.length, chunk.length);
+      term.write(chunk);
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+      } else {
+        unlistenRef.current = unlisten;
       }
-      setSelectionText("");
-      if (activeSessionId && term.cols > 0 && term.rows > 0) {
-        recordTerminalResize(activeSessionId, term.cols, term.rows, "session-change");
-        onResizeRef.current?.(activeSessionId, term.cols, term.rows);
+    }).catch(() => {
+      // Failed to bind listener; terminal will be silent
+    });
+
+    return () => {
+      disposed = true;
+      if (unlistenRef.current) {
+        unlistenRef.current();
+        unlistenRef.current = null;
       }
-    }
-
-    if (!activeSessionId || !output) {
-      return;
-    }
-
-    if (output.length < renderedLengthRef.current) {
-      term.reset();
-      renderedLengthRef.current = 0;
-    }
-
-    const delta = output.slice(renderedLengthRef.current);
-    if (!delta) {
-      return;
-    }
-
-    term.write(delta);
-    recordXtermWrite(activeSessionId, delta.length, output.length);
-    renderedLengthRef.current = output.length;
-  }, [activeSessionId, output]);
+    };
+  }, [activeSessionId, t]);
 
   const handleAttachSelection = () => {
     const term = termRef.current;

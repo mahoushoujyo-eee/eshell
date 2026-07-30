@@ -397,6 +397,52 @@ fn profile_from_config(config: &AiConfig, name: &str) -> AiProfile {
     }
 }
 
+/// Creates a new AI profile from a candidate without persisting it. Used by the
+/// AI import flow to validate and materialise a fresh `AiProfile` per candidate.
+pub(super) fn profile_from_input_for_import(input: &AiProfileInput) -> AppResult<AiProfile> {
+    validate_ai_payload(
+        Some(input.name.as_str()),
+        &input.api_type,
+        &input.base_url,
+        &input.model,
+        input.temperature,
+    )?;
+    if input.max_tokens == 0 {
+        return Err(AppError::Validation(
+            "maxTokens must be greater than 0".to_string(),
+        ));
+    }
+    if input.max_context_tokens == 0 {
+        return Err(AppError::Validation(
+            "maxContextTokens must be greater than 0".to_string(),
+        ));
+    }
+
+    let now = now_rfc3339();
+    Ok(AiProfile {
+        id: Uuid::new_v4().to_string(),
+        name: if input.name.trim().is_empty() {
+            "Imported".to_string()
+        } else {
+            input.name.trim().to_string()
+        },
+        api_type: input.api_type.clone(),
+        base_url: normalize_base_url(&input.base_url),
+        api_key: input.api_key.trim().to_string(),
+        model: input.model.trim().to_string(),
+        system_prompt: if input.system_prompt.trim().is_empty() {
+            AiConfig::default().system_prompt
+        } else {
+            input.system_prompt.trim().to_string()
+        },
+        temperature: input.temperature,
+        max_tokens: input.max_tokens,
+        max_context_tokens: input.max_context_tokens,
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
 fn config_from_profile(
     profile: &AiProfile,
     approval_mode: AiApprovalMode,

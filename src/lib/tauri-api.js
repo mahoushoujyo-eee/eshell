@@ -107,4 +107,13 @@ export const api = {
     invoke("ops_agent_resolve_action", { input: { actionId, approve, sessionId, comment } }),
   opsAgentCancelRun: (runId) =>
     invoke("ops_agent_cancel_run", { input: { runId } }),
+
+  listAiImportSources: (customPaths = []) =>
+    invoke("list_ai_import_sources", { input: { customPaths } }),
+  detectAiImportCandidates: (source) =>
+    invoke("detect_ai_import_candidates", { input: { source } }),
+  importAiProfiles: (candidates) =>
+    invoke("import_ai_profiles", { input: { candidates } }),
+  aiImportSourceKindLabel: (kind) =>
+    invoke("ai_import_source_kind_label", { kind }),
 };
