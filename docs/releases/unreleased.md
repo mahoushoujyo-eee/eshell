@@ -9,3 +9,4 @@ Last updated: 2026-04-28
 - AI provider configuration now supports explicit protocol selection with `openai_chat_completions`, `openai_responses`, and `anthropic_messages`.
 - Ops Agent provider dispatch now goes through a shared interface instead of assuming a single OpenAI-compatible wire format.
 - AI profile UI now shows provider icons, provider-aware defaults, and theme-aware styling for the chat footer and approval surfaces.
+- SFTP editor saves now fall back to direct overwrite writes when a server rejects replacing an existing file through SFTP rename, avoiding generic `SFTP(4)` failures on those hosts.

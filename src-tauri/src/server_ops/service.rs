@@ -12,7 +12,7 @@ use base64::engine::general_purpose::{
     STANDARD as BASE64_STANDARD, STANDARD_NO_PAD as BASE64_STANDARD_NO_PAD,
 };
 use base64::Engine;
-use ssh2::{ErrorCode, FileStat, HashType, HostKeyType, Session};
+use ssh2::{ErrorCode, FileStat, HashType, HostKeyType, RenameFlags, Session};
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
@@ -295,15 +295,33 @@ pub fn sftp_write_file(
 
     if let Err(error) = write_result {
         let _ = sftp.unlink(temp_path_ref);
+        append_server_ops_debug_log(
+            state,
+            "sftp.write_file.write_failed",
+            &input.session_id,
+            format!(
+                "path={} temp_path={} error={}",
+                remote_path, temp_path, error
+            ),
+        );
         return Err(error);
     }
 
-    if let Err(error) = sftp.rename(temp_path_ref, remote_path_ref, None) {
-        let _ = sftp.unlink(temp_path_ref);
-        return Err(AppError::Ssh(error));
-    }
-
-    Ok(())
+    finish_atomic_write_with_fallback(
+        || {
+            sftp.rename(temp_path_ref, remote_path_ref, atomic_write_rename_flags())
+                .map_err(AppError::Ssh)
+        },
+        || {
+            let mut file = sftp.create(remote_path_ref)?;
+            file.write_all(input.content.as_bytes())?;
+            Ok(())
+        },
+        || sftp.unlink(temp_path_ref).map_err(AppError::Ssh),
+        |event, detail| append_server_ops_debug_log(state, event, &input.session_id, detail),
+        &remote_path,
+        &temp_path,
+    )
 }
 
 /// Creates an empty remote file without overwriting an existing entry.
@@ -1117,6 +1135,66 @@ fn normalize_local_dir(value: &str) -> AppResult<PathBuf> {
 
 fn atomic_write_temp_path(remote_path: &str) -> String {
     atomic_write_temp_path_with_suffix(remote_path, &Uuid::new_v4().to_string())
+}
+
+fn atomic_write_rename_flags() -> Option<RenameFlags> {
+    Some(RenameFlags::OVERWRITE)
+}
+
+fn finish_atomic_write_with_fallback<R, D, U, L>(
+    mut rename_temp: R,
+    mut direct_write_target: D,
+    mut unlink_temp: U,
+    mut log_failure: L,
+    remote_path: &str,
+    temp_path: &str,
+) -> AppResult<()>
+where
+    R: FnMut() -> AppResult<()>,
+    D: FnMut() -> AppResult<()>,
+    U: FnMut() -> AppResult<()>,
+    L: FnMut(&str, String),
+{
+    if let Err(error) = rename_temp() {
+        log_failure(
+            "sftp.write_file.rename_failed",
+            format!(
+                "path={} temp_path={} error={}",
+                remote_path, temp_path, error
+            ),
+        );
+
+        match direct_write_target() {
+            Ok(()) => {
+                if let Err(cleanup_error) = unlink_temp() {
+                    log_failure(
+                        "sftp.write_file.temp_cleanup_failed",
+                        format!(
+                            "path={} temp_path={} error={}",
+                            remote_path, temp_path, cleanup_error
+                        ),
+                    );
+                }
+                log_failure(
+                    "sftp.write_file.direct_write_fallback_succeeded",
+                    format!("path={} temp_path={}", remote_path, temp_path),
+                );
+                return Ok(());
+            }
+            Err(fallback_error) => {
+                log_failure(
+                    "sftp.write_file.direct_write_fallback_failed",
+                    format!(
+                        "path={} temp_path={} error={}",
+                        remote_path, temp_path, fallback_error
+                    ),
+                );
+                return Err(fallback_error);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn atomic_write_temp_path_with_suffix(remote_path: &str, suffix: &str) -> String {
@@ -2272,6 +2350,51 @@ mod tests {
         let temp_path = atomic_write_temp_path_with_suffix("/var/www/app/config.toml", "abc123");
 
         assert_eq!(temp_path, "/var/www/app/.config.toml.eshell-tmp-abc123");
+    }
+
+    #[test]
+    fn atomic_write_rename_flags_allow_replacing_existing_file() {
+        assert!(atomic_write_rename_flags()
+            .expect("atomic write rename flags")
+            .contains(RenameFlags::OVERWRITE));
+    }
+
+    #[test]
+    fn finish_atomic_write_falls_back_to_direct_target_write_when_rename_fails() {
+        let mut renamed = false;
+        let mut direct_written = false;
+        let mut temp_unlinked = false;
+        let mut events = Vec::<String>::new();
+
+        finish_atomic_write_with_fallback(
+            || {
+                renamed = true;
+                Err(AppError::Runtime("rename rejected".to_string()))
+            },
+            || {
+                direct_written = true;
+                Ok(())
+            },
+            || {
+                temp_unlinked = true;
+                Ok(())
+            },
+            |event, _detail| events.push(event.to_string()),
+            "/root/learn_k8s/nginx-deployment.yaml",
+            "/root/learn_k8s/.nginx-deployment.yaml.eshell-tmp-test",
+        )
+        .expect("fallback save should succeed");
+
+        assert!(renamed);
+        assert!(direct_written);
+        assert!(temp_unlinked);
+        assert_eq!(
+            events,
+            vec![
+                "sftp.write_file.rename_failed",
+                "sftp.write_file.direct_write_fallback_succeeded"
+            ]
+        );
     }
 
     #[test]
