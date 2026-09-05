@@ -1,9 +1,9 @@
-import { ClipboardCopy, Download, FilePenLine, Trash2 } from "lucide-react";
+import { ClipboardCopy, Download, FilePenLine, PencilLine, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { useI18n } from "../../../lib/i18n";
 
 const MENU_WIDTH = 204;
-const MENU_HEIGHT = 202;
+const MENU_HEIGHT = 244;
 const VIEWPORT_PADDING = 12;
 
 export default function SftpEntryContextMenu({
@@ -14,6 +14,7 @@ export default function SftpEntryContextMenu({
   onOpen,
   onDownload,
   onCopyPath,
+  onRename,
   onDelete,
 }) {
   const { t } = useI18n();
@@ -129,6 +130,15 @@ export default function SftpEntryContextMenu({
         >
           <ClipboardCopy className="h-4 w-4 text-accent" aria-hidden="true" />
           {t("Copy Path")}
+        </button>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-accent-soft/70"
+          onClick={() => onRename?.(entry)}
+          role="menuitem"
+        >
+          <PencilLine className="h-4 w-4 text-accent" aria-hidden="true" />
+          {t("Rename")}
         </button>
         <button
           type="button"

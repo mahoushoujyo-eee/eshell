@@ -8,7 +8,7 @@ import { createSftpTransferSeed, upsertSftpTransfer } from "../../lib/sftp-trans
 import { api } from "../../lib/tauri-api";
 import { copyTextToClipboard } from "../../utils/clipboard";
 import { arrayBufferToBase64 } from "../../utils/encoding";
-import { joinPath, normalizeRemotePath } from "../../utils/path";
+import { joinPath, normalizeRemotePath, renameRemoteEntryPath } from "../../utils/path";
 import {
   DEFAULT_AI_PROFILE_FORM,
   normalizeAiConfig,
@@ -29,6 +29,11 @@ const isConnectionCancelledError = (err) =>
   toErrorMessage(err).toLowerCase().includes("ssh connection cancelled");
 
 const SSH_HOST_KEY_TRUST_REQUIRED_PREFIX = "SSH_HOST_KEY_TRUST_REQUIRED:";
+
+const localPathBaseName = (value) => {
+  const normalized = String(value || "").replace(/\\/g, "/");
+  return normalized.split("/").filter(Boolean).pop() || "upload.bin";
+};
 
 const parseHostKeyTrustChallenge = (err) => {
   const message = toErrorMessage(err);
@@ -938,36 +943,40 @@ export function useWorkbenchOperations({
   }, [setSelectedEntry]);
 
   const uploadFile = useCallback(
-    async (event) => {
-      const file = event.target.files?.[0];
-      if (!file || !activeSessionId) {
+    async () => {
+      if (!activeSessionId) {
         return;
       }
+      const selectedPath = await api.sftpSelectUploadFile();
+      const localPath = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
+      if (!localPath) {
+        return;
+      }
+
+      const fileName = localPathBaseName(localPath);
       const transferId = globalThis.crypto?.randomUUID?.() || `upload-${Date.now()}-${Math.random()}`;
-      const remotePath = joinPath(currentPath, file.name);
+      const remotePath = joinPath(currentPath, fileName);
       const seed = createSftpTransferSeed({
         transferId,
         sessionId: activeSessionId,
         direction: "upload",
         remotePath,
-        localPath: file.name,
-        fileName: file.name,
-        totalBytes: file.size,
+        localPath,
+        fileName,
       });
       if (seed) {
         setSftpTransfers((prev) => upsertSftpTransfer(prev, seed));
       }
 
       try {
-        const contentBase64 = arrayBufferToBase64(await file.arrayBuffer());
         await runBusy(tRef.current("Upload file"), () =>
           runWithSessionReconnect(activeSessionId, (sessionId) =>
-            api.sftpUploadFileWithProgress(
+            api.sftpUploadLocalFileWithProgress(
               sessionId,
               remotePath,
-              contentBase64,
+              localPath,
               transferId,
-              file.name,
+              fileName,
             ),
           ),
         );
@@ -981,10 +990,10 @@ export function useWorkbenchOperations({
             direction: "upload",
             stage: cancelled ? "cancelled" : "failed",
             remotePath,
-            localPath: file.name,
-            fileName: file.name,
+            localPath,
+            fileName,
             transferredBytes: 0,
-            totalBytes: file.size,
+            totalBytes: null,
             percent: 0,
             message: cancelled ? tRef.current("Transfer cancelled") : toErrorMessage(err),
           }),
@@ -992,8 +1001,6 @@ export function useWorkbenchOperations({
         if (!cancelled) {
           onError(err);
         }
-      } finally {
-        event.target.value = "";
       }
     },
     [
@@ -1205,6 +1212,72 @@ export function useWorkbenchOperations({
       selectedEntry,
       setDirtyFile,
       setOpenFileContent,
+      setOpenFilePath,
+      setSelectedEntry,
+    ],
+  );
+
+  const renameSftpEntry = useCallback(
+    async (entry = null, rawName = "") => {
+      const targetEntry = entry || selectedEntry;
+      if (!activeSessionId || !targetEntry) {
+        return false;
+      }
+
+      const name = String(rawName || "").trim();
+      if (!isValidRemoteEntryName(name)) {
+        onError(tRef.current("Use a name without slashes."));
+        return false;
+      }
+
+      const remotePath = normalizeRemotePath(targetEntry.path);
+      const nextPath = renameRemoteEntryPath(remotePath, name);
+      if (!nextPath) {
+        onError(tRef.current("Use a name without slashes."));
+        return false;
+      }
+
+      try {
+        await runBusy(tRef.current("Rename remote entry"), () =>
+          runWithSessionReconnect(activeSessionId, (sessionId) =>
+            api.sftpRenameEntry(sessionId, remotePath, name),
+          ),
+        );
+
+        if (
+          targetEntry.entryType !== "directory" &&
+          openFilePath &&
+          normalizeRemotePath(openFilePath) === remotePath
+        ) {
+          setOpenFilePath(nextPath);
+        }
+
+        await refreshSftp(currentPath);
+        setSelectedEntry({
+          ...targetEntry,
+          name,
+          path: nextPath,
+        });
+        pushUiNotice(tRef.current("Renamed {name}", { name }), {
+          tone: "success",
+          ttlMs: 4200,
+        });
+        return true;
+      } catch (err) {
+        onError(err);
+        return false;
+      }
+    },
+    [
+      activeSessionId,
+      currentPath,
+      onError,
+      openFilePath,
+      pushUiNotice,
+      refreshSftp,
+      runBusy,
+      runWithSessionReconnect,
+      selectedEntry,
       setOpenFilePath,
       setSelectedEntry,
     ],
@@ -1947,6 +2020,7 @@ export function useWorkbenchOperations({
     createSftpEntry,
     downloadFile,
     deleteSftpEntry,
+    renameSftpEntry,
     copySftpEntryPath,
     cancelSftpTransfer,
     refreshStatus,

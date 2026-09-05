@@ -377,12 +377,17 @@ fn execute_command(state: &Arc<AppState>, args: &Value) -> Result<Value, String>
     }))
 }
 
+// The bridge has no AppHandle and only ever touches sessions the user already
+// opened, so `server_ops` calls pass `None` for the app handle: that parameter
+// exists to emit keyboard-interactive 2FA prompts while (re)connecting, and a
+// headless HTTP tool call has no UI to prompt through — it fails with an error
+// instead, which is the right outcome for an agent-triggered call.
 fn read_remote_file(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
     let input = SftpReadInput {
         session_id: arg_str(args, "sessionId")?,
         path: arg_str(args, "path")?,
     };
-    let file = server_ops::sftp_read_file(state, input).map_err(|e| e.to_string())?;
+    let file = server_ops::sftp_read_file(state, None, input).map_err(|e| e.to_string())?;
     serde_json::to_value(file).map_err(|e| e.to_string())
 }
 
@@ -397,7 +402,7 @@ fn write_remote_file(state: &Arc<AppState>, args: &Value) -> Result<Value, Strin
             .ok_or("missing argument `content`")?,
     };
     let path = input.path.clone();
-    server_ops::sftp_write_file(state, input).map_err(|e| e.to_string())?;
+    server_ops::sftp_write_file(state, None, input).map_err(|e| e.to_string())?;
     Ok(json!({ "written": path }))
 }
 
@@ -406,7 +411,7 @@ fn list_remote_dir(state: &Arc<AppState>, args: &Value) -> Result<Value, String>
         session_id: arg_str(args, "sessionId")?,
         path: arg_str(args, "path")?,
     };
-    let listing = server_ops::sftp_list_dir(state, input).map_err(|e| e.to_string())?;
+    let listing = server_ops::sftp_list_dir(state, None, input).map_err(|e| e.to_string())?;
     serde_json::to_value(listing).map_err(|e| e.to_string())
 }
 
@@ -415,7 +420,7 @@ fn get_server_status(state: &Arc<AppState>, args: &Value) -> Result<Value, Strin
         session_id: arg_str(args, "sessionId")?,
         selected_interface: None,
     };
-    let status = server_ops::fetch_server_status(state, input).map_err(|e| e.to_string())?;
+    let status = server_ops::fetch_server_status(state, None, input).map_err(|e| e.to_string())?;
     serde_json::to_value(status).map_err(|e| e.to_string())
 }
 

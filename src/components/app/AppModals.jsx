@@ -3,6 +3,7 @@ import ScriptConfigModal from "../sidebar/ScriptConfigModal";
 import SshConfigModal from "../sidebar/SshConfigModal";
 import WallpaperModal from "../sidebar/WallpaperModal";
 import SshHostTrustDialog from "./SshHostTrustDialog";
+import SshKiPromptDialog from "./SshKiPromptDialog";
 
 export default function AppModals({
   workbench,
@@ -35,6 +36,8 @@ export default function AppModals({
     setWallpaper,
     hostKeyTrustPrompt,
     resolveHostKeyTrust,
+    kiPrompt,
+    dismissKiPrompt,
   } = workbench;
   const {
     isSshModalOpen,
@@ -97,6 +100,11 @@ export default function AppModals({
       <SshHostTrustDialog
         challenge={hostKeyTrustPrompt}
         onResolve={resolveHostKeyTrust}
+      />
+
+      <SshKiPromptDialog
+        prompt={kiPrompt}
+        onDismiss={dismissKiPrompt}
       />
     </>
   );

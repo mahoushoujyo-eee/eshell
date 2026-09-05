@@ -1,9 +1,9 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
@@ -12,7 +12,7 @@ use base64::engine::general_purpose::{
     STANDARD as BASE64_STANDARD, STANDARD_NO_PAD as BASE64_STANDARD_NO_PAD,
 };
 use base64::Engine;
-use ssh2::{ErrorCode, FileStat, HashType, HostKeyType, Session};
+use ssh2::{ErrorCode, FileStat, HashType, HostKeyType, RenameFlags, Session};
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
@@ -24,11 +24,12 @@ use crate::models::{
     now_rfc3339, CommandExecutionResult, FetchServerStatusInput, MemoryStatus,
     NetworkInterfaceStatus, PtyClosedEvent, PtyOutputEvent, SftpCreateInput, SftpDeleteInput,
     SftpDownloadInput, SftpDownloadPayload, SftpDownloadToLocalInput, SftpEntry, SftpEntryType,
-    SftpFileContent, SftpListInput, SftpListResponse, SftpReadInput, SftpTransferEvent,
-    SftpTransferResult, SftpUploadInput, SftpUploadWithProgressInput, SftpWriteInput,
-    ShellSession, SshAuthType, SshConfig, SshHostKeyTrustChallenge, SshHostKeyTrustReason,
+    SftpFileContent, SftpListInput, SftpListResponse, SftpReadInput, SftpRenameInput,
+    SftpTransferEvent, SftpTransferResult, SftpUploadInput, SftpUploadLocalWithProgressInput,
+    SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshAuthType, SshConfig,
+    SshHostKeyTrustChallenge, SshHostKeyTrustReason, SshKiPromptEvent, SshKiPromptItem,
 };
-use crate::state::{AppState, PtyCommand};
+use crate::state::{AppState, PtyCommand, SharedSshSession};
 
 const DEFAULT_PTY_COLS: u16 = 120;
 const DEFAULT_PTY_ROWS: u16 = 36;
@@ -39,11 +40,14 @@ const PTY_MAX_WRITE_OPS_PER_TICK: usize = 24;
 const PTY_MAX_READ_CHUNKS_PER_TICK: usize = 8;
 const SFTP_TRANSFER_EVENT: &str = "sftp-transfer";
 const SFTP_TRANSFER_CHUNK_BYTES: usize = 64 * 1024;
+const SFTP_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(200);
 const SSH_CONNECT_TOTAL_TIMEOUT: Duration = Duration::from_secs(45);
 const SSH_CONNECT_SLICE_TIMEOUT: Duration = Duration::from_millis(500);
 const SSH_CONNECT_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SSH_CONNECTION_CANCELLED_MESSAGE: &str = "SSH connection cancelled by user";
 const SSH_HOST_KEY_TRUST_REQUIRED_PREFIX: &str = "SSH_HOST_KEY_TRUST_REQUIRED:";
+const SSH_KI_PROMPT_EVENT: &str = "ssh-ki-prompt";
+const SSH_KI_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Creates a shell session and starts a long-lived PTY worker for interactive terminal IO.
 pub fn open_shell_session(
@@ -72,7 +76,12 @@ fn open_shell_session_inner(
     request_id: Option<&str>,
 ) -> AppResult<ShellSession> {
     let config = state.storage.find_ssh_config(config_id)?;
-    let ssh = connect_with_cancellation(&state, &config, request_id.map(|id| (&*state, id)))?;
+    let ssh = connect_with_app(
+        &state,
+        Some(&app),
+        &config,
+        request_id.map(|id| (&*state, id)),
+    )?;
     let (pwd_out, _, status) = run_channel_command(&ssh, "pwd")?;
     if status != 0 {
         return Err(AppError::Runtime(format!(
@@ -199,10 +208,13 @@ pub fn execute_command(
 }
 
 /// Lists directory entries through SFTP.
-pub fn sftp_list_dir(state: &AppState, input: SftpListInput) -> AppResult<SftpListResponse> {
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+pub fn sftp_list_dir(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    input: SftpListInput,
+) -> AppResult<SftpListResponse> {
+    let ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
     let sftp = ssh.sftp()?;
     let requested_path = normalize_remote_path(&input.path);
     let raw_entries = sftp.readdir(Path::new(&requested_path))?;
@@ -242,10 +254,13 @@ pub fn sftp_list_dir(state: &AppState, input: SftpListInput) -> AppResult<SftpLi
 }
 
 /// Reads remote file as UTF-8 text for in-app editing.
-pub fn sftp_read_file(state: &AppState, input: SftpReadInput) -> AppResult<SftpFileContent> {
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+pub fn sftp_read_file(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    input: SftpReadInput,
+) -> AppResult<SftpFileContent> {
+    let ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
     let mut file = sftp.open(Path::new(&remote_path))?;
@@ -259,22 +274,64 @@ pub fn sftp_read_file(state: &AppState, input: SftpReadInput) -> AppResult<SftpF
 }
 
 /// Writes text content to remote file path through SFTP.
-pub fn sftp_write_file(state: &AppState, input: SftpWriteInput) -> AppResult<()> {
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+pub fn sftp_write_file(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    input: SftpWriteInput,
+) -> AppResult<()> {
+    let ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
-    let mut file = sftp.create(Path::new(&remote_path))?;
-    file.write_all(input.content.as_bytes())?;
-    Ok(())
+    let temp_path = atomic_write_temp_path(&remote_path);
+    let temp_path_ref = Path::new(&temp_path);
+    let remote_path_ref = Path::new(&remote_path);
+
+    let write_result = (|| -> AppResult<()> {
+        let mut file = sftp.create(temp_path_ref)?;
+        file.write_all(input.content.as_bytes())?;
+        Ok(())
+    })();
+
+    if let Err(error) = write_result {
+        let _ = sftp.unlink(temp_path_ref);
+        append_server_ops_debug_log(
+            state,
+            "sftp.write_file.write_failed",
+            &input.session_id,
+            format!(
+                "path={} temp_path={} error={}",
+                remote_path, temp_path, error
+            ),
+        );
+        return Err(error);
+    }
+
+    finish_atomic_write_with_fallback(
+        || {
+            sftp.rename(temp_path_ref, remote_path_ref, atomic_write_rename_flags())
+                .map_err(AppError::Ssh)
+        },
+        || {
+            let mut file = sftp.create(remote_path_ref)?;
+            file.write_all(input.content.as_bytes())?;
+            Ok(())
+        },
+        || sftp.unlink(temp_path_ref).map_err(AppError::Ssh),
+        |event, detail| append_server_ops_debug_log(state, event, &input.session_id, detail),
+        &remote_path,
+        &temp_path,
+    )
 }
 
 /// Creates an empty remote file without overwriting an existing entry.
-pub fn sftp_create_file(state: &AppState, input: SftpCreateInput) -> AppResult<()> {
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+pub fn sftp_create_file(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    input: SftpCreateInput,
+) -> AppResult<()> {
+    let ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
     ensure_creatable_remote_path(&sftp, &remote_path)?;
@@ -284,10 +341,13 @@ pub fn sftp_create_file(state: &AppState, input: SftpCreateInput) -> AppResult<(
 }
 
 /// Creates one remote directory without overwriting an existing entry.
-pub fn sftp_create_directory(state: &AppState, input: SftpCreateInput) -> AppResult<()> {
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+pub fn sftp_create_directory(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    input: SftpCreateInput,
+) -> AppResult<()> {
+    let ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
     ensure_creatable_remote_path(&sftp, &remote_path)?;
@@ -296,10 +356,13 @@ pub fn sftp_create_directory(state: &AppState, input: SftpCreateInput) -> AppRes
 }
 
 /// Uploads base64 payload to target remote path through SFTP.
-pub fn sftp_upload_file(state: &AppState, input: SftpUploadInput) -> AppResult<()> {
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+pub fn sftp_upload_file(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    input: SftpUploadInput,
+) -> AppResult<()> {
+    let ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let mut file = sftp.create(Path::new(&remote_path))?;
@@ -309,10 +372,13 @@ pub fn sftp_upload_file(state: &AppState, input: SftpUploadInput) -> AppResult<(
 }
 
 /// Deletes one remote file or symlink through SFTP.
-pub fn sftp_delete_entry(state: &AppState, input: SftpDeleteInput) -> AppResult<()> {
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+pub fn sftp_delete_entry(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    input: SftpDeleteInput,
+) -> AppResult<()> {
+    let ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.path);
     if remote_path == "/" {
@@ -328,6 +394,26 @@ pub fn sftp_delete_entry(state: &AppState, input: SftpDeleteInput) -> AppResult<
     Ok(())
 }
 
+/// Renames one remote entry within its current parent directory.
+pub fn sftp_rename_entry(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    input: SftpRenameInput,
+) -> AppResult<()> {
+    let ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
+    let sftp = ssh.sftp()?;
+    let remote_path = normalize_remote_path(&input.path);
+    let target_path = renamed_remote_path(&remote_path, &input.new_name)?;
+    if remote_path == target_path {
+        return Ok(());
+    }
+
+    ensure_creatable_remote_path(&sftp, &target_path)?;
+    sftp.rename(Path::new(&remote_path), Path::new(&target_path), None)?;
+    Ok(())
+}
+
 /// Uploads base64 payload and emits chunk-level progress events.
 pub fn sftp_upload_file_with_progress(
     state: &AppState,
@@ -335,9 +421,8 @@ pub fn sftp_upload_file_with_progress(
     input: SftpUploadWithProgressInput,
 ) -> AppResult<SftpTransferResult> {
     let _transfer_guard = SftpTransferGuard::new(state, &input.transfer_id);
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+    let ssh = operation_ssh_session(state, Some(app), &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let file_name = input
@@ -347,6 +432,7 @@ pub fn sftp_upload_file_with_progress(
     let bytes = BASE64_STANDARD.decode(input.content_base64.as_bytes())?;
     let total_bytes = bytes.len() as u64;
     let mut transferred_bytes = 0_u64;
+    let mut progress_throttle = TransferProgressThrottle::new(SFTP_PROGRESS_MIN_INTERVAL);
 
     emit_sftp_transfer_event(
         app,
@@ -430,22 +516,208 @@ pub fn sftp_upload_file_with_progress(
             return Err(AppError::Io(error));
         }
         transferred_bytes += chunk.len() as u64;
-        emit_sftp_transfer_event(
-            app,
-            SftpTransferEvent {
-                transfer_id: input.transfer_id.clone(),
-                session_id: input.session_id.clone(),
-                direction: "upload".to_string(),
-                stage: "progress".to_string(),
-                remote_path: remote_path.clone(),
-                local_path: Some(local_path.clone()),
-                file_name: file_name.clone(),
-                transferred_bytes,
-                total_bytes: Some(total_bytes),
-                percent: compute_transfer_percent(transferred_bytes, Some(total_bytes)),
-                message: None,
-            },
-        );
+        if progress_throttle.should_emit(Instant::now(), false) {
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "upload".to_string(),
+                    stage: "progress".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path.clone()),
+                    file_name: file_name.clone(),
+                    transferred_bytes,
+                    total_bytes: Some(total_bytes),
+                    percent: compute_transfer_percent(transferred_bytes, Some(total_bytes)),
+                    message: None,
+                },
+            );
+        }
+    }
+
+    emit_sftp_transfer_event(
+        app,
+        SftpTransferEvent {
+            transfer_id: input.transfer_id.clone(),
+            session_id: input.session_id.clone(),
+            direction: "upload".to_string(),
+            stage: "completed".to_string(),
+            remote_path: remote_path.clone(),
+            local_path: Some(local_path.clone()),
+            file_name: file_name.clone(),
+            transferred_bytes: total_bytes,
+            total_bytes: Some(total_bytes),
+            percent: 100.0,
+            message: None,
+        },
+    );
+
+    Ok(SftpTransferResult {
+        transfer_id: input.transfer_id,
+        direction: "upload".to_string(),
+        remote_path,
+        local_path,
+        file_name,
+        size: total_bytes,
+    })
+}
+
+/// Uploads a local file path by streaming it from disk into SFTP.
+pub fn sftp_upload_local_file_with_progress(
+    state: &AppState,
+    app: &AppHandle,
+    input: SftpUploadLocalWithProgressInput,
+) -> AppResult<SftpTransferResult> {
+    let _transfer_guard = SftpTransferGuard::new(state, &input.transfer_id);
+    let local_path_buf = PathBuf::from(input.local_path.trim());
+    let source = inspect_local_upload_source(&local_path_buf)?;
+    let file_name = input
+        .local_name
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| source.file_name.clone());
+    let local_path = source.path.to_string_lossy().to_string();
+    let total_bytes = source.total_bytes;
+    let mut local_file = File::open(&source.path)?;
+
+    let ssh = operation_ssh_session(state, Some(app), &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
+    let sftp = ssh.sftp()?;
+    let remote_path = normalize_remote_path(&input.remote_path);
+    let mut transferred_bytes = 0_u64;
+    let mut progress_throttle = TransferProgressThrottle::new(SFTP_PROGRESS_MIN_INTERVAL);
+
+    emit_sftp_transfer_event(
+        app,
+        SftpTransferEvent {
+            transfer_id: input.transfer_id.clone(),
+            session_id: input.session_id.clone(),
+            direction: "upload".to_string(),
+            stage: "started".to_string(),
+            remote_path: remote_path.clone(),
+            local_path: Some(local_path.clone()),
+            file_name: file_name.clone(),
+            transferred_bytes,
+            total_bytes: Some(total_bytes),
+            percent: 0.0,
+            message: None,
+        },
+    );
+
+    let mut remote_file = match sftp.create(Path::new(&remote_path)) {
+        Ok(file) => file,
+        Err(error) => {
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "upload".to_string(),
+                    stage: "failed".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path),
+                    file_name,
+                    transferred_bytes,
+                    total_bytes: Some(total_bytes),
+                    percent: 0.0,
+                    message: Some(error.to_string()),
+                },
+            );
+            return Err(AppError::Ssh(error));
+        }
+    };
+
+    let mut buffer = vec![0_u8; SFTP_TRANSFER_CHUNK_BYTES];
+    loop {
+        if state.is_sftp_transfer_cancelled(&input.transfer_id) {
+            let _ = sftp.unlink(Path::new(&remote_path));
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "upload".to_string(),
+                    stage: "cancelled".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path.clone()),
+                    file_name: file_name.clone(),
+                    transferred_bytes,
+                    total_bytes: Some(total_bytes),
+                    percent: compute_transfer_percent(transferred_bytes, Some(total_bytes)),
+                    message: Some("Transfer cancelled by user".to_string()),
+                },
+            );
+            return Err(AppError::Runtime("transfer cancelled by user".to_string()));
+        }
+
+        let read_size = match local_file.read(&mut buffer) {
+            Ok(size) => size,
+            Err(error) => {
+                emit_sftp_transfer_event(
+                    app,
+                    SftpTransferEvent {
+                        transfer_id: input.transfer_id.clone(),
+                        session_id: input.session_id.clone(),
+                        direction: "upload".to_string(),
+                        stage: "failed".to_string(),
+                        remote_path: remote_path.clone(),
+                        local_path: Some(local_path.clone()),
+                        file_name: file_name.clone(),
+                        transferred_bytes,
+                        total_bytes: Some(total_bytes),
+                        percent: compute_transfer_percent(transferred_bytes, Some(total_bytes)),
+                        message: Some(error.to_string()),
+                    },
+                );
+                let _ = sftp.unlink(Path::new(&remote_path));
+                return Err(AppError::Io(error));
+            }
+        };
+
+        if read_size == 0 {
+            break;
+        }
+
+        if let Err(error) = remote_file.write_all(&buffer[..read_size]) {
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "upload".to_string(),
+                    stage: "failed".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path.clone()),
+                    file_name: file_name.clone(),
+                    transferred_bytes,
+                    total_bytes: Some(total_bytes),
+                    percent: compute_transfer_percent(transferred_bytes, Some(total_bytes)),
+                    message: Some(error.to_string()),
+                },
+            );
+            let _ = sftp.unlink(Path::new(&remote_path));
+            return Err(AppError::Io(error));
+        }
+
+        transferred_bytes += read_size as u64;
+        if progress_throttle.should_emit(Instant::now(), false) {
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "upload".to_string(),
+                    stage: "progress".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path.clone()),
+                    file_name: file_name.clone(),
+                    transferred_bytes,
+                    total_bytes: Some(total_bytes),
+                    percent: compute_transfer_percent(transferred_bytes, Some(total_bytes)),
+                    message: None,
+                },
+            );
+        }
     }
 
     emit_sftp_transfer_event(
@@ -478,11 +750,11 @@ pub fn sftp_upload_file_with_progress(
 /// Downloads remote file and returns base64-encoded bytes for frontend save flow.
 pub fn sftp_download_file(
     state: &AppState,
+    app: Option<&AppHandle>,
     input: SftpDownloadInput,
 ) -> AppResult<SftpDownloadPayload> {
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+    let ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let mut file = sftp.open(Path::new(&remote_path))?;
@@ -510,9 +782,8 @@ pub fn sftp_download_file_to_local(
     input: SftpDownloadToLocalInput,
 ) -> AppResult<SftpTransferResult> {
     let _transfer_guard = SftpTransferGuard::new(state, &input.transfer_id);
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+    let ssh = operation_ssh_session(state, Some(app), &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
     let sftp = ssh.sftp()?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let file_name = extract_remote_file_name(&remote_path);
@@ -572,6 +843,7 @@ pub fn sftp_download_file_to_local(
     };
 
     let mut transferred_bytes = 0_u64;
+    let mut progress_throttle = TransferProgressThrottle::new(SFTP_PROGRESS_MIN_INTERVAL);
     emit_sftp_transfer_event(
         app,
         SftpTransferEvent {
@@ -660,22 +932,24 @@ pub fn sftp_download_file_to_local(
         }
 
         transferred_bytes += read_size as u64;
-        emit_sftp_transfer_event(
-            app,
-            SftpTransferEvent {
-                transfer_id: input.transfer_id.clone(),
-                session_id: input.session_id.clone(),
-                direction: "download".to_string(),
-                stage: "progress".to_string(),
-                remote_path: remote_path.clone(),
-                local_path: Some(local_path.clone()),
-                file_name: file_name.clone(),
-                transferred_bytes,
-                total_bytes,
-                percent: compute_transfer_percent(transferred_bytes, total_bytes),
-                message: None,
-            },
-        );
+        if progress_throttle.should_emit(Instant::now(), false) {
+            emit_sftp_transfer_event(
+                app,
+                SftpTransferEvent {
+                    transfer_id: input.transfer_id.clone(),
+                    session_id: input.session_id.clone(),
+                    direction: "download".to_string(),
+                    stage: "progress".to_string(),
+                    remote_path: remote_path.clone(),
+                    local_path: Some(local_path.clone()),
+                    file_name: file_name.clone(),
+                    transferred_bytes,
+                    total_bytes,
+                    percent: compute_transfer_percent(transferred_bytes, total_bytes),
+                    message: None,
+                },
+            );
+        }
     }
 
     let final_size = total_bytes.unwrap_or(transferred_bytes);
@@ -719,11 +993,11 @@ pub fn sftp_cancel_transfer(state: &AppState, transfer_id: &str) -> bool {
 /// Collects server runtime metrics and updates session-bound cache.
 pub fn fetch_server_status(
     state: &AppState,
+    app: Option<&AppHandle>,
     input: FetchServerStatusInput,
 ) -> AppResult<crate::models::ServerStatus> {
-    let session = state.get_session(&input.session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let ssh = connect(&state, &config)?;
+    let ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&ssh)?;
 
     let top_output = run_channel_command(&ssh, "LANG=C top -bn1 | head -n 10")?.0;
     let cpu_percent = parse_cpu_percent(&top_output).unwrap_or(0.0);
@@ -798,6 +1072,39 @@ fn emit_sftp_transfer_event(app: &AppHandle, event: SftpTransferEvent) {
     let _ = app.emit(SFTP_TRANSFER_EVENT, event);
 }
 
+struct TransferProgressThrottle {
+    min_interval: Duration,
+    last_emit_at: Option<Instant>,
+}
+
+impl TransferProgressThrottle {
+    fn new(min_interval: Duration) -> Self {
+        Self {
+            min_interval,
+            last_emit_at: None,
+        }
+    }
+
+    fn should_emit(&mut self, now: Instant, force: bool) -> bool {
+        if force {
+            self.last_emit_at = Some(now);
+            return true;
+        }
+
+        match self.last_emit_at {
+            Some(last_emit_at)
+                if now.saturating_duration_since(last_emit_at) < self.min_interval =>
+            {
+                false
+            }
+            _ => {
+                self.last_emit_at = Some(now);
+                true
+            }
+        }
+    }
+}
+
 fn compute_transfer_percent(transferred_bytes: u64, total_bytes: Option<u64>) -> f64 {
     match total_bytes {
         Some(0) | None => 0.0,
@@ -824,6 +1131,150 @@ fn normalize_local_dir(value: &str) -> AppResult<PathBuf> {
         ));
     }
     Ok(PathBuf::from(trimmed))
+}
+
+fn atomic_write_temp_path(remote_path: &str) -> String {
+    atomic_write_temp_path_with_suffix(remote_path, &Uuid::new_v4().to_string())
+}
+
+fn atomic_write_rename_flags() -> Option<RenameFlags> {
+    Some(RenameFlags::OVERWRITE)
+}
+
+fn finish_atomic_write_with_fallback<R, D, U, L>(
+    mut rename_temp: R,
+    mut direct_write_target: D,
+    mut unlink_temp: U,
+    mut log_failure: L,
+    remote_path: &str,
+    temp_path: &str,
+) -> AppResult<()>
+where
+    R: FnMut() -> AppResult<()>,
+    D: FnMut() -> AppResult<()>,
+    U: FnMut() -> AppResult<()>,
+    L: FnMut(&str, String),
+{
+    if let Err(error) = rename_temp() {
+        log_failure(
+            "sftp.write_file.rename_failed",
+            format!(
+                "path={} temp_path={} error={}",
+                remote_path, temp_path, error
+            ),
+        );
+
+        match direct_write_target() {
+            Ok(()) => {
+                if let Err(cleanup_error) = unlink_temp() {
+                    log_failure(
+                        "sftp.write_file.temp_cleanup_failed",
+                        format!(
+                            "path={} temp_path={} error={}",
+                            remote_path, temp_path, cleanup_error
+                        ),
+                    );
+                }
+                log_failure(
+                    "sftp.write_file.direct_write_fallback_succeeded",
+                    format!("path={} temp_path={}", remote_path, temp_path),
+                );
+                return Ok(());
+            }
+            Err(fallback_error) => {
+                log_failure(
+                    "sftp.write_file.direct_write_fallback_failed",
+                    format!(
+                        "path={} temp_path={} error={}",
+                        remote_path, temp_path, fallback_error
+                    ),
+                );
+                return Err(fallback_error);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn atomic_write_temp_path_with_suffix(remote_path: &str, suffix: &str) -> String {
+    let normalized = normalize_remote_path(remote_path);
+    let trimmed = normalized.trim_end_matches('/');
+    let (dir, file_name) = match trimmed.rsplit_once('/') {
+        Some(("", name)) => ("/", name),
+        Some((parent, name)) => (parent, name),
+        None => ("", trimmed),
+    };
+    let temp_name = format!(".{file_name}.eshell-tmp-{suffix}");
+
+    if dir.is_empty() {
+        temp_name
+    } else if dir == "/" {
+        format!("/{temp_name}")
+    } else {
+        format!("{dir}/{temp_name}")
+    }
+}
+
+fn renamed_remote_path(remote_path: &str, new_name: &str) -> AppResult<String> {
+    let normalized = normalize_remote_path(remote_path);
+    if normalized == "/" {
+        return Err(AppError::Validation(
+            "cannot rename the remote root directory".to_string(),
+        ));
+    }
+
+    let name = new_name.trim();
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
+        return Err(AppError::Validation(
+            "new remote name must not be empty or contain path separators".to_string(),
+        ));
+    }
+
+    let (parent, _) = normalized
+        .rsplit_once('/')
+        .ok_or_else(|| AppError::Validation("remote path is invalid".to_string()))?;
+    if parent.is_empty() {
+        Ok(format!("/{name}"))
+    } else {
+        Ok(format!("{parent}/{name}"))
+    }
+}
+
+#[derive(Debug)]
+struct LocalUploadSource {
+    path: PathBuf,
+    file_name: String,
+    total_bytes: u64,
+}
+
+fn inspect_local_upload_source(path: &Path) -> AppResult<LocalUploadSource> {
+    let metadata = std::fs::metadata(path)?;
+    if !metadata.is_file() {
+        return Err(AppError::Validation(format!(
+            "local upload path is not a regular file: {}",
+            path.display()
+        )));
+    }
+
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(ToString::to_string)
+        .ok_or_else(|| {
+            AppError::Validation(format!(
+                "local upload path has no file name: {}",
+                path.display()
+            ))
+        })?;
+
+    Ok(LocalUploadSource {
+        path: path.to_path_buf(),
+        file_name,
+        total_bytes: metadata.len(),
+    })
 }
 
 fn resolve_default_download_dir() -> PathBuf {
@@ -1351,18 +1802,55 @@ fn is_transient_pty_io_error(err: &std::io::Error) -> bool {
         || message.contains("timed out")
 }
 
-fn connect(state: &AppState, config: &SshConfig) -> AppResult<Session> {
-    connect_with_cancellation(state, config, None)
+fn operation_ssh_session(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    session_id: &str,
+) -> AppResult<SharedSshSession> {
+    let session = state.get_session(session_id)?;
+    let config = state.storage.find_ssh_config(&session.config_id)?;
+    state.get_or_insert_ssh_session(session_id, || {
+        let ssh = connect_with_app(state, app, &config, None)?;
+        ssh.set_keepalive(true, 20);
+        Ok(ssh)
+    })
 }
 
-fn connect_with_cancellation(
+fn lock_ssh_session(session: &SharedSshSession) -> AppResult<std::sync::MutexGuard<'_, Session>> {
+    session
+        .lock()
+        .map_err(|_| AppError::Runtime("cached SSH session lock poisoned".to_string()))
+}
+
+fn connect(state: &AppState, config: &SshConfig) -> AppResult<Session> {
+    connect_with_app(state, None, config, None)
+}
+
+fn connect_with_app(
     state: &AppState,
+    app: Option<&AppHandle>,
     config: &SshConfig,
     cancellation: Option<(&AppState, &str)>,
 ) -> AppResult<Session> {
-    let tcp = connect_tcp_with_cancellation(config, cancellation)?;
-    tcp.set_read_timeout(Some(std::time::Duration::from_secs(20)))?;
-    tcp.set_write_timeout(Some(std::time::Duration::from_secs(20)))?;
+    let tcp = if let Some(jump_id) = config.jump_host_id.as_deref().filter(|s| !s.is_empty()) {
+        let jump_config = state
+            .storage
+            .find_ssh_config(jump_id)
+            .map_err(|_| AppError::Runtime(format!("jump host config {jump_id} not found")))?;
+        open_jump_host_stream(
+            state,
+            app,
+            &jump_config,
+            &config.host,
+            config.port,
+            cancellation,
+        )?
+    } else {
+        let stream = connect_tcp_with_cancellation(config, cancellation)?;
+        stream.set_read_timeout(Some(Duration::from_secs(20)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(20)))?;
+        stream
+    };
 
     let mut session = Session::new()?;
     session.set_tcp_stream(tcp);
@@ -1373,7 +1861,7 @@ fn connect_with_cancellation(
     check_shell_connection_cancelled(cancellation)?;
     verify_host_key_trust(state, config, &session)?;
     check_shell_connection_cancelled(cancellation)?;
-    authenticate_session(config, &mut session)?;
+    authenticate_session(state, app, config, &mut session)?;
 
     if !session.authenticated() {
         return Err(AppError::Runtime(format!(
@@ -1385,11 +1873,99 @@ fn connect_with_cancellation(
     Ok(session)
 }
 
-fn verify_host_key_trust(
+#[allow(dead_code)]
+fn connect_with_cancellation(
     state: &AppState,
     config: &SshConfig,
-    session: &Session,
-) -> AppResult<()> {
+    cancellation: Option<(&AppState, &str)>,
+) -> AppResult<Session> {
+    connect_with_app(state, None, config, cancellation)
+}
+
+fn open_jump_host_stream(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    jump_config: &SshConfig,
+    target_host: &str,
+    target_port: u16,
+    cancellation: Option<(&AppState, &str)>,
+) -> AppResult<TcpStream> {
+    let jump_session = connect_with_app(state, app, jump_config, cancellation)?;
+    jump_session.set_blocking(true);
+
+    let channel = jump_session
+        .channel_direct_tcpip(target_host, target_port, Some(("127.0.0.1", 0)))
+        .map_err(|err| {
+            AppError::Runtime(format!(
+                "failed to open jump channel to {target_host}:{target_port}: {err}"
+            ))
+        })?;
+
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let local_port = listener.local_addr()?.port();
+
+    thread::spawn(move || {
+        let Ok((local_stream, _)) = listener.accept() else {
+            return;
+        };
+        let Ok(mut local_w) = local_stream.try_clone() else {
+            return;
+        };
+        let mut local_r = local_stream;
+
+        let channel_arc = Arc::new(Mutex::new(channel));
+        let channel_arc2 = Arc::clone(&channel_arc);
+
+        let ch_to_local = thread::spawn(move || {
+            let mut buf = [0u8; 32_768];
+            loop {
+                let n = {
+                    let mut ch = match channel_arc2.lock() {
+                        Ok(g) => g,
+                        Err(_) => break,
+                    };
+                    match ch.read(&mut buf) {
+                        Ok(n) => n,
+                        Err(_) => 0,
+                    }
+                };
+                if n == 0 {
+                    break;
+                }
+                if local_w.write_all(&buf[..n]).is_err() {
+                    break;
+                }
+            }
+        });
+
+        let _keep_alive = jump_session;
+        let mut buf = [0u8; 32_768];
+        loop {
+            let n = match local_r.read(&mut buf) {
+                Ok(n) => n,
+                Err(_) => 0,
+            };
+            if n == 0 {
+                break;
+            }
+            let mut ch = match channel_arc.lock() {
+                Ok(g) => g,
+                Err(_) => break,
+            };
+            if ch.write_all(&buf[..n]).is_err() {
+                break;
+            }
+        }
+        let _ = ch_to_local.join();
+    });
+
+    let stream = TcpStream::connect(format!("127.0.0.1:{local_port}"))?;
+    stream.set_read_timeout(Some(Duration::from_secs(20)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(20)))?;
+    Ok(stream)
+}
+
+fn verify_host_key_trust(state: &AppState, config: &SshConfig, session: &Session) -> AppResult<()> {
     let host_key = extract_host_key_fingerprint(session).ok_or_else(|| {
         AppError::Runtime(format!(
             "SSH host key is unavailable for {}:{}",
@@ -1418,7 +1994,12 @@ fn verify_host_key_trust(
     }
 }
 
-fn authenticate_session(config: &SshConfig, session: &mut Session) -> AppResult<()> {
+fn authenticate_session(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    config: &SshConfig,
+    session: &mut Session,
+) -> AppResult<()> {
     match config.auth_type {
         SshAuthType::Password => authenticate_with_password(config, session),
         SshAuthType::PrivateKey => {
@@ -1457,7 +2038,88 @@ fn authenticate_session(config: &SshConfig, session: &mut Session) -> AppResult<
                 Err(err) => Err(map_key_auth_error(config, AppError::Ssh(err))),
             }
         }
+        SshAuthType::KeyboardInteractive => {
+            let app = app.ok_or_else(|| {
+                AppError::Runtime("keyboard-interactive auth requires an app handle".to_string())
+            })?;
+            let request_id = Uuid::new_v4().to_string();
+            let mut prompter = FrontendKiPrompter {
+                state,
+                app,
+                request_id: request_id.clone(),
+            };
+            session
+                .userauth_keyboard_interactive(&config.username, &mut prompter)
+                .map_err(|err| {
+                    state.clear_ki_pending(&request_id);
+                    AppError::Runtime(format!(
+                        "keyboard-interactive authentication failed for {}@{}:{}: {err}",
+                        config.username, config.host, config.port
+                    ))
+                })
+        }
     }
+}
+
+struct FrontendKiPrompter<'a> {
+    state: &'a AppState,
+    app: &'a AppHandle,
+    request_id: String,
+}
+
+impl<'a> ssh2::KeyboardInteractivePrompt for FrontendKiPrompter<'a> {
+    fn prompt(
+        &mut self,
+        username: &str,
+        instructions: &str,
+        prompts: &[ssh2::Prompt<'_>],
+    ) -> Vec<String> {
+        if prompts.is_empty() {
+            return vec![];
+        }
+
+        let (tx, rx) = mpsc::channel::<Vec<String>>();
+        self.state.put_ki_pending(&self.request_id, tx);
+
+        let event = SshKiPromptEvent {
+            request_id: self.request_id.clone(),
+            username: username.to_string(),
+            instructions: instructions.to_string(),
+            prompts: prompts
+                .iter()
+                .map(|p| SshKiPromptItem {
+                    text: p.text.to_string(),
+                    echo: p.echo,
+                })
+                .collect(),
+        };
+
+        if self.app.emit(SSH_KI_PROMPT_EVENT, &event).is_err() {
+            self.state.clear_ki_pending(&self.request_id);
+            return vec![String::new(); prompts.len()];
+        }
+
+        match rx.recv_timeout(SSH_KI_TIMEOUT) {
+            Ok(responses) => {
+                if responses.len() == prompts.len() {
+                    responses
+                } else {
+                    let mut r = responses;
+                    r.resize(prompts.len(), String::new());
+                    r
+                }
+            }
+            Err(_) => {
+                self.state.clear_ki_pending(&self.request_id);
+                vec![String::new(); prompts.len()]
+            }
+        }
+    }
+}
+
+/// Delivers keyboard-interactive responses from frontend to waiting auth thread.
+pub fn ssh_ki_respond(state: &AppState, request_id: &str, responses: Vec<String>) -> AppResult<()> {
+    state.respond_ki(request_id, responses)
 }
 
 fn authenticate_with_password(config: &SshConfig, session: &mut Session) -> AppResult<()> {
@@ -1699,5 +2361,122 @@ mod tests {
 
         let socket_send = ssh2::Error::new(ErrorCode::Session(-7), "unable to send data on socket");
         assert!(!is_transient_ssh_error(&socket_send));
+    }
+
+    #[test]
+    fn inspect_local_upload_source_returns_name_and_size_for_file() {
+        let root = unique_temp_dir("local-upload-source");
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let file_path = root.join("hello.txt");
+        std::fs::write(&file_path, b"hello world").expect("write temp file");
+
+        let source = inspect_local_upload_source(&file_path).expect("inspect local file");
+
+        assert_eq!(source.file_name, "hello.txt");
+        assert_eq!(source.total_bytes, 11);
+    }
+
+    #[test]
+    fn inspect_local_upload_source_rejects_directories() {
+        let root = unique_temp_dir("local-upload-dir");
+        std::fs::create_dir_all(&root).expect("create temp dir");
+
+        let error = inspect_local_upload_source(&root).expect_err("directory should fail");
+
+        assert!(error.to_string().contains("not a regular file"));
+    }
+
+    #[test]
+    fn transfer_progress_throttle_skips_events_until_interval_elapsed() {
+        let mut throttle = TransferProgressThrottle::new(Duration::from_millis(200));
+        let started_at = Instant::now();
+
+        assert!(throttle.should_emit(started_at, false));
+        assert!(!throttle.should_emit(started_at + Duration::from_millis(199), false));
+        assert!(throttle.should_emit(started_at + Duration::from_millis(200), false));
+    }
+
+    #[test]
+    fn transfer_progress_throttle_allows_forced_final_event() {
+        let mut throttle = TransferProgressThrottle::new(Duration::from_millis(200));
+        let started_at = Instant::now();
+
+        assert!(throttle.should_emit(started_at, false));
+        assert!(throttle.should_emit(started_at + Duration::from_millis(1), true));
+    }
+
+    #[test]
+    fn atomic_write_temp_path_stays_next_to_target_file() {
+        let temp_path = atomic_write_temp_path_with_suffix("/var/www/app/config.toml", "abc123");
+
+        assert_eq!(temp_path, "/var/www/app/.config.toml.eshell-tmp-abc123");
+    }
+
+    #[test]
+    fn atomic_write_rename_flags_allow_replacing_existing_file() {
+        assert!(atomic_write_rename_flags()
+            .expect("atomic write rename flags")
+            .contains(RenameFlags::OVERWRITE));
+    }
+
+    #[test]
+    fn finish_atomic_write_falls_back_to_direct_target_write_when_rename_fails() {
+        let mut renamed = false;
+        let mut direct_written = false;
+        let mut temp_unlinked = false;
+        let mut events = Vec::<String>::new();
+
+        finish_atomic_write_with_fallback(
+            || {
+                renamed = true;
+                Err(AppError::Runtime("rename rejected".to_string()))
+            },
+            || {
+                direct_written = true;
+                Ok(())
+            },
+            || {
+                temp_unlinked = true;
+                Ok(())
+            },
+            |event, _detail| events.push(event.to_string()),
+            "/root/learn_k8s/nginx-deployment.yaml",
+            "/root/learn_k8s/.nginx-deployment.yaml.eshell-tmp-test",
+        )
+        .expect("fallback save should succeed");
+
+        assert!(renamed);
+        assert!(direct_written);
+        assert!(temp_unlinked);
+        assert_eq!(
+            events,
+            vec![
+                "sftp.write_file.rename_failed",
+                "sftp.write_file.direct_write_fallback_succeeded"
+            ]
+        );
+    }
+
+    #[test]
+    fn renamed_remote_path_stays_in_original_parent_directory() {
+        let renamed = renamed_remote_path("/var/www/app/config.toml", "settings.toml")
+            .expect("build rename path");
+
+        assert_eq!(renamed, "/var/www/app/settings.toml");
+    }
+
+    #[test]
+    fn renamed_remote_path_rejects_root_and_nested_names() {
+        assert!(renamed_remote_path("/", "root").is_err());
+        assert!(renamed_remote_path("/var/www/app/config.toml", "../settings.toml").is_err());
+        assert!(renamed_remote_path("/var/www/app/config.toml", "nested/settings.toml").is_err());
+    }
+
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("eshell-service-{name}-{nonce}"))
     }
 }

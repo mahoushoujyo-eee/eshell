@@ -39,6 +39,7 @@ export default function AppMainWorkspace({
     createSftpEntry,
     downloadFile,
     deleteSftpEntry,
+    renameSftpEntry,
     copySftpEntryPath,
     cancelSftpTransfer,
     setShowAiPanel,
@@ -49,6 +50,8 @@ export default function AppMainWorkspace({
     handleNicChange,
     handleDownloadDirectoryChange,
     formatBytes,
+    statusRefreshInterval,
+    setStatusRefreshInterval,
   } = workbench;
 
   // Stable slot nodes — one per panel, created once and never re-created.
@@ -104,6 +107,7 @@ export default function AppMainWorkspace({
           createSftpEntry={createSftpEntry}
           downloadFile={downloadFile}
           deleteSftpEntry={deleteSftpEntry}
+          renameSftpEntry={renameSftpEntry}
           copySftpEntryPath={copySftpEntryPath}
           cancelTransfer={cancelSftpTransfer}
           downloadDirectory={downloadDirectory}
@@ -129,6 +133,8 @@ export default function AppMainWorkspace({
           currentNic={currentNic}
           onNicChange={handleNicChange}
           formatBytes={formatBytes}
+          refreshInterval={statusRefreshInterval}
+          onRefreshIntervalChange={setStatusRefreshInterval}
         />
       ),
     },

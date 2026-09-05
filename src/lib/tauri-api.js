@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 
 export const api = {
   listSshConfigs: () => invoke("list_ssh_configs"),
@@ -32,6 +33,8 @@ export const api = {
     invoke("sftp_create_directory", { input: { sessionId, path } }),
   sftpDeleteEntry: (sessionId, path, entryType) =>
     invoke("sftp_delete_entry", { input: { sessionId, path, entryType } }),
+  sftpRenameEntry: (sessionId, path, newName) =>
+    invoke("sftp_rename_entry", { input: { sessionId, path, newName } }),
   sftpUploadFile: (sessionId, remotePath, contentBase64) =>
     invoke("sftp_upload_file", {
       input: { sessionId, remotePath, contentBase64 },
@@ -46,6 +49,21 @@ export const api = {
     invoke("sftp_upload_file_with_progress", {
       input: { sessionId, remotePath, contentBase64, transferId, localName },
     }),
+  sftpSelectUploadFile: () =>
+    open({
+      multiple: false,
+      directory: false,
+    }),
+  sftpUploadLocalFileWithProgress: (
+    sessionId,
+    remotePath,
+    localPath,
+    transferId,
+    localName = null,
+  ) =>
+    invoke("sftp_upload_local_file_with_progress", {
+      input: { sessionId, remotePath, localPath, transferId, localName },
+    }),
   sftpDownloadFile: (sessionId, remotePath) =>
     invoke("sftp_download_file", { input: { sessionId, remotePath } }),
   sftpDownloadFileToLocal: (sessionId, remotePath, localDir, transferId) =>
@@ -55,6 +73,8 @@ export const api = {
   sftpDefaultDownloadDir: () => invoke("sftp_default_download_dir"),
   sftpCancelTransfer: (transferId) =>
     invoke("sftp_cancel_transfer", { input: { transferId } }),
+  sshKiRespond: (requestId, responses) =>
+    invoke("ssh_ki_respond", { input: { requestId, responses } }),
 
   fetchServerStatus: (sessionId, selectedInterface) =>
     invoke("fetch_server_status", {

@@ -18,6 +18,24 @@ export function joinPath(base, fileName) {
   return normalizeRemotePath(`${normalizedBase.replace(/\/+$/, "")}/${fileName}`);
 }
 
+export function renameRemoteEntryPath(path, nextName) {
+  const normalizedPath = normalizeRemotePath(path);
+  const name = String(nextName || "").trim();
+  if (
+    normalizedPath === "/" ||
+    !name ||
+    name === "." ||
+    name === ".." ||
+    /[\\/]/.test(name)
+  ) {
+    return null;
+  }
+
+  const index = normalizedPath.lastIndexOf("/");
+  const parentPath = index <= 0 ? "/" : normalizedPath.slice(0, index);
+  return joinPath(parentPath, name);
+}
+
 export function normalizeRemotePath(path) {
   const raw = String(path || "").trim();
   if (!raw) {

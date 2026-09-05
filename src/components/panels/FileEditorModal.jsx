@@ -1,5 +1,5 @@
 ﻿import { Eye, FileText, Pencil, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -19,6 +19,7 @@ import toml from "react-syntax-highlighter/dist/esm/languages/prism/toml";
 import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
 import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
 import { useI18n } from "../../lib/i18n";
+import { applyEditorTab } from "../../utils/text-editor";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 SyntaxHighlighter.registerLanguage("bash", bash);
@@ -93,6 +94,7 @@ export default function FileEditorModal({
 }) {
   const { t } = useI18n();
   const [mode, setMode] = useState("edit");
+  const editorRef = useRef(null);
 
   useEffect(() => {
     if (open) {
@@ -116,6 +118,20 @@ export default function FileEditorModal({
   const language = detectLanguage(filePath);
   const markdownFile = isMarkdownFile(filePath);
   const codeStyle = theme === "dark" ? oneDark : oneLight;
+
+  const handleEditorKeyDown = (event) => {
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    event.preventDefault();
+    const editor = event.currentTarget;
+    const next = applyEditorTab(fileContent, editor.selectionStart, editor.selectionEnd);
+    onFileContentChange(next.value);
+    requestAnimationFrame(() => {
+      editorRef.current?.setSelectionRange(next.selectionStart, next.selectionEnd);
+    });
+  };
 
   const markdownComponents = useMemo(
     () => ({
@@ -218,9 +234,11 @@ export default function FileEditorModal({
 
         {mode === "edit" ? (
           <textarea
+            ref={editorRef}
             className="h-full w-full resize-none rounded-xl border border-border/80 bg-surface px-3 py-2 font-mono text-sm"
             value={fileContent}
             onChange={(event) => onFileContentChange(event.target.value)}
+            onKeyDown={handleEditorKeyDown}
           />
         ) : markdownFile ? (
           <div className="h-full overflow-auto rounded-xl border border-border/80 bg-surface px-3 py-2 text-sm">

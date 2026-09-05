@@ -41,6 +41,7 @@ impl Storage {
                     .position(|item| item.id == id)
                     .ok_or_else(|| AppError::NotFound(format!("ssh config {id}")))?;
                 let existing = &guard[index];
+                let jump_host_id = resolve_jump_host_id(&input.jump_host_id, &guard, Some(&existing.id));
                 let updated = SshConfig {
                     id: existing.id.clone(),
                     name: input.name.trim().to_string(),
@@ -52,6 +53,7 @@ impl Storage {
                     private_key_path: input.private_key_path.trim().to_string(),
                     private_key_passphrase: input.private_key_passphrase,
                     use_password_fallback: input.use_password_fallback,
+                    jump_host_id,
                     description: input.description.unwrap_or_default().trim().to_string(),
                     created_at: existing.created_at.clone(),
                     updated_at: now,
@@ -60,6 +62,7 @@ impl Storage {
                 updated
             }
             None => {
+                let jump_host_id = resolve_jump_host_id(&input.jump_host_id, &guard, None);
                 let created = SshConfig {
                     id: Uuid::new_v4().to_string(),
                     name: input.name.trim().to_string(),
@@ -71,6 +74,7 @@ impl Storage {
                     private_key_path: input.private_key_path.trim().to_string(),
                     private_key_passphrase: input.private_key_passphrase,
                     use_password_fallback: input.use_password_fallback,
+                    jump_host_id,
                     description: input.description.unwrap_or_default().trim().to_string(),
                     created_at: now.clone(),
                     updated_at: now,
@@ -130,6 +134,26 @@ fn validate_ssh_credentials(input: &SshConfigInput) -> AppResult<()> {
                 ));
             }
         }
+        SshAuthType::KeyboardInteractive => {}
     }
     Ok(())
+}
+
+fn resolve_jump_host_id(
+    requested: &Option<String>,
+    all_configs: &[SshConfig],
+    self_id: Option<&str>,
+) -> Option<String> {
+    let id = requested.as_deref()?.trim();
+    if id.is_empty() {
+        return None;
+    }
+    if self_id == Some(id) {
+        return None;
+    }
+    if all_configs.iter().any(|c| c.id == id) {
+        Some(id.to_string())
+    } else {
+        None
+    }
 }

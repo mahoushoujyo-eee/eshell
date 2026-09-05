@@ -22,6 +22,7 @@ export default function SftpPanel({
   createSftpEntry,
   downloadFile,
   deleteSftpEntry,
+  renameSftpEntry,
   copySftpEntryPath,
   cancelTransfer,
   downloadDirectory,
@@ -182,6 +183,19 @@ export default function SftpPanel({
     setPendingDeleteEntry(entry);
   };
 
+  const requestRenameEntry = async (entry) => {
+    if (!entry || typeof window === "undefined") {
+      return;
+    }
+    closeEntryContextMenu();
+    const currentName = entry.name?.trim() || "";
+    const nextName = window.prompt(t("Rename to"), currentName);
+    if (nextName === null) {
+      return;
+    }
+    await renameSftpEntry?.(entry, nextName);
+  };
+
   const confirmDeleteEntry = async () => {
     if (!pendingDeleteEntry) {
       return;
@@ -305,6 +319,16 @@ export default function SftpPanel({
               onToggleNode={toggleNode}
               onSelectDirectory={selectDirectory}
               onReloadRoot={() => loadTreeNode("/")}
+              onNodeContextMenu={(node, event) => {
+                const dirEntry = {
+                  path: node.path,
+                  name: node.name,
+                  entryType: "directory",
+                  size: 0,
+                  modifiedAt: null,
+                };
+                openEntryContextMenu(dirEntry, event);
+              }}
             />
           }
           secondary={
@@ -348,6 +372,7 @@ export default function SftpPanel({
           closeEntryContextMenu();
           await copySftpEntryPath(entry);
         }}
+        onRename={requestRenameEntry}
         onDelete={requestDeleteEntry}
       />
 

@@ -13,6 +13,7 @@ const EMPTY_SSH_FORM = {
   privateKeyPath: "",
   privateKeyPassphrase: "",
   usePasswordFallback: false,
+  jumpHostId: null,
   description: "",
 };
 
@@ -161,7 +162,10 @@ export default function SshConfigModal({
                       {item.username}@{item.host}:{item.port}
                     </div>
                     <div className="text-muted">
-                      {item.authType === "privateKey" ? t("Private key") : t("Password")}
+                      {item.authType === "privateKey" ? t("Private key") : item.authType === "keyboardInteractive" ? t("Keyboard Interactive") : t("Password")}
+                      {item.jumpHostId ? (
+                        <span className="ml-2 rounded bg-accent-soft px-1 text-[10px] text-accent">{t("via jump host")}</span>
+                      ) : null}
                     </div>
                     <div className="mt-2 flex gap-1">
                       <button
@@ -267,7 +271,7 @@ export default function SshConfigModal({
               />
               <div className="rounded border border-border/80 bg-surface/60 p-2">
                 <div className="mb-2 text-xs font-medium text-muted">{t("Authentication")}</div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     className={[
@@ -291,6 +295,18 @@ export default function SshConfigModal({
                     onClick={() => setSshForm((prev) => ({ ...prev, authType: "privateKey" }))}
                   >
                     {t("Private key")}
+                  </button>
+                  <button
+                    type="button"
+                    className={[
+                      "rounded border px-2 py-1.5 text-xs",
+                      sshForm.authType === "keyboardInteractive"
+                        ? "border-accent bg-accent-soft text-accent"
+                        : "border-border",
+                    ].join(" ")}
+                    onClick={() => setSshForm((prev) => ({ ...prev, authType: "keyboardInteractive" }))}
+                  >
+                    {t("2FA / KI")}
                   </button>
                 </div>
               </div>
@@ -340,6 +356,23 @@ export default function SshConfigModal({
                   ) : null}
                 </div>
               )}
+              <div className="rounded border border-border/80 bg-surface/60 p-2">
+                <div className="mb-2 text-xs font-medium text-muted">{t("Jump Host (optional)")}</div>
+                <select
+                  className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+                  value={sshForm.jumpHostId || ""}
+                  onChange={(event) =>
+                    setSshForm((prev) => ({ ...prev, jumpHostId: event.target.value || null }))
+                  }
+                >
+                  <option value="">{t("None (direct connection)")}</option>
+                  {(sshConfigs || []).filter((c) => c.id !== sshForm.id).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.username}@{c.host}:{c.port})
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="flex justify-end">
                 <button type="submit" className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white">
                   <Save className="h-3.5 w-3.5" aria-hidden="true" />

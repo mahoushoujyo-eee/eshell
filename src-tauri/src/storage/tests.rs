@@ -6,8 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::{
     AiAgentMode, AiApiType, AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput,
-    AiProfilesState,
-    ScriptInput, SshAuthType, SshConfigInput, TrustSshHostKeyInput,
+    AiProfilesState, ScriptInput, SshAuthType, SshConfigInput, TrustSshHostKeyInput,
 };
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -74,6 +73,7 @@ fn ssh_config_crud_works() {
             private_key_path: String::new(),
             private_key_passphrase: String::new(),
             use_password_fallback: false,
+            jump_host_id: None,
             description: Some("prod server".to_string()),
         })
         .expect("create");
@@ -93,6 +93,7 @@ fn ssh_config_crud_works() {
             private_key_path: String::new(),
             private_key_passphrase: String::new(),
             use_password_fallback: false,
+            jump_host_id: None,
             description: Some(String::new()),
         })
         .expect("update");
@@ -117,6 +118,7 @@ fn ssh_config_private_key_profile_is_persisted() {
             private_key_path: "C:\\Users\\me\\.ssh\\id_ed25519".to_string(),
             private_key_passphrase: "phrase".to_string(),
             use_password_fallback: false,
+            jump_host_id: None,
             description: None,
         })
         .expect("create key profile");
@@ -141,6 +143,7 @@ fn ssh_config_private_key_requires_key_path() {
             private_key_path: String::new(),
             private_key_passphrase: String::new(),
             use_password_fallback: false,
+            jump_host_id: None,
             description: None,
         })
         .expect_err("missing key path should fail");
