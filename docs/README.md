@@ -44,4 +44,5 @@ Root project introductions:
 - [Webshell Session Guide](guides/features/webshell_session.md) — PTY keepalive-based disconnect detection, the reconnect overlay, and session recovery flow
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
+- [Release Notes 1.5.0](releases/v1.5.0.md) — ACP agent panel, MCP bridge, SSH 2FA/jump host, SFTP and webshell reliability
 - [Release Notes 1.4.0](releases/v1.4.0.md) — Runtime gateway, non-destructive compaction, and README refresh
