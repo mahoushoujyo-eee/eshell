@@ -49,6 +49,9 @@ export function useWorkbench() {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [logs, setLogs] = useState({});
+  // Sessions whose PTY died (keyed by session id → disconnect reason); the
+  // terminal renders a non-interactive overlay with a reconnect button.
+  const [disconnectedSessions, setDisconnectedSessions] = useState({});
   const [commandDraft, setCommandDraft] = useState("");
   const [downloadDirectory, setDownloadDirectory] = useState(() => {
     if (typeof window === "undefined") {
@@ -258,6 +261,8 @@ export function useWorkbench() {
     connectServer,
     cancelConnectServer,
     closeSession,
+    reconnectSession,
+    markSessionDisconnected,
     sendCommandDraft,
     requestSftpDir,
     refreshSftp,
@@ -314,6 +319,7 @@ export function useWorkbench() {
     aiStream,
     activeAiConversationId,
     setLogs,
+    setDisconnectedSessions,
     setSftpPath,
     setStatusBySession,
     setNicBySession,
@@ -384,6 +390,8 @@ export function useWorkbench() {
     aiStream,
     aiStreamRef,
     activeSessionId,
+    disconnectedSessions,
+    markSessionDisconnected,
     loadAiConversation,
     onError,
     setAiConversationError,
@@ -491,6 +499,8 @@ export function useWorkbench() {
     connectServer,
     cancelConnectServer,
     closeSession,
+    reconnectSession,
+    disconnectedSessions,
     sendCommandDraft,
     sendPtyInput,
     resizePty,

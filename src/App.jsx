@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import AppModals from "./components/app/AppModals";
 import AppWorkspace from "./components/app/AppWorkspace";
+import { useAcpAgent } from "./hooks/useAcpAgent";
 import { useWorkbench } from "./hooks/useWorkbench";
 
 const DEFAULT_AI_PANEL_WIDTH = 460;
@@ -45,6 +46,7 @@ function App() {
   const workspaceRef = useRef(null);
 
   const workbench = useWorkbench();
+  const acp = useAcpAgent();
 
   useEffect(() => {
     if (!workbench.showAiPanel) {
@@ -60,6 +62,14 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [workbench.showAiPanel, workbench.setShowAiPanel]);
+
+  // Pick up acp_agents.json edits without an app restart: the agent list
+  // reloads every time the dock is opened.
+  useEffect(() => {
+    if (workbench.showAiPanel) {
+      void acp.refreshAgents();
+    }
+  }, [workbench.showAiPanel, acp.refreshAgents]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -121,6 +131,7 @@ function App() {
     <div className="app-shell flex h-full w-full min-h-0 flex-col overflow-hidden text-text">
       <AppWorkspace
         workbench={workbench}
+        acp={acp}
         ui={{
           sidebarCollapsed,
           onToggleSidebarCollapsed: () => setSidebarCollapsed((prev) => !prev),

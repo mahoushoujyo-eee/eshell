@@ -5,6 +5,7 @@ use std::sync::RwLock;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{ServerStatus, ShellSession};
+use crate::ops_agent::acp::commands::AcpAgentRegistry;
 use crate::ops_agent::infrastructure::agent_trace_store::OpsAgentTraceStore;
 use crate::ops_agent::infrastructure::attachments::OpsAgentAttachmentStore;
 use crate::ops_agent::infrastructure::run_registry::OpsAgentRunRegistry;
@@ -17,6 +18,14 @@ pub enum PtyCommand {
     Input(String),
     Resize { cols: u16, rows: u16 },
     Close,
+}
+
+/// Where the local MCP bridge is listening, plus the per-run bearer token
+/// agents must present. Set once at startup by `mcp_bridge::start`.
+#[derive(Debug, Clone)]
+pub struct McpBridgeInfo {
+    pub port: u16,
+    pub token: String,
 }
 
 /// Shared application state managed by Tauri.
@@ -32,6 +41,8 @@ pub struct AppState {
     pub ops_agent_traces: OpsAgentTraceStore,
     pub ops_agent_tools: OpsAgentToolRegistry,
     pub ops_agent_runs: OpsAgentRunRegistry,
+    pub acp_agents: AcpAgentRegistry,
+    mcp_bridge: RwLock<Option<McpBridgeInfo>>,
     sessions: RwLock<HashMap<String, ShellSession>>,
     status_cache: RwLock<HashMap<String, ServerStatus>>,
     pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>,
@@ -57,6 +68,8 @@ impl AppState {
             ops_agent_traces: OpsAgentTraceStore::new(storage_root)?,
             ops_agent_tools,
             ops_agent_runs: OpsAgentRunRegistry::new(),
+            acp_agents: AcpAgentRegistry::new(),
+            mcp_bridge: RwLock::new(None),
             sessions: RwLock::new(HashMap::new()),
             status_cache: RwLock::new(HashMap::new()),
             pty_channels: RwLock::new(HashMap::new()),
@@ -76,6 +89,22 @@ impl AppState {
     }
 
     /// Stores or updates a shell session in the runtime registry.
+    /// Records where the local MCP bridge listens.
+    pub fn set_mcp_bridge(&self, info: McpBridgeInfo) {
+        *self
+            .mcp_bridge
+            .write()
+            .expect("mcp bridge lock poisoned") = Some(info);
+    }
+
+    /// Returns the local MCP bridge endpoint, if it started successfully.
+    pub fn mcp_bridge(&self) -> Option<McpBridgeInfo> {
+        self.mcp_bridge
+            .read()
+            .expect("mcp bridge lock poisoned")
+            .clone()
+    }
+
     pub fn put_session(&self, session: ShellSession) {
         self.sessions
             .write()

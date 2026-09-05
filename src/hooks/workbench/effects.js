@@ -17,6 +17,8 @@ export function useWorkbenchEffects({
   aiStream,
   aiStreamRef,
   activeSessionId,
+  disconnectedSessions,
+  markSessionDisconnected,
   loadAiConversation,
   onError,
   setAiConversationError,
@@ -215,6 +217,30 @@ export function useWorkbenchEffects({
     setSftpEntries,
   ]);
 
+  // A PTY worker died (timeout, EOF, transport error): flag the session so the
+  // terminal shows the reconnect overlay instead of silently freezing.
+  useEffect(() => {
+    let disposed = false;
+    const unlistenPromise = listen("pty-closed", (event) => {
+      if (disposed) {
+        return;
+      }
+      const payload = event?.payload;
+      if (!payload || typeof payload !== "object" || !payload.sessionId) {
+        return;
+      }
+      markSessionDisconnected(payload.sessionId, payload.reason || "");
+    });
+    return () => {
+      disposed = true;
+      void unlistenPromise.then((unlisten) => {
+        if (typeof unlisten === "function") {
+          unlisten();
+        }
+      });
+    };
+  }, [markSessionDisconnected]);
+
   useEffect(() => {
     if (!activeSessionId) {
       return undefined;
@@ -222,6 +248,10 @@ export function useWorkbenchEffects({
 
     const shouldPollStatus = showSftpPanel || showStatusPanel;
     if (!shouldPollStatus) {
+      return undefined;
+    }
+    // A disconnected session has no backend state to poll; resume after reconnect.
+    if (disconnectedSessions[activeSessionId]) {
       return undefined;
     }
 
@@ -233,6 +263,7 @@ export function useWorkbenchEffects({
   }, [
     activeSessionId,
     currentNic,
+    disconnectedSessions,
     refreshStatus,
     showSftpPanel,
     showStatusPanel,

@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* The theme is driven by `data-theme` on <html> (see hooks/workbench/effects.js),
+   not by the OS preference, so `dark:` has to follow that attribute. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
   --es-bg: #efece3;
   --es-surface: #f7f4ed;

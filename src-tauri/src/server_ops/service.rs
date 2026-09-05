@@ -22,11 +22,11 @@ use super::status_parser::{
 use crate::error::{AppError, AppResult};
 use crate::models::{
     now_rfc3339, CommandExecutionResult, FetchServerStatusInput, MemoryStatus,
-    NetworkInterfaceStatus, PtyOutputEvent, SftpCreateInput, SftpDeleteInput, SftpDownloadInput,
-    SftpDownloadPayload, SftpDownloadToLocalInput, SftpEntry, SftpEntryType, SftpFileContent,
-    SftpListInput, SftpListResponse, SftpReadInput, SftpTransferEvent, SftpTransferResult,
-    SftpUploadInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshAuthType,
-    SshConfig, SshHostKeyTrustChallenge, SshHostKeyTrustReason,
+    NetworkInterfaceStatus, PtyClosedEvent, PtyOutputEvent, SftpCreateInput, SftpDeleteInput,
+    SftpDownloadInput, SftpDownloadPayload, SftpDownloadToLocalInput, SftpEntry, SftpEntryType,
+    SftpFileContent, SftpListInput, SftpListResponse, SftpReadInput, SftpTransferEvent,
+    SftpTransferResult, SftpUploadInput, SftpUploadWithProgressInput, SftpWriteInput,
+    ShellSession, SshAuthType, SshConfig, SshHostKeyTrustChallenge, SshHostKeyTrustReason,
 };
 use crate::state::{AppState, PtyCommand};
 
@@ -1024,7 +1024,7 @@ fn run_pty_worker(
     state: Arc<AppState>,
     app: AppHandle,
     session_id: String,
-    _ssh: Session,
+    ssh: Session,
     mut channel: ssh2::Channel,
     rx: mpsc::Receiver<PtyCommand>,
 ) {
@@ -1032,6 +1032,9 @@ fn run_pty_worker(
     let mut keep_running = true;
     let mut pending_input = Vec::<u8>::new();
     let mut pending_input_offset = 0usize;
+    // `None` means the worker was asked to stop (user close / channel replaced)
+    // and the exit stays silent; any other exit reports a disconnect event.
+    let mut close_reason: Option<String> = None;
 
     while keep_running {
         let batch = drain_pty_command_batch(&rx, PTY_MAX_COMMANDS_PER_TICK);
@@ -1043,6 +1046,23 @@ fn run_pty_worker(
                 "reason=close_command_or_channel_dropped",
             );
             break;
+        }
+
+        // libssh2 only sends the configured keepalive when we pump it; without
+        // this, a silently dropped connection (NAT/firewall idle timeout) is
+        // never detected — reads stay WouldBlock forever and the terminal
+        // freezes without any signal.
+        if let Err(err) = ssh.keepalive_send() {
+            if !is_transient_ssh_error(&err) {
+                append_server_ops_debug_log(
+                    state.as_ref(),
+                    "pty.worker.keepalive_failed",
+                    &session_id,
+                    err.to_string(),
+                );
+                close_reason = Some(format!("connection_lost: {err}"));
+                break;
+            }
         }
 
         if let Some((cols, rows)) = batch.latest_resize {
@@ -1068,6 +1088,7 @@ fn run_pty_worker(
                     &session_id,
                     error.to_string(),
                 );
+                close_reason = Some(format!("write_failed: {error}"));
                 break;
             }
         };
@@ -1086,6 +1107,7 @@ fn run_pty_worker(
                 Ok(_) => {
                     if channel.eof() {
                         keep_running = false;
+                        close_reason.get_or_insert_with(|| "eof".to_string());
                     }
                     break;
                 }
@@ -1098,6 +1120,7 @@ fn run_pty_worker(
                         err.to_string(),
                     );
                     keep_running = false;
+                    close_reason = Some(format!("read_failed: {err}"));
                     break;
                 }
             }
@@ -1105,6 +1128,7 @@ fn run_pty_worker(
 
         if channel.eof() {
             keep_running = false;
+            close_reason.get_or_insert_with(|| "eof".to_string());
         }
 
         if !did_read && !wrote_any && batch.drained_messages == 0 {
@@ -1121,6 +1145,16 @@ fn run_pty_worker(
         "session_removed=true",
     );
     let _ = state.remove_session(&session_id);
+
+    if let Some(reason) = close_reason {
+        append_server_ops_debug_log(
+            state.as_ref(),
+            "pty.worker.disconnected",
+            &session_id,
+            &reason,
+        );
+        emit_pty_closed(&app, &session_id, &reason);
+    }
 }
 
 fn emit_pty_output(app: &AppHandle, session_id: &str, chunk: &str) {
@@ -1131,6 +1165,23 @@ fn emit_pty_output(app: &AppHandle, session_id: &str, chunk: &str) {
             chunk: chunk.to_string(),
         },
     );
+}
+
+fn emit_pty_closed(app: &AppHandle, session_id: &str, reason: &str) {
+    let _ = app.emit(
+        "pty-closed",
+        PtyClosedEvent {
+            session_id: session_id.to_string(),
+            reason: reason.to_string(),
+        },
+    );
+}
+
+/// `keepalive_send` on a non-blocking session may legitimately return EAGAIN;
+/// anything else means the transport is gone.
+fn is_transient_ssh_error(err: &ssh2::Error) -> bool {
+    const LIBSSH2_ERROR_EAGAIN: i32 = -37;
+    matches!(err.code(), ErrorCode::Session(LIBSSH2_ERROR_EAGAIN))
 }
 
 fn append_session_output(state: &AppState, session_id: &str, chunk: &str) {
@@ -1639,5 +1690,14 @@ mod tests {
 
         let broken = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe");
         assert!(!is_transient_pty_io_error(&broken));
+    }
+
+    #[test]
+    fn is_transient_ssh_error_only_accepts_eagain() {
+        let eagain = ssh2::Error::new(ErrorCode::Session(-37), "would block");
+        assert!(is_transient_ssh_error(&eagain));
+
+        let socket_send = ssh2::Error::new(ErrorCode::Session(-7), "unable to send data on socket");
+        assert!(!is_transient_ssh_error(&socket_send));
     }
 }

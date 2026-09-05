@@ -7,6 +7,8 @@ export default function TerminalPanel({
   activeSessionId,
   onSelectSession,
   onCloseSession,
+  onReconnectSession,
+  disconnectedSessions = {},
   activeSession,
   onPtyInput,
   onPtyResize,
@@ -14,6 +16,9 @@ export default function TerminalPanel({
   wallpaper,
 }) {
   const { t } = useI18n();
+  const activeDisconnectReason = activeSession
+    ? disconnectedSessions[activeSession.id] || ""
+    : "";
 
   return (
     <section className="h-full border-b border-border bg-panel">
@@ -37,6 +42,13 @@ export default function TerminalPanel({
                 >
                   <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
                   {session.configName}
+                  {disconnectedSessions[session.id] ? (
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500"
+                      title={t("Session disconnected")}
+                      aria-label={t("Session disconnected")}
+                    />
+                  ) : null}
                 </button>
                 <button
                   type="button"
@@ -67,6 +79,13 @@ export default function TerminalPanel({
         <XtermConsole
           activeSessionId={activeSession?.id || null}
           activeSessionName={activeSession?.configName || t("Shell")}
+          disconnected={Boolean(activeSession && activeDisconnectReason)}
+          disconnectReason={activeDisconnectReason}
+          onReconnect={
+            activeSession && onReconnectSession
+              ? () => onReconnectSession(activeSession.id)
+              : undefined
+          }
           onInput={onPtyInput}
           onResize={onPtyResize}
           onAttachSelection={onAttachSelectionToAi}

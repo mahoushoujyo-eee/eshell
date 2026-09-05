@@ -1,6 +1,7 @@
 mod ai_service;
 mod commands;
 mod error;
+mod mcp_bridge;
 mod models;
 mod ops_agent;
 mod server_ops;
@@ -27,9 +28,21 @@ pub fn run() {
     let storage_root = resolve_storage_root();
     let app_state = AppState::new(storage_root).expect("failed to initialize app state");
     let shared_state = Arc::new(app_state);
+    let bridge_state = Arc::clone(&shared_state);
 
     tauri::Builder::default()
         .manage(shared_state)
+        .setup(move |_app| {
+            // Local MCP bridge: exposes eShell's sessions/SFTP as tools that
+            // get injected into ACP agent sessions. Failure is non-fatal —
+            // agents simply start without the eshell toolset.
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = mcp_bridge::start(bridge_state).await {
+                    eprintln!("mcp bridge failed to start: {error}");
+                }
+            });
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::config::list_ssh_configs,
@@ -86,6 +99,19 @@ pub fn run() {
             commands::ops_agent::ops_agent_list_pending_actions,
             commands::ops_agent::ops_agent_resolve_action,
             commands::ops_agent::ops_agent_cancel_run,
+            ops_agent::acp::commands::acp_agent_list,
+            ops_agent::acp::commands::acp_agent_start,
+            ops_agent::acp::commands::acp_agent_stop,
+            ops_agent::acp::commands::acp_session_prompt,
+            ops_agent::acp::commands::acp_session_cancel,
+            ops_agent::acp::commands::acp_permission_respond,
+            ops_agent::acp::commands::acp_session_set_mode,
+            ops_agent::acp::commands::acp_session_set_config_option,
+            ops_agent::acp::commands::acp_agent_authenticate,
+            ops_agent::acp::commands::acp_history_save,
+            ops_agent::acp::commands::acp_history_list,
+            ops_agent::acp::commands::acp_history_get,
+            ops_agent::acp::commands::acp_history_delete,
             commands::ai::ai_ask
         ])
         .run(tauri::generate_context!())

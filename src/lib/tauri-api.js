@@ -108,6 +108,31 @@ export const api = {
   opsAgentCancelRun: (runId) =>
     invoke("ops_agent_cancel_run", { input: { runId } }),
 
+  acpAgentList: () => invoke("acp_agent_list"),
+  acpAgentStart: (agentId, resumeSessionId = null) =>
+    invoke("acp_agent_start", { input: { agentId, resumeSessionId } }),
+  acpAgentStop: (agentId) => invoke("acp_agent_stop", { input: { agentId } }),
+  acpAgentAuthenticate: (agentId, methodId) =>
+    invoke("acp_agent_authenticate", { input: { agentId, methodId } }),
+  acpSessionPrompt: (agentId, sessionId, text, images = []) =>
+    invoke("acp_session_prompt", { input: { agentId, sessionId, text, images } }),
+  acpSessionCancel: (agentId, sessionId) =>
+    invoke("acp_session_cancel", { input: { agentId, sessionId } }),
+  acpPermissionRespond: (agentId, requestId, optionId = null) =>
+    invoke("acp_permission_respond", { input: { agentId, requestId, optionId } }),
+  acpSessionSetMode: (agentId, sessionId, modeId) =>
+    invoke("acp_session_set_mode", { input: { agentId, sessionId, modeId } }),
+  // `value` is a select value id (string) or a boolean, matching the option's
+  // type; resolves with the agent's full updated option set.
+  acpSessionSetConfigOption: (agentId, sessionId, configId, value) =>
+    invoke("acp_session_set_config_option", {
+      input: { agentId, sessionId, configId, value },
+    }),
+  acpHistoryList: () => invoke("acp_history_list"),
+  acpHistorySave: (record) => invoke("acp_history_save", { input: { record } }),
+  acpHistoryGet: (id) => invoke("acp_history_get", { input: { id } }),
+  acpHistoryDelete: (id) => invoke("acp_history_delete", { input: { id } }),
+
   listAiImportSources: (customPaths = []) =>
     invoke("list_ai_import_sources", { input: { customPaths } }),
   detectAiImportCandidates: (source) =>

@@ -9,6 +9,7 @@ import { useI18n } from "../../lib/i18n";
 
 export default function AppWorkspace({
   workbench,
+  acp,
   ui,
 }) {
   const { t } = useI18n();
@@ -54,7 +55,7 @@ export default function AppWorkspace({
       <WindowTitleBar
         showAiPanel={showAiPanel}
         onToggleAiPanel={() => setShowAiPanel((current) => !current)}
-        isAiStreaming={workbench.isAiStreaming}
+        isAiStreaming={acp.turnActive}
       />
       <UiNoticeStack notices={uiNotices} onDismiss={dismissUiNotice} />
 
@@ -69,6 +70,7 @@ export default function AppWorkspace({
           onToggleCollapsed={onToggleSidebarCollapsed}
           onOpenSshConfig={onOpenSshConfig}
           onOpenScriptConfig={onOpenScriptConfig}
+          onOpenAiConfig={onOpenAiConfig}
           onOpenWallpaperPicker={onOpenWallpaperPicker}
           onToggleSftpPanel={() => setShowSftpPanel((prev) => !prev)}
           onToggleStatusPanel={() => setShowStatusPanel((prev) => !prev)}
@@ -82,6 +84,7 @@ export default function AppWorkspace({
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
             <AppMainWorkspace
               workbench={workbench}
+              acp={acp}
               showSftpPanel={showSftpPanel}
               showStatusPanel={showStatusPanel}
               showCommandDraftPanel={showCommandDraftPanel}
@@ -90,12 +93,12 @@ export default function AppWorkspace({
           </div>
 
           <AppAiDock
-            workbench={workbench}
+            acp={acp}
             showAiPanel={showAiPanel}
             aiPanelWidth={aiPanelWidth}
             isAiPanelResizing={isAiPanelResizing}
             onStartAiPanelResize={onStartAiPanelResize}
-            onOpenAiConfig={onOpenAiConfig}
+            onClose={() => setShowAiPanel(false)}
           />
         </div>
       </div>

@@ -1,50 +1,15 @@
-import AiAssistantPanel from "../panels/AiAssistantPanel";
+import AcpAgentPanel from "../panels/AcpAgentPanel";
 import { useI18n } from "../../lib/i18n";
 
 export default function AppAiDock({
-  workbench,
+  acp,
   showAiPanel,
   aiPanelWidth,
   isAiPanelResizing,
   onStartAiPanelResize,
-  onOpenAiConfig,
+  onClose,
 }) {
   const { t } = useI18n();
-  const {
-    aiProfiles,
-    activeAiProfileId,
-    aiConfig,
-    aiQuestion,
-    setAiQuestion,
-    aiShellContext,
-    aiImageAttachments,
-    aiConversations,
-    activeAiConversationId,
-    activeAiConversation,
-    aiPendingActions,
-    isAiStreaming,
-    aiStreamingText,
-    aiStreamingToolCalls,
-    aiStreamingAgentProgress,
-    activeAiConversationError,
-    clearActiveAiConversationError,
-    resolvingAiActionId,
-    selectAiProfile,
-    selectAiConversation,
-    createAiConversation,
-    deleteAiConversation,
-    compactAiConversation,
-    resolveAiPendingAction,
-    askAi,
-    cancelAiStreaming,
-    saveAiApprovalMode,
-    saveAiAgentMode,
-    attachAiImages,
-    removeAiImageAttachment,
-    clearAiImageAttachments,
-    clearAiShellContext,
-    setShowAiPanel,
-  } = workbench;
 
   return (
     <>
@@ -70,44 +35,7 @@ export default function AppAiDock({
         aria-hidden={!showAiPanel}
       >
         <div className="h-full" style={{ width: `${aiPanelWidth}px` }}>
-          <AiAssistantPanel
-            aiProfiles={aiProfiles}
-            activeAiProfileId={activeAiProfileId}
-            approvalMode={aiConfig.approvalMode}
-            agentMode={aiConfig.agentMode}
-            onSelectAiProfile={selectAiProfile}
-            onSaveApprovalMode={saveAiApprovalMode}
-            onSaveAgentMode={saveAiAgentMode}
-            conversations={aiConversations}
-            activeConversationId={activeAiConversationId}
-            activeConversation={activeAiConversation}
-            onCreateConversation={createAiConversation}
-            onSelectConversation={selectAiConversation}
-            onDeleteConversation={deleteAiConversation}
-            onCompactConversation={compactAiConversation}
-            pendingActions={aiPendingActions}
-            onResolvePendingAction={resolveAiPendingAction}
-            resolvingActionId={resolvingAiActionId}
-            aiQuestion={aiQuestion}
-            setAiQuestion={setAiQuestion}
-            shellContext={aiShellContext}
-            aiImageAttachments={aiImageAttachments}
-            onAttachAiImages={attachAiImages}
-            onRemoveAiImageAttachment={removeAiImageAttachment}
-            onClearAiImageAttachments={clearAiImageAttachments}
-            onClearShellContext={clearAiShellContext}
-            isStreaming={isAiStreaming}
-            streamingText={aiStreamingText}
-            streamingToolCalls={aiStreamingToolCalls}
-            streamingAgentProgress={aiStreamingAgentProgress}
-            conversationError={activeAiConversationError}
-            onClearConversationError={clearActiveAiConversationError}
-            onAskAi={askAi}
-            onCancelStreaming={cancelAiStreaming}
-            onOpenAiConfig={onOpenAiConfig}
-            onClose={() => setShowAiPanel(false)}
-            variant="dock"
-          />
+          <AcpAgentPanel acp={acp} onClose={onClose} />
         </div>
       </div>
     </>

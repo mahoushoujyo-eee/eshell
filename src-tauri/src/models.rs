@@ -742,3 +742,15 @@ pub struct PtyOutputEvent {
     pub session_id: String,
     pub chunk: String,
 }
+
+/// Emitted once when a PTY worker dies for any reason other than an explicit
+/// user close, so the frontend can mark the terminal as non-interactive and
+/// offer a reconnect.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyClosedEvent {
+    pub session_id: String,
+    /// Machine-readable cause: `eof`, `connection_lost: …`, `read_failed: …`,
+    /// or `write_failed: …`.
+    pub reason: String,
+}

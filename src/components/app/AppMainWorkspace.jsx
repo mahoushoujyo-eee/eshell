@@ -8,6 +8,7 @@ import TerminalPanel from "../panels/TerminalPanel";
 
 export default function AppMainWorkspace({
   workbench,
+  acp,
   showSftpPanel,
   showStatusPanel,
   showCommandDraftPanel,
@@ -29,6 +30,8 @@ export default function AppMainWorkspace({
     sessions,
     wallpaper,
     closeSession,
+    reconnectSession,
+    disconnectedSessions,
     sendCommandDraft,
     sendPtyInput,
     resizePty,
@@ -38,7 +41,6 @@ export default function AppMainWorkspace({
     deleteSftpEntry,
     copySftpEntryPath,
     cancelSftpTransfer,
-    attachAiShellContext,
     setShowAiPanel,
     requestSftpDir,
     refreshSftp,
@@ -74,11 +76,13 @@ export default function AppMainWorkspace({
       activeSessionId={activeSessionId}
       onSelectSession={setActiveSessionId}
       onCloseSession={closeSession}
+      onReconnectSession={reconnectSession}
+      disconnectedSessions={disconnectedSessions}
       activeSession={activeSession}
       onPtyInput={sendPtyInput}
       onPtyResize={resizePty}
       onAttachSelectionToAi={(selection) => {
-        attachAiShellContext(selection);
+        acp.attachShellContext(selection);
         setShowAiPanel(true);
       }}
       wallpaper={wallpaper}

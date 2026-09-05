@@ -39,6 +39,9 @@ Root project introductions:
 - [SFTP Transfer Guide](guides/features/sftp_transfer.md) — SFTP browser operations, transfers, cancellation, and context-menu behavior
 - [Server Status Guide](guides/features/server_status.md) — Status panel data semantics and UI behavior
 - [Ops Agent Guide](guides/features/ops_agent.md) — Ops Agent request flow, approvals, streaming, attachments, and cancellation
+- [ACP Agent Guide](guides/features/acp_agent.md) — Agent Client Protocol integration: protocol support matrix, auth flow, session history/resume, images, MCP bridge tools, multi-agent config
+- [ACP Panel Frontend Guide](guides/features/acp_panel_frontend.md) — UI handoff doc for the ACP chat panel: component map, state contract, interaction inventory, and UI backlog
+- [Webshell Session Guide](guides/features/webshell_session.md) — PTY keepalive-based disconnect detection, the reconnect overlay, and session recovery flow
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
 - [Release Notes 1.4.0](releases/v1.4.0.md) — Runtime gateway, non-destructive compaction, and README refresh

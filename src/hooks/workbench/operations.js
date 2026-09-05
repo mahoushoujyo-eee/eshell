@@ -119,6 +119,7 @@ export function useWorkbenchOperations({
   aiStream,
   activeAiConversationId,
   setLogs,
+  setDisconnectedSessions,
   setSftpPath,
   setStatusBySession,
   setNicBySession,
@@ -250,6 +251,18 @@ export function useWorkbenchOperations({
     reconnectingSessionsRef.current.delete(sessionId);
     statusRequestTokenRef.current.delete(sessionId);
 
+    setDisconnectedSessions((prev) => {
+      const keys = [...relatedSessionIds].filter((id) => id in prev);
+      if (keys.length === 0) {
+        return prev;
+      }
+      const next = { ...prev };
+      keys.forEach((id) => {
+        delete next[id];
+      });
+      return next;
+    });
+
     setSftpPath((prev) => {
       if (!(sessionId in prev)) {
         return prev;
@@ -283,6 +296,49 @@ export function useWorkbenchOperations({
       return next;
     });
   }, []);
+
+  const clearDisconnectedFlags = useCallback(
+    (...sessionIds) => {
+      setDisconnectedSessions((prev) => {
+        const keys = sessionIds.filter((id) => id && id in prev);
+        if (keys.length === 0) {
+          return prev;
+        }
+        const next = { ...prev };
+        keys.forEach((id) => {
+          delete next[id];
+        });
+        return next;
+      });
+    },
+    [setDisconnectedSessions],
+  );
+
+  // Marks one session as non-interactive after its PTY died; the terminal
+  // shows a reconnect overlay until `reconnectSession` replaces it.
+  const markSessionDisconnected = useCallback(
+    (sessionId, reason = "") => {
+      if (!sessionId || isSessionClosing(sessionId)) {
+        return;
+      }
+      let alreadyMarked = false;
+      setDisconnectedSessions((prev) => {
+        if (sessionId in prev) {
+          alreadyMarked = true;
+          return prev;
+        }
+        return { ...prev, [sessionId]: String(reason || "connection_lost") };
+      });
+      if (!alreadyMarked) {
+        appendLog(
+          sessionId,
+          "SYSTEM",
+          tRef.current("Connection lost. The terminal is no longer interactive."),
+        );
+      }
+    },
+    [appendLog, isSessionClosing, setDisconnectedSessions],
+  );
 
   const reconnectSession = useCallback(
     async (sessionId) => {
@@ -372,6 +428,7 @@ export function useWorkbenchOperations({
         });
 
         appendLog(reopened.id, "SYSTEM", tRef.current("Session disconnected. Auto-reconnected."));
+        clearDisconnectedFlags(originSessionId, reopened.id);
         return reopened;
       })();
 
@@ -382,7 +439,7 @@ export function useWorkbenchOperations({
         reconnectingSessionsRef.current.delete(originSessionId);
       }
     },
-    [appendLog, isSessionClosing, resolveSessionAlias, sessions],
+    [appendLog, clearDisconnectedFlags, isSessionClosing, resolveSessionAlias, sessions],
   );
 
   const runWithSessionReconnect = useCallback(
@@ -1870,6 +1927,8 @@ export function useWorkbenchOperations({
     appendLog,
     resolveSessionAlias,
     runWithSessionReconnect,
+    reconnectSession,
+    markSessionDisconnected,
     applyAiProfilesState,
     reloadAiConversations,
     loadAiConversation,
