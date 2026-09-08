@@ -42,6 +42,7 @@ Root project introductions:
 - [ACP Agent Guide](guides/features/acp_agent.md) — Agent Client Protocol integration: protocol support matrix, auth flow, session history/resume, images, MCP bridge tools, multi-agent config
 - [ACP Panel Frontend Guide](guides/features/acp_panel_frontend.md) — UI handoff doc for the ACP chat panel: component map, state contract, interaction inventory, and UI backlog
 - [Webshell Session Guide](guides/features/webshell_session.md) — PTY keepalive-based disconnect detection, the reconnect overlay, and session recovery flow
+- [eshell-config Skill](../skills/eshell-config/SKILL.md) — Agent-facing reference for editing `.eshell-data/*.json` (SSH/ACP schemas, wire formats, server-operation norms, non-hot-reload restart rule)
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
 - [Release Notes 1.5.0](releases/v1.5.0.md) — ACP agent panel, MCP bridge, SSH 2FA/jump host, SFTP and webshell reliability
