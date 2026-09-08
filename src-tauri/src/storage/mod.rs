@@ -7,7 +7,7 @@ mod scripts;
 mod ssh;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
 use crate::error::AppResult;
@@ -21,8 +21,10 @@ const KNOWN_HOSTS_FILE: &str = "known_hosts.json";
 const SCRIPTS_FILE: &str = "scripts.json";
 const AI_PROFILES_FILE: &str = "ai_profiles.json";
 const LEGACY_AI_CONFIG_FILE: &str = "ai_config.json";
+/// Root of the agent context file mapping under `.eshell-data/`.
+const AGENT_CONTEXT_DIR: &str = "agent";
+/// Global agent context file, stored at `agent/AGENTS.md`.
 const GLOBAL_AGENTS_FILE: &str = "AGENTS.md";
-const SERVER_AGENTS_DIR: &str = "server_agents";
 
 /// Handles JSON-backed persistence for user-managed configurations.
 ///
@@ -33,8 +35,7 @@ pub struct Storage {
     known_hosts_path: PathBuf,
     scripts_path: PathBuf,
     ai_profiles_path: PathBuf,
-    global_agents_path: PathBuf,
-    server_agents_dir: PathBuf,
+    agent_context_dir: PathBuf,
     ssh_configs: RwLock<Vec<SshConfig>>,
     known_hosts: RwLock<Vec<SshKnownHost>>,
     scripts: RwLock<Vec<ScriptDefinition>>,
@@ -50,10 +51,9 @@ impl Storage {
         let known_hosts_path = root.join(KNOWN_HOSTS_FILE);
         let scripts_path = root.join(SCRIPTS_FILE);
         let ai_profiles_path = root.join(AI_PROFILES_FILE);
-        let global_agents_path = root.join(GLOBAL_AGENTS_FILE);
-        let server_agents_dir = root.join(SERVER_AGENTS_DIR);
+        let agent_context_dir = root.join(AGENT_CONTEXT_DIR);
         let legacy_ai_config_path = root.join(LEGACY_AI_CONFIG_FILE);
-        fs::create_dir_all(&server_agents_dir)?;
+        fs::create_dir_all(&agent_context_dir)?;
 
         let ssh_configs = read_json_or_default::<Vec<SshConfig>>(&ssh_configs_path)?;
         let known_hosts = read_json_or_default::<Vec<SshKnownHost>>(&known_hosts_path)?;
@@ -69,9 +69,10 @@ impl Storage {
         write_json_pretty(&known_hosts_path, &known_hosts)?;
         write_json_pretty(&scripts_path, &scripts)?;
         write_json_pretty(&ai_profiles_path, &ai_profiles)?;
-        if !global_agents_path.exists() {
-            fs::write(&global_agents_path, "")?;
-        }
+
+        // Agent context: seed a default global file, migrate any legacy layout,
+        // and bundle the eshell-config skill into `.eshell-data/agent/skills/`.
+        seed_agent_context(&root, &agent_context_dir)?;
 
         // Remove legacy file after successful migration to avoid dual-source confusion.
         if legacy_ai_config_path.exists() {
@@ -83,8 +84,7 @@ impl Storage {
             known_hosts_path,
             scripts_path,
             ai_profiles_path,
-            global_agents_path,
-            server_agents_dir,
+            agent_context_dir,
             ssh_configs: RwLock::new(ssh_configs),
             known_hosts: RwLock::new(known_hosts),
             scripts: RwLock::new(scripts),
@@ -131,6 +131,91 @@ impl Storage {
             skipped,
         })
     }
+}
+
+/// Seeds the agent context area under `.eshell-data/agent/`: a default global
+/// AGENTS.md, migrated legacy files, and the bundled eshell-config skill.
+fn seed_agent_context(root: &Path, agent_dir: &Path) -> AppResult<()> {
+    let global_path = agent_dir.join(GLOBAL_AGENTS_FILE);
+    if !global_path.exists() {
+        fs::write(&global_path, "")?;
+    }
+
+    // One-time migration from the old `.eshell-data/AGENTS.md` +
+    // `server_agents/<id>/AGENTS.md` layout, copied only when the new target
+    // file does not already exist (so a user edit is never overwritten).
+    migrate_legacy_agent_context(root, agent_dir)?;
+
+    seed_eshell_config_skill(agent_dir)
+}
+
+fn migrate_legacy_agent_context(root: &Path, agent_dir: &Path) -> AppResult<()> {
+    let old_global = root.join(GLOBAL_AGENTS_FILE);
+    let new_global = agent_dir.join(GLOBAL_AGENTS_FILE);
+    if old_global.exists() && !new_global.exists() {
+        let content = fs::read_to_string(&old_global)?;
+        fs::write(&new_global, content)?;
+    }
+
+    let old_servers = root.join("server_agents");
+    if !old_servers.is_dir() {
+        return Ok(());
+    }
+    if let Ok(entries) = fs::read_dir(&old_servers) {
+        for entry in entries.flatten() {
+            let dir = entry.path();
+            if !dir.is_dir() {
+                continue;
+            }
+            let Some(id) = dir.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if !is_safe_segment(id) {
+                continue;
+            }
+            let old_file = dir.join(GLOBAL_AGENTS_FILE);
+            let new_file = agent_dir.join(format!("{id}.md"));
+            if old_file.exists() && !new_file.exists() {
+                let content = fs::read_to_string(&old_file)?;
+                fs::write(&new_file, content)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Seeds the bundled `eshell-config` skill into `.eshell-data/agent/skills/`.
+/// Files are written only when missing, preserving any user/agent edits.
+fn seed_eshell_config_skill(agent_dir: &Path) -> AppResult<()> {
+    let skill_dir = agent_dir.join("skills").join("eshell-config");
+    let skill_md = skill_dir.join("SKILL.md");
+    let doc_md = skill_dir.join("docs").join("acp_agent.md");
+
+    if !skill_md.exists() {
+        fs::create_dir_all(&skill_dir)?;
+        fs::write(
+            &skill_md,
+            include_str!("../../../skills/eshell-config/SKILL.md"),
+        )?;
+    }
+    if !doc_md.exists() {
+        if let Some(parent) = doc_md.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(
+            &doc_md,
+            include_str!("../../../skills/eshell-config/docs/acp_agent.md"),
+        )?;
+    }
+    Ok(())
+}
+
+fn is_safe_segment(value: &str) -> bool {
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && !value.contains('/')
+        && !value.contains('\\')
 }
 
 #[cfg(test)]

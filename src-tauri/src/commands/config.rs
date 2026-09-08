@@ -4,12 +4,13 @@ use tauri::State;
 
 use crate::error::to_command_error;
 use crate::models::{
-    AgentContextContent, AgentContextInput, AiConfig, AiConfigInput, AiImportSource,
-    AiImportSourceKind, AiImportSourcesInput, AiImportSourcesResult, AiProfileInput,
-    AiProfilesState, DetectAiImportInput, DetectAiImportResult, ImportAiProfilesInput,
-    ImportAiProfilesResult, SaveAgentContextInput, ScriptDefinition, ScriptInput,
-    SetActiveAiProfileInput, SetAiAgentModeInput, SetAiApprovalModeInput, SshConfig,
-    SshConfigInput, SshKnownHost, TrustSshHostKeyInput,
+    AgentContextContent, AgentContextInput, AgentContextList, AiConfig, AiConfigInput,
+    AiImportSource, AiImportSourceKind, AiImportSourcesInput, AiImportSourcesResult,
+    AiProfileInput, AiProfilesState, DeleteAgentContextInput, DetectAiImportInput,
+    DetectAiImportResult, ImportAiProfilesInput, ImportAiProfilesResult,
+    SaveAgentContextInput, ScriptDefinition, ScriptInput, SetActiveAiProfileInput,
+    SetAiAgentModeInput, SetAiApprovalModeInput, SshConfig, SshConfigInput, SshKnownHost,
+    TrustSshHostKeyInput,
 };
 use crate::state::AppState;
 
@@ -154,6 +155,29 @@ pub fn save_agent_context(
     state
         .storage
         .save_agent_context(input.server_id.as_deref(), &input.content)
+        .map_err(to_command_error)
+}
+
+/// Lists the global plus one entry per stored SSH server agent context file.
+#[tauri::command]
+pub fn list_agent_context_files(
+    state: State<'_, Arc<AppState>>,
+) -> Result<AgentContextList, String> {
+    state
+        .storage
+        .list_agent_context_files()
+        .map_err(to_command_error)
+}
+
+/// Deletes a per-server AGENTS.md file (the global file is never deleted).
+#[tauri::command]
+pub fn delete_agent_context(
+    state: State<'_, Arc<AppState>>,
+    input: DeleteAgentContextInput,
+) -> Result<(), String> {
+    state
+        .storage
+        .delete_agent_context(Some(&input.server_id))
         .map_err(to_command_error)
 }
 

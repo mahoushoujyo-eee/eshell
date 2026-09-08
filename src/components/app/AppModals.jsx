@@ -1,4 +1,4 @@
-import AiConfigModal from "../sidebar/AiConfigModal";
+import AgentConfigModal from "../sidebar/AgentConfigModal";
 import ScriptConfigModal from "../sidebar/ScriptConfigModal";
 import SshConfigModal from "../sidebar/SshConfigModal";
 import WallpaperModal from "../sidebar/WallpaperModal";
@@ -23,14 +23,6 @@ export default function AppModals({
     saveScript,
     runScript,
     handleDeleteScript,
-    aiProfiles,
-    activeAiProfileId,
-    aiProfileForm,
-    setAiProfileForm,
-    saveAiProfile,
-    deleteAiProfile,
-    selectAiProfile,
-    importAiProfiles,
     pushUiNotice,
     wallpaper,
     setWallpaper,
@@ -44,8 +36,8 @@ export default function AppModals({
     onCloseSshModal,
     isScriptModalOpen,
     onCloseScriptModal,
-    isAiModalOpen,
-    onCloseAiModal,
+    isAgentConfigOpen,
+    onCloseAgentConfig,
     isWallpaperModalOpen,
     onCloseWallpaperModal,
   } = modalState;
@@ -75,18 +67,10 @@ export default function AppModals({
         onDeleteScript={handleDeleteScript}
       />
 
-      <AiConfigModal
-        open={isAiModalOpen}
-        onClose={onCloseAiModal}
+      <AgentConfigModal
+        open={isAgentConfigOpen}
+        onClose={onCloseAgentConfig}
         sshConfigs={sshConfigs}
-        aiProfiles={aiProfiles}
-        activeAiProfileId={activeAiProfileId}
-        aiProfileForm={aiProfileForm}
-        setAiProfileForm={setAiProfileForm}
-        onSaveAiProfile={saveAiProfile}
-        onDeleteAiProfile={deleteAiProfile}
-        onSelectAiProfile={selectAiProfile}
-        onImportAiProfiles={importAiProfiles}
         onNotice={pushUiNotice}
       />
 

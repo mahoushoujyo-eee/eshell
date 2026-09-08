@@ -25,7 +25,7 @@ const clampAiPanelWidth = (width, containerWidth = 0) => {
 function App() {
   const [isSshModalOpen, setIsSshModalOpen] = useState(false);
   const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
-  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isAgentConfigOpen, setIsAgentConfigOpen] = useState(false);
   const [isFileEditorOpen, setIsFileEditorOpen] = useState(false);
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -138,7 +138,7 @@ function App() {
           onOpenSshConfig: () => setIsSshModalOpen(true),
           onOpenScriptConfig: () => setIsScriptModalOpen(true),
           onOpenWallpaperPicker: () => setIsWallpaperModalOpen(true),
-          onOpenAiConfig: () => setIsAiModalOpen(true),
+          onOpenAgentConfig: () => setIsAgentConfigOpen(true),
           workspaceRef,
           aiPanelWidth,
           isAiPanelResizing,
@@ -156,8 +156,8 @@ function App() {
           onCloseSshModal: () => setIsSshModalOpen(false),
           isScriptModalOpen,
           onCloseScriptModal: () => setIsScriptModalOpen(false),
-          isAiModalOpen,
-          onCloseAiModal: () => setIsAiModalOpen(false),
+          isAgentConfigOpen,
+          onCloseAgentConfig: () => setIsAgentConfigOpen(false),
           isWallpaperModalOpen,
           onCloseWallpaperModal: () => setIsWallpaperModalOpen(false),
         }}

@@ -1,6 +1,7 @@
 import {
   Activity,
   AlertTriangle,
+  Bot,
   CircleCheck,
   FileText,
   FolderOpen,
@@ -11,7 +12,6 @@ import {
   NotebookPen,
   Server,
   Settings2,
-  Sparkles,
   Sun,
 } from "lucide-react";
 import {
@@ -33,7 +33,7 @@ export default function TopToolbar({
   onToggleCollapsed,
   onOpenSshConfig,
   onOpenScriptConfig,
-  onOpenAiConfig,
+  onOpenAgentConfig,
   onToggleSftpPanel,
   onToggleStatusPanel,
   onToggleCommandDraftPanel,
@@ -98,7 +98,7 @@ export default function TopToolbar({
         <ToolbarSection title={t("Config")} collapsed={collapsed}>
           <RailButton icon={Server} label={t("SSH Profiles")} onClick={onOpenSshConfig} collapsed={collapsed} />
           <RailButton icon={FileText} label={t("Script Center")} onClick={onOpenScriptConfig} collapsed={collapsed} />
-          <RailButton icon={Sparkles} label={t("AI Configs")} onClick={onOpenAiConfig} collapsed={collapsed} />
+          <RailButton icon={Bot} label={t("Agent Config")} onClick={onOpenAgentConfig} collapsed={collapsed} />
         </ToolbarSection>
 
         <ToolbarSection title={t("Panels")} collapsed={collapsed}>

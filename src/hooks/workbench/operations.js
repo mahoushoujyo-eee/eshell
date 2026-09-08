@@ -1,20 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
-import { DEFAULT_AI, EMPTY_SCRIPT, EMPTY_SSH } from "../../constants/workbench";
+import { EMPTY_SCRIPT, EMPTY_SSH } from "../../constants/workbench";
 import { useI18n } from "../../lib/i18n";
-import { EMPTY_OPS_AGENT_STREAM } from "../../lib/ops-agent-stream";
-import { createShellContextAttachment } from "../../lib/ops-agent-shell-context";
 import { createPtyInputSender } from "../../lib/pty-input-sender";
 import { createSftpTransferSeed, upsertSftpTransfer } from "../../lib/sftp-transfer";
 import { api } from "../../lib/tauri-api";
 import { copyTextToClipboard } from "../../utils/clipboard";
-import { arrayBufferToBase64 } from "../../utils/encoding";
 import { joinPath, normalizeRemotePath, renameRemoteEntryPath } from "../../utils/path";
-import {
-  DEFAULT_AI_PROFILE_FORM,
-  normalizeAiConfig,
-  normalizeAiProfilesState,
-  toAiProfileInput,
-} from "./aiProfiles";
 import {
   STATUS_FETCH_WARNING_PREFIX,
   isSessionLostError,
@@ -117,12 +108,6 @@ export function useWorkbenchOperations({
   scriptForm,
   scripts,
   sshForm,
-  aiProfileForm,
-  aiQuestion,
-  aiShellContext,
-  aiImageAttachments,
-  aiStream,
-  activeAiConversationId,
   setLogs,
   setDisconnectedSessions,
   setSftpPath,
@@ -141,28 +126,12 @@ export function useWorkbenchOperations({
   setScriptForm,
   setSshConfigs,
   setSshForm,
-  setAiConfig,
-  setAiProfiles,
-  setActiveAiProfileId,
-  setAiProfileForm,
-  setAiConversations,
-  setAiPendingActions,
-  setActiveAiConversationId,
-  setActiveAiConversation,
-  setResolvingAiActionId,
-  setAiQuestion,
-  setAiShellContext,
-  setAiImageAttachments,
-  setAiStream,
-  setAiConversationError,
-  clearAiConversationError,
   setDownloadDirectory,
   setError,
   reconnectingSessionsRef,
   closingSessionsRef,
   sessionAliasRef,
   statusRequestTokenRef,
-  aiStreamRef,
   ptyInputSenderRef,
   onErrorRef,
   runWithSessionReconnectRef,
@@ -504,65 +473,6 @@ export function useWorkbenchOperations({
     };
   }, []);
 
-  const applyAiProfilesState = useCallback((state, keepForm = false) => {
-    const normalized = normalizeAiProfilesState(state);
-    setAiProfiles(normalized.profiles);
-    setActiveAiProfileId(normalized.activeProfileId);
-
-    const activeProfile =
-      normalized.profiles.find((item) => item.id === normalized.activeProfileId) || null;
-    if (activeProfile) {
-      setAiConfig(
-        normalizeAiConfig({
-          ...activeProfile,
-          approvalMode: normalized.approvalMode,
-          agentMode: normalized.agentMode,
-        }),
-      );
-      if (!keepForm) {
-        setAiProfileForm(activeProfile);
-      }
-      return activeProfile;
-    }
-
-    setAiConfig(
-      normalizeAiConfig({
-        ...DEFAULT_AI,
-        approvalMode: normalized.approvalMode,
-        agentMode: normalized.agentMode,
-      }),
-    );
-    if (!keepForm) {
-      setAiProfileForm(DEFAULT_AI_PROFILE_FORM);
-    }
-    return null;
-  }, []);
-
-  const reloadAiConversations = useCallback(async () => {
-    const rows = await api.opsAgentListConversations();
-    setAiConversations(rows);
-    return rows;
-  }, []);
-
-  const loadAiConversation = useCallback(
-    async (conversationId) => {
-      if (!conversationId) {
-        setActiveAiConversation(null);
-        return null;
-      }
-      const conversation = await api.opsAgentGetConversation(conversationId);
-      setActiveAiConversation(conversation);
-      return conversation;
-    },
-    [],
-  );
-
-  const reloadAiPendingActions = useCallback(async () => {
-    const rows = await api.opsAgentListPendingActions(null, false);
-    setAiPendingActions(rows);
-    return rows;
-  }, []);
-
   const bootstrap = useCallback(async () => {
     try {
       await runBusy(tRef.current("Loading project"), async () => {
@@ -573,25 +483,16 @@ export function useWorkbenchOperations({
         const [
           configs,
           scriptRows,
-          aiProfilesState,
           opened,
-          conversations,
-          actionHistory,
           defaultDownloadDir,
         ] = await Promise.all([
           api.listSshConfigs(),
           api.listScripts(),
-          api.listAiProfiles(),
           api.listShellSessions(),
-          api.opsAgentListConversations(),
-          api.opsAgentListPendingActions(null, false),
           loadDefaultDirTask,
         ]);
         setSshConfigs(configs);
         setScripts(scriptRows);
-        applyAiProfilesState(aiProfilesState);
-        setAiConversations(conversations);
-        setAiPendingActions(actionHistory);
         if (!downloadDirectory?.trim() && defaultDownloadDir) {
           setDownloadDirectory(defaultDownloadDir);
         }
@@ -600,19 +501,11 @@ export function useWorkbenchOperations({
         if (opened[0]) {
           setActiveSessionId(opened[0].id);
         }
-        const initialConversationId = conversations[0]?.id || null;
-        setActiveAiConversationId(initialConversationId);
-        if (initialConversationId) {
-          const conversation = await api.opsAgentGetConversation(initialConversationId);
-          setActiveAiConversation(conversation);
-        } else {
-          setActiveAiConversation(null);
-        }
       });
     } catch (err) {
       onError(err);
     }
-  }, [applyAiProfilesState, downloadDirectory, onError, runBusy, setDownloadDirectory]);
+  }, [downloadDirectory, onError, runBusy, setDownloadDirectory]);
 
   const reloadSessions = useCallback(async () => {
     const rows = await api.listShellSessions();
@@ -1502,363 +1395,6 @@ export function useWorkbenchOperations({
     });
   }, [runWithSessionReconnect]);
 
-  const saveAiProfile = useCallback(
-    async (event) => {
-      event.preventDefault();
-      try {
-        const state = await runBusy(tRef.current("Save AI config"), () =>
-          api.saveAiProfile(toAiProfileInput(aiProfileForm)),
-        );
-        const activeProfile = applyAiProfilesState(state);
-        if (activeProfile) {
-          setAiProfileForm(activeProfile);
-        }
-      } catch (err) {
-        onError(err);
-      }
-    },
-    [aiProfileForm, applyAiProfilesState, onError, runBusy],
-  );
-
-  const selectAiProfile = useCallback(
-    async (profileId) => {
-      if (!profileId) {
-        return;
-      }
-      try {
-        const state = await runBusy(tRef.current("Switch AI profile"), () =>
-          api.setActiveAiProfile(profileId),
-        );
-        applyAiProfilesState(state);
-      } catch (err) {
-        onError(err);
-      }
-    },
-    [applyAiProfilesState, onError, runBusy],
-  );
-
-  const importAiProfiles = useCallback(
-    async (candidates) => {
-      if (!Array.isArray(candidates) || candidates.length === 0) {
-        return null;
-      }
-      let result;
-      try {
-        result = await runBusy(tRef.current("Import AI config"), () =>
-          api.importAiProfiles(candidates),
-        );
-      } catch (err) {
-        pushUiNotice(
-          tRef.current("Import failed: {reason}", {
-            reason: toErrorMessage(err),
-          }),
-          { tone: "danger", ttlMs: 5200 },
-        );
-        throw err;
-      }
-      applyAiProfilesState(result?.state);
-      if (result?.imported?.length) {
-        const first = result.imported[0];
-        setAiProfileForm(first);
-      }
-      pushUiNotice(
-        tRef.current("Imported {count} AI profile(s)", {
-          count: result?.imported?.length || 0,
-        }),
-        {
-          tone: (result?.imported?.length || 0) > 0 ? "success" : "info",
-          ttlMs: 4200,
-        },
-      );
-      return result;
-    },
-    [applyAiProfilesState, pushUiNotice, runBusy],
-  );
-
-  const deleteAiProfile = useCallback(
-    async (profileId) => {
-      if (!profileId) {
-        return;
-      }
-      try {
-        const state = await runBusy(tRef.current("Delete AI config"), () =>
-          api.deleteAiProfile(profileId),
-        );
-        applyAiProfilesState(state);
-      } catch (err) {
-        onError(err);
-      }
-    },
-    [applyAiProfilesState, onError, runBusy],
-  );
-
-  const saveAiApprovalMode = useCallback(
-    async (approvalMode) => {
-      if (approvalMode !== "auto_execute" && approvalMode !== "require_approval") {
-        return;
-      }
-      try {
-        const state = await runBusy(tRef.current("Approval mode"), () =>
-          api.saveAiApprovalMode(approvalMode),
-        );
-        applyAiProfilesState(state, true);
-      } catch (err) {
-        onError(err);
-      }
-    },
-    [applyAiProfilesState, onError, runBusy],
-  );
-
-  const saveAiAgentMode = useCallback(
-    async (agentMode) => {
-      if (agentMode !== "lite" && agentMode !== "pro" && agentMode !== "auto") {
-        return;
-      }
-      try {
-        const state = await runBusy(tRef.current("Agent mode"), () =>
-          api.saveAiAgentMode(agentMode),
-        );
-        applyAiProfilesState(state, true);
-      } catch (err) {
-        onError(err);
-      }
-    },
-    [applyAiProfilesState, onError, runBusy],
-  );
-
-  const selectAiConversation = useCallback(
-    async (conversationId) => {
-      if (!conversationId) {
-        return;
-      }
-      try {
-        await api.opsAgentSetActiveConversation(conversationId);
-        setActiveAiConversationId(conversationId);
-        await Promise.all([loadAiConversation(conversationId), reloadAiConversations()]);
-      } catch (err) {
-        onError(err);
-      }
-    },
-    [loadAiConversation, onError, reloadAiConversations],
-  );
-
-  const createAiConversation = useCallback(async () => {
-    try {
-      const created = await runBusy(tRef.current("Create AI conversation"), () =>
-        api.opsAgentCreateConversation(null, activeSessionId || null),
-      );
-      clearAiConversationError(created.id);
-      clearAiConversationError(null);
-      setActiveAiConversationId(created.id);
-      setActiveAiConversation(created);
-      setAiQuestion("");
-      setAiStream(EMPTY_OPS_AGENT_STREAM);
-      aiStreamRef.current = EMPTY_OPS_AGENT_STREAM;
-      await Promise.all([
-        reloadAiConversations(),
-        reloadAiPendingActions(),
-      ]);
-    } catch (err) {
-      onError(err);
-    }
-  }, [
-    activeSessionId,
-    clearAiConversationError,
-    onError,
-    reloadAiConversations,
-    reloadAiPendingActions,
-    runBusy,
-  ]);
-
-  const deleteAiConversation = useCallback(
-    async (conversationId) => {
-      if (!conversationId) {
-        return false;
-      }
-      try {
-        await runBusy(tRef.current("Delete AI conversation"), () =>
-          api.opsAgentDeleteConversation(conversationId),
-        );
-        clearAiConversationError(conversationId);
-        const conversations = await reloadAiConversations();
-        await reloadAiPendingActions();
-        const nextId = conversations[0]?.id || null;
-        setActiveAiConversationId(nextId);
-        if (nextId) {
-          await loadAiConversation(nextId);
-        } else {
-          setActiveAiConversation(null);
-        }
-        return true;
-      } catch (err) {
-        onError(err);
-        return false;
-      }
-    },
-    [clearAiConversationError, loadAiConversation, onError, reloadAiConversations, runBusy],
-  );
-
-  const compactAiConversation = useCallback(
-    async (conversationId = activeAiConversationId) => {
-      if (!conversationId) {
-        return false;
-      }
-
-      try {
-        const result = await runBusy(tRef.current("Compact conversation"), () =>
-          api.opsAgentCompactConversation(conversationId),
-        );
-        if (result?.conversation) {
-          setActiveAiConversation(result.conversation);
-        } else {
-          await loadAiConversation(conversationId);
-        }
-        await reloadAiConversations();
-        pushUiNotice(tRef.current(result?.note || "Conversation compaction finished."), {
-          tone: result?.compacted ? "success" : "info",
-          ttlMs: 4200,
-        });
-        return Boolean(result?.compacted);
-      } catch (err) {
-        onError(err);
-        return false;
-      }
-    },
-    [
-      activeAiConversationId,
-      loadAiConversation,
-      onError,
-      pushUiNotice,
-      reloadAiConversations,
-      runBusy,
-      setActiveAiConversation,
-    ],
-  );
-
-  const resolveAiPendingAction = useCallback(
-    async (actionId, approve, comment = "") => {
-      if (!actionId) {
-        return;
-      }
-      setResolvingAiActionId(actionId);
-      try {
-        await runBusy(tRef.current(approve ? "Approve command" : "Reject command"), () =>
-          api.opsAgentResolveAction(
-            actionId,
-            approve,
-            activeSessionId || null,
-            typeof comment === "string" && comment.trim() ? comment.trim() : null,
-          ),
-        );
-        await Promise.all([
-          reloadAiPendingActions(),
-          activeAiConversationId ? loadAiConversation(activeAiConversationId) : Promise.resolve(),
-          reloadAiConversations(),
-        ]);
-      } catch (err) {
-        onError(err);
-      } finally {
-        setResolvingAiActionId("");
-      }
-    },
-    [
-      activeAiConversationId,
-      activeSessionId,
-      loadAiConversation,
-      onError,
-      reloadAiConversations,
-      reloadAiPendingActions,
-      runBusy,
-    ],
-  );
-
-  const askAi = useCallback(
-    async (event) => {
-      event.preventDefault();
-      const question = aiQuestion.trim();
-      const imageAttachments = aiImageAttachments.map((attachment) => ({
-        fileName: attachment.fileName || null,
-        contentType: attachment.contentType,
-        contentBase64: attachment.contentBase64,
-      }));
-      if ((!question && imageAttachments.length === 0) || aiStream.runId) {
-        return;
-      }
-      const shellContext = aiShellContext || null;
-      try {
-        clearAiConversationError(activeAiConversationId || null);
-        setAiQuestion("");
-        const accepted = await runBusy(tRef.current("AI response"), () =>
-          api.opsAgentChatStreamStart({
-            conversationId: activeAiConversationId || null,
-            sessionId: activeSessionId || null,
-            question,
-            shellContext,
-            imageAttachments,
-          }),
-        );
-        clearAiConversationError(accepted.conversationId || null);
-        setAiShellContext(null);
-        setAiImageAttachments((prev) => {
-          prev.forEach((attachment) => {
-            if (
-              typeof attachment.previewUrl === "string" &&
-              attachment.previewUrl.startsWith("blob:")
-            ) {
-              URL.revokeObjectURL(attachment.previewUrl);
-            }
-          });
-          return [];
-        });
-        const nextStream = {
-          runId: accepted.runId,
-          conversationId: accepted.conversationId,
-          text: "",
-          toolCalls: [],
-          agentProgress: null,
-        };
-        aiStreamRef.current = nextStream;
-        setAiStream(nextStream);
-        setActiveAiConversationId(accepted.conversationId);
-        await Promise.all([
-          loadAiConversation(accepted.conversationId),
-          reloadAiConversations(),
-          reloadAiPendingActions(),
-        ]);
-      } catch (err) {
-        setAiQuestion(question);
-        setAiConversationError(activeAiConversationId || null, err);
-      }
-    },
-    [
-      activeAiConversationId,
-      activeSessionId,
-      aiImageAttachments,
-      aiShellContext,
-      aiQuestion,
-      aiStream.runId,
-      clearAiConversationError,
-      loadAiConversation,
-      reloadAiConversations,
-      reloadAiPendingActions,
-      runBusy,
-      setAiConversationError,
-      setAiImageAttachments,
-    ],
-  );
-
-  const cancelAiStreaming = useCallback(async () => {
-    const runId = aiStreamRef.current.runId;
-    if (!runId) {
-      return;
-    }
-    try {
-      await api.opsAgentCancelRun(runId);
-    } catch (err) {
-      onError(err);
-    }
-  }, [onError]);
-
   const handleDeleteSsh = useCallback(
     async (sshId) => {
       try {
@@ -1910,102 +1446,12 @@ export function useWorkbenchOperations({
     [setDownloadDirectory],
   );
 
-  const attachAiShellContext = useCallback((selection) => {
-    const attachment = createShellContextAttachment(selection);
-    if (!attachment) {
-      return;
-    }
-    setAiShellContext(attachment);
-  }, []);
-
-  const attachAiImages = useCallback(
-    async (fileList) => {
-      const files = Array.from(fileList || []).filter(
-        (file) => file && typeof file === "object" && String(file.type || "").startsWith("image/"),
-      );
-      if (files.length === 0) {
-        return;
-      }
-
-      try {
-        const attachments = await Promise.all(
-          files.map(async (file) => {
-            const buffer = await file.arrayBuffer();
-            return {
-              localId:
-                globalThis.crypto?.randomUUID?.() ||
-                `image-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-              fileName: file.name || "",
-              contentType: file.type || "image/*",
-              contentBase64: arrayBufferToBase64(buffer),
-              sizeBytes: Number(file.size) || 0,
-              previewUrl: URL.createObjectURL(file),
-            };
-          }),
-        );
-
-        setAiImageAttachments((prev) => [...prev, ...attachments]);
-      } catch (err) {
-        onError(err);
-      }
-    },
-    [onError, setAiImageAttachments],
-  );
-
-  const removeAiImageAttachment = useCallback(
-    (localId) => {
-      if (!localId) {
-        return;
-      }
-
-      setAiImageAttachments((prev) => {
-        const next = [];
-        prev.forEach((attachment) => {
-          if (attachment.localId === localId) {
-            if (
-              typeof attachment.previewUrl === "string" &&
-              attachment.previewUrl.startsWith("blob:")
-            ) {
-              URL.revokeObjectURL(attachment.previewUrl);
-            }
-            return;
-          }
-          next.push(attachment);
-        });
-        return next;
-      });
-    },
-    [setAiImageAttachments],
-  );
-
-  const clearAiImageAttachments = useCallback(() => {
-    setAiImageAttachments((prev) => {
-      prev.forEach((attachment) => {
-        if (
-          typeof attachment.previewUrl === "string" &&
-          attachment.previewUrl.startsWith("blob:")
-        ) {
-          URL.revokeObjectURL(attachment.previewUrl);
-        }
-      });
-      return [];
-    });
-  }, [setAiImageAttachments]);
-
-  const clearAiShellContext = useCallback(() => {
-    setAiShellContext(null);
-  }, []);
-
   return {
     appendLog,
     resolveSessionAlias,
     runWithSessionReconnect,
     reconnectSession,
     markSessionDisconnected,
-    applyAiProfilesState,
-    reloadAiConversations,
-    loadAiConversation,
-    reloadAiPendingActions,
     bootstrap,
     saveSsh,
     connectServer,
@@ -2028,28 +1474,10 @@ export function useWorkbenchOperations({
     runScript,
     sendPtyInput,
     resizePty,
-    saveAiProfile,
-    selectAiProfile,
-    deleteAiProfile,
-    importAiProfiles,
-    saveAiApprovalMode,
-    saveAiAgentMode,
-    selectAiConversation,
-    createAiConversation,
-    deleteAiConversation,
-    compactAiConversation,
-    resolveAiPendingAction,
-    askAi,
-    cancelAiStreaming,
     handleDeleteSsh,
     handleDeleteScript,
     handleNicChange,
     handleOpenFileContentChange,
     handleDownloadDirectoryChange,
-    attachAiShellContext,
-    attachAiImages,
-    removeAiImageAttachment,
-    clearAiImageAttachments,
-    clearAiShellContext,
   };
 }

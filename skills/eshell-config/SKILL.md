@@ -28,14 +28,15 @@ description: >-
 
 | 路径 | 类型 | 用途 / 格式 | 谁在写 |
 | --- | --- | --- | --- |
-| `AGENTS.md` | 文件 | **全局 agent 上下文**（`GLOBAL_AGENTS_FILE`）。保存/读取 agent 指令，随 Ops Agent 请求注入。`save_agent_context(None, ...)` 写这里 | Ops Agent |
+| `agent/AGENTS.md` | 文件 | **全局 agent 上下文**。可编辑 AGENTS.md（`save_agent_context(None, ...)` 写这里），无 ACP 自动注入，供 agent 自行引用 | Agent 配置 |
 | `ssh_configs.json` | 文件 | `SshConfig[]` 数组（见 §1） | SSH 配置管理 |
 | `known_hosts.json` | 文件 | **SSH host key 信任指纹**：`[{host, port, keyType, fingerprint, createdAt, updatedAt}]`，连接时校验，新主机首次连接走 `trust_ssh_host_key` 确认后写入 | SSH 连接层 |
 | `acp_agents.json` | 文件 | `{agents:[AcpAgentSpawnConfig]}`（见 §2） | ACP 配置管理 |
 | `acp_sessions/` | 目录 | **ACP 历史会话**，每会话一个 JSON：`{id, agentId, agentName, title, createdAt, updatedAt, transcript: [...]
 
 }`（transcript 为面板条目原样，图片只留 mimeType）。`acp_history_*` 命令读写 | ACP 面板 |
-| `server_agents/` | 目录 | **服务器级 agent 上下文**，`server_agents/<ssh_config_id>/AGENTS.md`。目录名 = SSH profile 的 `id`。`save_agent_context(Some(server_id), ...)` 写这里 | Ops Agent |
+| `agent/<serverId>.md` | 文件 | **服务器级 agent 上下文**，每台服务器一个 `.md`。文件名 = SSH profile 的 `id`。`save_agent_context(Some(server_id), ...)` 写这里 | Agent 配置 |
+| `agent/skills/eshell-config/` | 目录 | **随应用打包的 eshell-config 技能**，首启 seed 到这里（已存在则不动），供 agent/用户修改 | Agent 配置 |
 | `ops_agent_conversation_list.json` | 文件 | Ops Agent 会话列表元数据：`{conversations:[], activeConversationId:null, pendingActions:[]}` | Ops Agent |
 | `ops_agent_conversations/` | 目录 | Ops Agent **会话正文**（每会话一个文件，含消息流） | Ops Agent |
 | `ops_agent_runs/` | 目录 | Ops Agent **run 记录**（每次 run 的追踪/状态） | Ops Agent |
@@ -48,8 +49,8 @@ description: >-
 
 ⚠️ 注意点：
 
-- `server_agents/<id>` 的目录名**必须是 SSH profile 的 `id`**，且要求 `is_safe_path_segment`（不含路径分隔符）。如果删掉对应 SSH profile，目录会残留。
-- `ai_profiles.json` / `ai_config.json` 属于被 ACP 取代的旧助手，**已无面板入口**（AI 配置弹窗在工具栏 Config 区仍可打开），一般不主动改。
+- `agent/<serverId>.md` 的文件名（不含 `.md`）**必须是 SSH profile 的 `id`**，且要求 `is_safe_path_segment`（不含路径分隔符）。如果删掉对应 SSH profile，文件会残留。
+- `ai_profiles.json` / `ai_config.json` 属于被 ACP 取代的旧助手，**已无面板入口**；工具栏的「Agent 配置」只编辑 AGENTS.md（全局 + 每台服务器）。
 - 上述文件多数由命令写入；**调试日志（`*_debug.log`）可安全忽略/删除**，会自动重建。
 
 ## 1. SSH 配置文件 —— `ssh_configs.json`

@@ -40,7 +40,7 @@ export default function AppWorkspace({
     onOpenSshConfig,
     onOpenScriptConfig,
     onOpenWallpaperPicker,
-    onOpenAiConfig,
+    onOpenAgentConfig,
     workspaceRef,
     aiPanelWidth,
     isAiPanelResizing,
@@ -70,7 +70,7 @@ export default function AppWorkspace({
           onToggleCollapsed={onToggleSidebarCollapsed}
           onOpenSshConfig={onOpenSshConfig}
           onOpenScriptConfig={onOpenScriptConfig}
-          onOpenAiConfig={onOpenAiConfig}
+          onOpenAgentConfig={onOpenAgentConfig}
           onOpenWallpaperPicker={onOpenWallpaperPicker}
           onToggleSftpPanel={() => setShowSftpPanel((prev) => !prev)}
           onToggleStatusPanel={() => setShowStatusPanel((prev) => !prev)}

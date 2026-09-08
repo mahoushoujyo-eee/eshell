@@ -12,7 +12,15 @@ const zhMessages = {
   "Agent Context": "Agent 上下文",
   "Agent mode": "助手模式",
   "Agent typing": "助手正在输入",
-  "AI Configs": "AI 配置",
+  "Agent Config": "Agent 配置",
+  "Agent context is stored as editable AGENTS.md files under .eshell-data/agent/.":
+    "Agent 上下文以可编辑的 AGENTS.md 文件保存在 .eshell-data/agent/ 下。",
+  "Exists": "已存在",
+  "Empty": "空",
+  "Saved {target}": "已保存 {target}",
+  "Deleted {target}": "已删除 {target}",
+  "Select a server and Save to create its context file.": "选择一台服务器并保存即可创建其上下文文件。",
+  "Agent instructions, preferences, policies...": "Agent 指令、偏好、策略...",
   "AI config": "AI 配置",
   "AI response": "AI 回复",
   "AI settings are split into instructions and model profiles.":

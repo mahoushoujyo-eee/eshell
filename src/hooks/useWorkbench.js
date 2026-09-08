@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  DEFAULT_AI,
   DEFAULT_WALLPAPER,
   EMPTY_SCRIPT,
   EMPTY_SSH,
   normalizeWallpaperSelection,
 } from "../constants/workbench";
-import { EMPTY_OPS_AGENT_STREAM } from "../lib/ops-agent-stream";
 import { formatBytes } from "../utils/format";
 import { normalizeRemotePath } from "../utils/path";
-import { DEFAULT_AI_PROFILE_FORM } from "./workbench/aiProfiles";
 import { toErrorMessage } from "./workbench/errors";
 import { useWorkbenchEffects } from "./workbench/effects";
 import { useWorkbenchOperations } from "./workbench/operations";
@@ -76,30 +73,12 @@ export function useWorkbench() {
   const [statusBySession, setStatusBySession] = useState({});
   const [nicBySession, setNicBySession] = useState({});
 
-  const [aiConfig, setAiConfig] = useState(DEFAULT_AI);
-  const [aiProfiles, setAiProfiles] = useState([]);
-  const [activeAiProfileId, setActiveAiProfileId] = useState(null);
-  const [aiProfileForm, setAiProfileForm] = useState(DEFAULT_AI_PROFILE_FORM);
-  const [aiQuestion, setAiQuestion] = useState("");
-  const [aiShellContext, setAiShellContext] = useState(null);
-  const [aiImageAttachments, setAiImageAttachments] = useState([]);
-  const [aiConversations, setAiConversations] = useState([]);
-  const [activeAiConversationId, setActiveAiConversationId] = useState(null);
-  const [activeAiConversation, setActiveAiConversation] = useState(null);
-  const [aiPendingActions, setAiPendingActions] = useState([]);
-  const [aiStream, setAiStream] = useState(EMPTY_OPS_AGENT_STREAM);
-  const [resolvingAiActionId, setResolvingAiActionId] = useState("");
-  const [aiConversationErrors, setAiConversationErrors] = useState({});
-  const [aiStandaloneError, setAiStandaloneError] = useState("");
-
   const saveTimerRef = useRef(null);
   const reconnectingSessionsRef = useRef(new Map());
   const closingSessionsRef = useRef(new Set());
   const kiPromptDismissRef = useRef(null);
   const sessionAliasRef = useRef(new Map());
   const statusRequestTokenRef = useRef(new Map());
-  const aiStreamRef = useRef(EMPTY_OPS_AGENT_STREAM);
-  const aiImageAttachmentsRef = useRef([]);
   const ptyInputSenderRef = useRef(null);
   const onErrorRef = useRef(() => {});
   const runWithSessionReconnectRef = useRef(null);
@@ -164,50 +143,6 @@ export function useWorkbench() {
     [DEFAULT_NOTICE_TTL_MS, MAX_UI_NOTICES],
   );
 
-  const setAiConversationError = useCallback((conversationId, err) => {
-    const rawMessage = toErrorMessage(err);
-    const message =
-      typeof rawMessage === "string"
-        ? rawMessage.trim()
-        : String(rawMessage || "").trim();
-    if (!message) {
-      return;
-    }
-
-    if (conversationId) {
-      setAiConversationErrors((prev) => ({
-        ...prev,
-        [conversationId]: message,
-      }));
-      return;
-    }
-
-    setAiStandaloneError(message);
-  }, []);
-
-  const clearAiConversationError = useCallback((conversationId = null) => {
-    if (conversationId) {
-      setAiConversationErrors((prev) => {
-        if (!(conversationId in prev)) {
-          return prev;
-        }
-        const next = { ...prev };
-        delete next[conversationId];
-        return next;
-      });
-      return;
-    }
-    setAiStandaloneError("");
-  }, []);
-
-  const clearActiveAiConversationError = useCallback(() => {
-    if (activeAiConversationId) {
-      clearAiConversationError(activeAiConversationId);
-      return;
-    }
-    clearAiConversationError(null);
-  }, [activeAiConversationId, clearAiConversationError]);
-
   const runBusy = useCallback(async (text, action) => {
     setBusy(text);
     setError("");
@@ -255,18 +190,10 @@ export function useWorkbench() {
     pushUiNotice(message);
   }, [pushUiNotice]);
 
-  useEffect(() => {
-    aiImageAttachmentsRef.current = aiImageAttachments;
-  }, [aiImageAttachments]);
-
   const {
     appendLog,
     resolveSessionAlias,
     runWithSessionReconnect,
-    applyAiProfilesState,
-    reloadAiConversations,
-    loadAiConversation,
-    reloadAiPendingActions,
     bootstrap,
     saveSsh,
     connectServer,
@@ -291,29 +218,11 @@ export function useWorkbench() {
     runScript,
     sendPtyInput,
     resizePty,
-    saveAiProfile,
-    selectAiProfile,
-    deleteAiProfile,
-    importAiProfiles,
-    saveAiApprovalMode,
-    saveAiAgentMode,
-    selectAiConversation,
-    createAiConversation,
-    deleteAiConversation,
-    compactAiConversation,
-    resolveAiPendingAction,
-    askAi,
-    cancelAiStreaming,
     handleDeleteSsh,
     handleDeleteScript,
     handleNicChange,
     handleOpenFileContentChange,
     handleDownloadDirectoryChange,
-    attachAiShellContext,
-    attachAiImages,
-    removeAiImageAttachment,
-    clearAiImageAttachments,
-    clearAiShellContext,
   } = useWorkbenchOperations({
     sshConfigs,
     sessions,
@@ -324,12 +233,6 @@ export function useWorkbench() {
     scriptForm,
     scripts,
     sshForm,
-    aiProfileForm,
-    aiQuestion,
-    aiShellContext,
-    aiImageAttachments,
-    aiStream,
-    activeAiConversationId,
     setLogs,
     setDisconnectedSessions,
     setSftpPath,
@@ -348,28 +251,12 @@ export function useWorkbench() {
     setScriptForm,
     setSshConfigs,
     setSshForm,
-    setAiConfig,
-    setAiProfiles,
-    setActiveAiProfileId,
-    setAiProfileForm,
-    setAiConversations,
-    setAiPendingActions,
-    setActiveAiConversationId,
-    setActiveAiConversation,
-    setResolvingAiActionId,
-    setAiQuestion,
-    setAiShellContext,
-    setAiImageAttachments,
-    setAiStream,
-    setAiConversationError,
-    clearAiConversationError,
     setDownloadDirectory,
     setError,
     reconnectingSessionsRef,
     closingSessionsRef,
     sessionAliasRef,
     statusRequestTokenRef,
-    aiStreamRef,
     ptyInputSenderRef,
     onErrorRef,
     runWithSessionReconnectRef,
@@ -380,42 +267,16 @@ export function useWorkbench() {
     onError,
   });
 
-  useEffect(
-    () => () => {
-      aiImageAttachmentsRef.current.forEach((attachment) => {
-        if (
-          typeof attachment?.previewUrl === "string" &&
-          attachment.previewUrl.startsWith("blob:")
-        ) {
-          URL.revokeObjectURL(attachment.previewUrl);
-        }
-      });
-    },
-    [],
-  );
-
   useWorkbenchEffects({
     theme,
     wallpaper,
     downloadDirectory,
     bootstrap,
-    aiStream,
-    aiStreamRef,
     activeSessionId,
     disconnectedSessions,
     markSessionDisconnected,
-    loadAiConversation,
     onError,
-    setAiConversationError,
-    clearAiConversationError,
-    reloadAiConversations,
-    reloadAiPendingActions,
-    setAiStream,
-    setActiveAiConversationId,
-    setAiPendingActions,
     setSftpTransfers,
-    activeAiConversationId,
-    setActiveAiConversation,
     setSftpEntries,
     setOpenFilePath,
     setOpenFileContent,
@@ -435,18 +296,6 @@ export function useWorkbench() {
     setKiPrompt,
     statusRefreshInterval,
   });
-
-  const aiStreamingText =
-    aiStream.conversationId === activeAiConversationId ? aiStream.text : "";
-  const aiStreamingToolCalls =
-    aiStream.conversationId === activeAiConversationId ? aiStream.toolCalls || [] : [];
-  const aiStreamingAgentProgress =
-    aiStream.conversationId === activeAiConversationId ? aiStream.agentProgress || null : null;
-  const isAiStreaming =
-    Boolean(aiStream.runId) && aiStream.conversationId === activeAiConversationId;
-  const activeAiConversationError = activeAiConversationId
-    ? aiConversationErrors[activeAiConversationId] || ""
-    : aiStandaloneError;
 
   return {
     theme,
@@ -493,26 +342,6 @@ export function useWorkbench() {
     openFilePath,
     dirtyFile,
     openFileContent,
-    aiConfig,
-    aiProfiles,
-    activeAiProfileId,
-    aiProfileForm,
-    setAiProfileForm,
-    aiQuestion,
-    setAiQuestion,
-    aiShellContext,
-    aiImageAttachments,
-    aiConversations,
-    activeAiConversationId,
-    activeAiConversation,
-    aiPendingActions,
-    isAiStreaming,
-    aiStreamingText,
-    aiStreamingToolCalls,
-    aiStreamingAgentProgress,
-    activeAiConversationError,
-    clearActiveAiConversationError,
-    resolvingAiActionId,
     saveSsh,
     connectServer,
     cancelConnectServer,
@@ -531,33 +360,15 @@ export function useWorkbench() {
     cancelSftpTransfer,
     saveScript,
     runScript,
-    saveAiProfile,
-    selectAiProfile,
-    deleteAiProfile,
-    importAiProfiles,
-    saveAiApprovalMode,
-    saveAiAgentMode,
-    selectAiConversation,
-    createAiConversation,
-    deleteAiConversation,
-    compactAiConversation,
-    resolveAiPendingAction,
-    askAi,
-    cancelAiStreaming,
-    attachAiShellContext,
-    attachAiImages,
-    removeAiImageAttachment,
-    clearAiImageAttachments,
-    clearAiShellContext,
-    requestSftpDir,
-    refreshSftp,
-    openEntry,
-    selectSftpEntry,
     handleDeleteSsh,
     handleDeleteScript,
     handleNicChange,
     handleOpenFileContentChange,
     handleDownloadDirectoryChange,
+    requestSftpDir,
+    refreshSftp,
+    openEntry,
+    selectSftpEntry,
     formatBytes,
   };
 }

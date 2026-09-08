@@ -86,6 +86,8 @@ pub fn run() {
             commands::config::save_ai_agent_mode,
             commands::config::get_agent_context,
             commands::config::save_agent_context,
+            commands::config::list_agent_context_files,
+            commands::config::delete_agent_context,
             commands::config::set_active_ai_profile,
             commands::config::save_ai_config,
             commands::config::list_ai_import_sources,

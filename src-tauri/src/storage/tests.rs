@@ -324,8 +324,8 @@ fn agent_contexts_are_stored_as_markdown_files() {
         .save_agent_context(Some("server-1"), "server notes")
         .expect("save server context");
     assert!(
-        server.path.ends_with("server_agents\\server-1\\AGENTS.md")
-            || server.path.ends_with("server_agents/server-1/AGENTS.md")
+        server.path.ends_with("agent\\server-1.md")
+            || server.path.ends_with("agent/server-1.md")
     );
 
     let bundle = storage

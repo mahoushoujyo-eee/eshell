@@ -1,11 +1,6 @@
-import { startTransition, useEffect } from "react";
+import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { normalizeWallpaperSelection } from "../../constants/workbench";
-import {
-  normalizeOpsAgentStreamEvent,
-  reduceOpsAgentStreamEvent,
-  upsertOpsAgentPendingAction,
-} from "../../lib/ops-agent-stream";
 import { normalizeSftpTransferEvent, upsertSftpTransfer } from "../../lib/sftp-transfer";
 import { api } from "../../lib/tauri-api";
 
@@ -21,23 +16,11 @@ export function useWorkbenchEffects({
   wallpaper,
   downloadDirectory,
   bootstrap,
-  aiStream,
-  aiStreamRef,
   activeSessionId,
   disconnectedSessions,
   markSessionDisconnected,
-  loadAiConversation,
   onError,
-  setAiConversationError,
-  clearAiConversationError,
-  reloadAiConversations,
-  reloadAiPendingActions,
-  setAiStream,
-  setActiveAiConversationId,
-  setAiPendingActions,
   setSftpTransfers,
-  activeAiConversationId,
-  setActiveAiConversation,
   setSftpEntries,
   setOpenFilePath,
   setOpenFileContent,
@@ -82,91 +65,6 @@ export function useWorkbenchEffects({
   useEffect(() => {
     bootstrap();
   }, [bootstrap]);
-
-  useEffect(() => {
-    aiStreamRef.current = aiStream;
-  }, [aiStream, aiStreamRef]);
-
-  useEffect(() => {
-    let disposed = false;
-    const unlistenPromise = listen("ops-agent-stream", (event) => {
-      const normalizedEvent = normalizeOpsAgentStreamEvent(event.payload);
-      if (!normalizedEvent) {
-        return;
-      }
-
-      const transition = reduceOpsAgentStreamEvent(aiStreamRef.current, normalizedEvent);
-      aiStreamRef.current = transition.nextStream;
-
-      startTransition(() => {
-        setAiStream(transition.nextStream);
-        if (transition.activateConversationId) {
-          setActiveAiConversationId(transition.activateConversationId);
-        }
-        if (transition.pendingAction) {
-          setAiPendingActions((prev) =>
-            upsertOpsAgentPendingAction(prev, transition.pendingAction),
-          );
-        }
-      });
-
-      if (transition.reloadConversationId) {
-        void loadAiConversation(transition.reloadConversationId).catch(() => {});
-      }
-
-      if (transition.reloadConversations || transition.reloadPendingActions) {
-        const tasks = [];
-        if (transition.reloadConversations) {
-          tasks.push(reloadAiConversations());
-        }
-        if (transition.reloadPendingActions) {
-          tasks.push(reloadAiPendingActions());
-        }
-        void Promise.all(tasks).catch(() => {});
-      }
-
-      if (
-        normalizedEvent.conversationId &&
-        (normalizedEvent.stage === "started" || normalizedEvent.stage === "completed")
-      ) {
-        clearAiConversationError(normalizedEvent.conversationId);
-      }
-
-      if (transition.errorMessage) {
-        if (normalizedEvent.stage === "error" && normalizedEvent.conversationId) {
-          setAiConversationError(normalizedEvent.conversationId, transition.errorMessage);
-        } else {
-          onError(transition.errorMessage);
-        }
-      }
-    }).catch((error) => {
-      if (!disposed) {
-        console.warn("Failed to bind ops-agent-stream listener", error);
-      }
-      return null;
-    });
-
-    return () => {
-      disposed = true;
-      void unlistenPromise.then((unlisten) => {
-        if (typeof unlisten === "function") {
-          unlisten();
-        }
-      });
-    };
-  }, [
-    activeSessionId,
-    aiStreamRef,
-    clearAiConversationError,
-    loadAiConversation,
-    onError,
-    reloadAiConversations,
-    reloadAiPendingActions,
-    setAiConversationError,
-    setAiPendingActions,
-    setAiStream,
-    setActiveAiConversationId,
-  ]);
 
   useEffect(() => {
     let disposed = false;
@@ -232,18 +130,6 @@ export function useWorkbenchEffects({
       });
     };
   }, [setKiPrompt]);
-
-  useEffect(() => {
-    if (!activeAiConversationId) {
-      setActiveAiConversation(null);
-      return;
-    }
-    void loadAiConversation(activeAiConversationId).catch(onError);
-  }, [activeAiConversationId, loadAiConversation, onError, setActiveAiConversation]);
-
-  useEffect(() => {
-    void reloadAiPendingActions().catch(() => {});
-  }, [activeSessionId, reloadAiPendingActions]);
 
   useEffect(() => {
     if (!activeSessionId) {

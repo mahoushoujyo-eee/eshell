@@ -652,7 +652,31 @@ pub struct AgentContextContent {
     #[serde(default)]
     pub server_id: Option<String>,
     pub content: String,
+    /// Whether the backing file already exists on disk.
+    pub exists: bool,
     pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentContextFile {
+    #[serde(default)]
+    pub server_id: Option<String>,
+    pub exists: bool,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentContextList {
+    pub global: AgentContextFile,
+    pub servers: Vec<AgentContextFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteAgentContextInput {
+    pub server_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -90,20 +90,6 @@ export const EMPTY_SCRIPT = {
   parameters: [],
 };
 
-export const DEFAULT_AI = {
-  apiType: "openai_chat_completions",
-  baseUrl: "https://api.openai.com/v1",
-  apiKey: "",
-  model: "gpt-4o-mini",
-  systemPrompt:
-    "You are a Linux operations assistant. Return concise answers and include safe shell commands when needed.",
-  temperature: 0.2,
-  maxTokens: 800,
-  maxContextTokens: 100000,
-  approvalMode: "require_approval",
-  agentMode: "pro",
-};
-
 export const getWallpaperPreset = (id) => WALLPAPER_PRESET_MAP.get(id) || WALLPAPER_PRESET_MAP.get(DEFAULT_WALLPAPER.id);
 
 export const normalizeWallpaperSelection = (value) => {

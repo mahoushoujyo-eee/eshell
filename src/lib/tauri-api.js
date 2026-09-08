@@ -89,44 +89,13 @@ export const api = {
   runScript: (sessionId, scriptId) =>
     invoke("run_script", { input: { sessionId, scriptId } }),
 
-  getAiConfig: () => invoke("get_ai_config"),
-  saveAiConfig: (input) => invoke("save_ai_config", { input }),
-  listAiProfiles: () => invoke("list_ai_profiles"),
-  saveAiProfile: (input) => invoke("save_ai_profile", { input }),
-  deleteAiProfile: (id) => invoke("delete_ai_profile", { id }),
-  saveAiApprovalMode: (approvalMode) =>
-    invoke("save_ai_approval_mode", { input: { approvalMode } }),
-  saveAiAgentMode: (agentMode) =>
-    invoke("save_ai_agent_mode", { input: { agentMode } }),
   getAgentContext: (serverId = null) =>
     invoke("get_agent_context", { input: { serverId } }),
   saveAgentContext: (serverId = null, content = "") =>
     invoke("save_agent_context", { input: { serverId, content } }),
-  setActiveAiProfile: (id) =>
-    invoke("set_active_ai_profile", { input: { id } }),
-  askAi: (input) => invoke("ai_ask", { input }),
-
-  opsAgentListConversations: () => invoke("ops_agent_list_conversations"),
-  opsAgentCreateConversation: (title, sessionId = null) =>
-    invoke("ops_agent_create_conversation", { input: { title, sessionId } }),
-  opsAgentGetConversation: (conversationId) =>
-    invoke("ops_agent_get_conversation", { input: { conversationId } }),
-  opsAgentGetAttachmentContent: (attachmentId) =>
-    invoke("ops_agent_get_attachment_content", { input: { attachmentId } }),
-  opsAgentDeleteConversation: (conversationId) =>
-    invoke("ops_agent_delete_conversation", { input: { conversationId } }),
-  opsAgentSetActiveConversation: (conversationId) =>
-    invoke("ops_agent_set_active_conversation", { input: { conversationId } }),
-  opsAgentCompactConversation: (conversationId) =>
-    invoke("ops_agent_compact_conversation", { input: { conversationId } }),
-  opsAgentChatStreamStart: (input) =>
-    invoke("ops_agent_chat_stream_start", { input }),
-  opsAgentListPendingActions: (sessionId = null, onlyPending = true) =>
-    invoke("ops_agent_list_pending_actions", { input: { sessionId, onlyPending } }),
-  opsAgentResolveAction: (actionId, approve, sessionId = null, comment = null) =>
-    invoke("ops_agent_resolve_action", { input: { actionId, approve, sessionId, comment } }),
-  opsAgentCancelRun: (runId) =>
-    invoke("ops_agent_cancel_run", { input: { runId } }),
+  deleteAgentContext: (serverId) =>
+    invoke("delete_agent_context", { input: { serverId } }),
+  listAgentContextFiles: () => invoke("list_agent_context_files"),
 
   acpAgentList: () => invoke("acp_agent_list"),
   acpAgentStart: (agentId, resumeSessionId = null) =>
@@ -152,13 +121,4 @@ export const api = {
   acpHistorySave: (record) => invoke("acp_history_save", { input: { record } }),
   acpHistoryGet: (id) => invoke("acp_history_get", { input: { id } }),
   acpHistoryDelete: (id) => invoke("acp_history_delete", { input: { id } }),
-
-  listAiImportSources: (customPaths = []) =>
-    invoke("list_ai_import_sources", { input: { customPaths } }),
-  detectAiImportCandidates: (source) =>
-    invoke("detect_ai_import_candidates", { input: { source } }),
-  importAiProfiles: (candidates) =>
-    invoke("import_ai_profiles", { input: { candidates } }),
-  aiImportSourceKindLabel: (kind) =>
-    invoke("ai_import_source_kind_label", { kind }),
 };
