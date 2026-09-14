@@ -4,19 +4,14 @@ import WindowTitleBar from "../layout/WindowTitleBar";
 import AppAiDock from "./AppAiDock";
 import AppMainWorkspace from "./AppMainWorkspace";
 import FileEditorModal from "../panels/FileEditorModal";
-import { getWallpaperLabel } from "../../constants/workbench";
-import { useI18n } from "../../lib/i18n";
 
 export default function AppWorkspace({
   workbench,
   acp,
   ui,
 }) {
-  const { t } = useI18n();
   const {
     theme,
-    setTheme,
-    wallpaper,
     showSftpPanel,
     setShowSftpPanel,
     showStatusPanel,
@@ -41,6 +36,7 @@ export default function AppWorkspace({
     onOpenScriptConfig,
     onOpenWallpaperPicker,
     onOpenAgentConfig,
+    onOpenSettings,
     workspaceRef,
     aiPanelWidth,
     isAiPanelResizing,
@@ -61,8 +57,6 @@ export default function AppWorkspace({
 
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-panel">
         <TopToolbar
-          theme={theme}
-          wallpaperLabel={t(getWallpaperLabel(wallpaper))}
           showSftpPanel={showSftpPanel}
           showStatusPanel={showStatusPanel}
           showCommandDraftPanel={showCommandDraftPanel}
@@ -71,11 +65,10 @@ export default function AppWorkspace({
           onOpenSshConfig={onOpenSshConfig}
           onOpenScriptConfig={onOpenScriptConfig}
           onOpenAgentConfig={onOpenAgentConfig}
-          onOpenWallpaperPicker={onOpenWallpaperPicker}
+          onOpenSettings={onOpenSettings}
           onToggleSftpPanel={() => setShowSftpPanel((prev) => !prev)}
           onToggleStatusPanel={() => setShowStatusPanel((prev) => !prev)}
           onToggleCommandDraftPanel={() => setShowCommandDraftPanel((prev) => !prev)}
-          onToggleTheme={() => setTheme((prev) => (prev === "light" ? "dark" : "light"))}
           busy={busy}
           error={error}
         />

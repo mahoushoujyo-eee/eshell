@@ -1,21 +1,10 @@
-import {
-  ArrowUpToLine,
-  Download,
-  FilePlus2,
-  FolderCog,
-  FolderPlus,
-  FolderOpen,
-  RefreshCw,
-  Upload,
-} from "lucide-react";
+import { ArrowUpToLine, Download, FolderOpen, Plus, RefreshCw, Upload } from "lucide-react";
 import { useI18n } from "../../../lib/i18n";
 
 export default function SftpToolbar({
   activeSessionId,
   currentPath,
   refreshSftp,
-  configureDownloadDirectory,
-  downloadDirectory,
   uploadFile,
   createSftpEntry,
   downloadFile,
@@ -47,34 +36,12 @@ export default function SftpToolbar({
         <button
           type="button"
           className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
-          onClick={configureDownloadDirectory}
-          disabled={!activeSessionId}
-          title={downloadDirectory || t("Set local download folder")}
-        >
-          <FolderCog className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("Path")}
-        </button>
-
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
           onClick={() => createSftpEntry?.("file")}
           disabled={!activeSessionId}
-          title={t("New file")}
+          title={t("New")}
         >
-          <FilePlus2 className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("File")}
-        </button>
-
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
-          onClick={() => createSftpEntry?.("directory")}
-          disabled={!activeSessionId}
-          title={t("New folder")}
-        >
-          <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("Folder")}
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          {t("New")}
         </button>
 
         <button

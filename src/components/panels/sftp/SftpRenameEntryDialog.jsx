@@ -8,34 +8,39 @@ const isValidRemoteEntryName = (value) => {
   return Boolean(name) && name !== "." && name !== ".." && !/[\\/]/.test(name);
 };
 
-const defaultNameFor = (entryType) => (entryType === "directory" ? "new-folder" : "new-file.txt");
+const parentDirOf = (path) => {
+  const trimmed = String(path || "").replace(/\/+$/, "");
+  const lastSlash = trimmed.lastIndexOf("/");
+  if (lastSlash <= 0) {
+    return "/";
+  }
+  return trimmed.slice(0, lastSlash);
+};
 
-export default function SftpCreateEntryDialog({
-  open,
-  entryType,
-  currentPath,
-  busy = false,
-  onCancel,
-  onConfirm,
-}) {
+export default function SftpRenameEntryDialog({ open, entry, busy = false, onCancel, onConfirm }) {
   const { t } = useI18n();
-  const [type, setType] = useState(entryType === "directory" ? "directory" : "file");
   const [name, setName] = useState("");
   const inputRef = useRef(null);
+
+  const originalName = entry?.name?.trim() || "";
 
   useEffect(() => {
     if (!open) {
       return;
     }
 
-    const initialType = entryType === "directory" ? "directory" : "file";
-    setType(initialType);
-    setName(defaultNameFor(initialType));
+    setName(originalName);
     window.setTimeout(() => {
       inputRef.current?.focus();
-      inputRef.current?.select();
+      // Preselect the stem so the extension survives a straight retype.
+      const dot = originalName.lastIndexOf(".");
+      if (dot > 0) {
+        inputRef.current?.setSelectionRange(0, dot);
+      } else {
+        inputRef.current?.select();
+      }
     }, 0);
-  }, [entryType, open]);
+  }, [open, originalName]);
 
   useEffect(() => {
     if (!open) {
@@ -53,41 +58,25 @@ export default function SftpCreateEntryDialog({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [busy, onCancel, open]);
 
-  // Switching type swaps the suggested name, but never discards a name the user
-  // typed themselves.
-  const selectType = (nextType) => {
-    if (busy || nextType === type) {
-      return;
-    }
-    setName((current) => (current === defaultNameFor(type) ? defaultNameFor(nextType) : current));
-    setType(nextType);
-    inputRef.current?.focus();
-  };
-
   const trimmedName = name.trim();
   const invalidName = Boolean(trimmedName) && !isValidRemoteEntryName(trimmedName);
-  const targetPath = useMemo(
-    () => (trimmedName ? joinPath(currentPath || "/", trimmedName) : currentPath || "/"),
-    [currentPath, trimmedName],
-  );
+  const unchanged = trimmedName === originalName;
+  const targetPath = useMemo(() => {
+    const parent = parentDirOf(entry?.path || "");
+    return trimmedName ? joinPath(parent, trimmedName) : entry?.path || "";
+  }, [entry?.path, trimmedName]);
 
-  if (!open) {
+  if (!open || !entry) {
     return null;
   }
 
   const submit = (event) => {
     event.preventDefault();
-    if (busy || !isValidRemoteEntryName(trimmedName)) {
+    if (busy || unchanged || !isValidRemoteEntryName(trimmedName)) {
       return;
     }
-    onConfirm?.(trimmedName, type);
+    onConfirm?.(trimmedName);
   };
-
-  const typeButtonClass = (buttonType) =>
-    [
-      "rounded border px-2 py-1.5 text-xs transition-colors disabled:opacity-60",
-      type === buttonType ? "border-accent bg-accent-soft text-accent" : "border-border",
-    ].join(" ");
 
   return (
     <div
@@ -100,41 +89,20 @@ export default function SftpCreateEntryDialog({
         onSubmit={submit}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="sftp-create-entry-title"
+        aria-labelledby="sftp-rename-entry-title"
       >
-        <h3 id="sftp-create-entry-title" className="text-base font-semibold text-text">
-          {t("New")}
+        <h3 id="sftp-rename-entry-title" className="text-base font-semibold text-text">
+          {t("Rename")}
         </h3>
-
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            className={typeButtonClass("file")}
-            onClick={() => selectType("file")}
-            disabled={busy}
-            aria-pressed={type === "file"}
-          >
-            {t("File")}
-          </button>
-          <button
-            type="button"
-            className={typeButtonClass("directory")}
-            onClick={() => selectType("directory")}
-            disabled={busy}
-            aria-pressed={type === "directory"}
-          >
-            {t("Folder")}
-          </button>
-        </div>
 
         <input
           ref={inputRef}
           className={[
-            "mt-2 w-full rounded border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent",
+            "mt-3 w-full rounded border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent",
             invalidName ? "border-danger" : "border-border",
           ].join(" ")}
-          placeholder={type === "directory" ? t("Folder name") : t("File name")}
-          aria-label={type === "directory" ? t("Folder name") : t("File name")}
+          placeholder={entry.entryType === "directory" ? t("Folder name") : t("File name")}
+          aria-label={entry.entryType === "directory" ? t("Folder name") : t("File name")}
           value={name}
           onChange={(event) => setName(event.target.value)}
           disabled={busy}
@@ -161,10 +129,10 @@ export default function SftpCreateEntryDialog({
           <button
             type="submit"
             className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-            disabled={busy || !isValidRemoteEntryName(trimmedName)}
+            disabled={busy || unchanged || !isValidRemoteEntryName(trimmedName)}
           >
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
-            {busy ? t("Creating...") : t("Create")}
+            {t("Rename")}
           </button>
         </div>
       </form>

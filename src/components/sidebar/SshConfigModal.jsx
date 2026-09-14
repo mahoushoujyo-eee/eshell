@@ -17,6 +17,29 @@ const EMPTY_SSH_FORM = {
   description: "",
 };
 
+/**
+ * Marks a field the backend rejects when left empty.
+ *
+ * The form is placeholder-only and the dialog already fills most of the
+ * viewport, so the marker sits inside the field instead of in a label above it:
+ * that keeps the hint visible after the placeholder disappears without making
+ * the dialog any taller. Inputs wrapped here need right padding so typed text
+ * does not run under the marker.
+ */
+function RequiredField({ children }) {
+  return (
+    <div className="relative">
+      {children}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-sm leading-none text-danger"
+      >
+        *
+      </span>
+    </div>
+  );
+}
+
 export default function SshConfigModal({
   open,
   onClose,
@@ -224,44 +247,64 @@ export default function SshConfigModal({
               <span className="text-sm text-muted">
                 {sshForm.id ? t("Edit server") : t("New server")}
               </span>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs disabled:opacity-60"
-                onClick={() => setMode("list")}
-                disabled={isConnecting}
-              >
-                <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                {t("Back")}
-              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted">
+                  <span aria-hidden="true" className="text-danger">
+                    *
+                  </span>{" "}
+                  {t("Required")}
+                </span>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs disabled:opacity-60"
+                  onClick={() => setMode("list")}
+                  disabled={isConnecting}
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t("Back")}
+                </button>
+              </div>
             </div>
             <form className="space-y-2" onSubmit={submitSsh}>
               <div className="grid grid-cols-2 gap-2">
-                <input
-                  className="rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder={t("Name")}
-                  value={sshForm.name}
-                  onChange={(event) => setSshForm((prev) => ({ ...prev, name: event.target.value }))}
-                />
-                <input
-                  className="rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder={t("Host")}
-                  value={sshForm.host}
-                  onChange={(event) => setSshForm((prev) => ({ ...prev, host: event.target.value }))}
-                />
+                <RequiredField>
+                  <input
+                    className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                    placeholder={t("Name")}
+                    aria-required="true"
+                    value={sshForm.name}
+                    onChange={(event) => setSshForm((prev) => ({ ...prev, name: event.target.value }))}
+                  />
+                </RequiredField>
+                <RequiredField>
+                  <input
+                    className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                    placeholder={t("Host")}
+                    aria-required="true"
+                    value={sshForm.host}
+                    onChange={(event) => setSshForm((prev) => ({ ...prev, host: event.target.value }))}
+                  />
+                </RequiredField>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <input
-                  className="rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder={t("Port")}
-                  value={sshForm.port}
-                  onChange={(event) => setSshForm((prev) => ({ ...prev, port: event.target.value }))}
-                />
-                <input
-                  className="rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder={t("Username")}
-                  value={sshForm.username}
-                  onChange={(event) => setSshForm((prev) => ({ ...prev, username: event.target.value }))}
-                />
+                <RequiredField>
+                  <input
+                    className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                    placeholder={t("Port")}
+                    aria-required="true"
+                    value={sshForm.port}
+                    onChange={(event) => setSshForm((prev) => ({ ...prev, port: event.target.value }))}
+                  />
+                </RequiredField>
+                <RequiredField>
+                  <input
+                    className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                    placeholder={t("Username")}
+                    aria-required="true"
+                    value={sshForm.username}
+                    onChange={(event) => setSshForm((prev) => ({ ...prev, username: event.target.value }))}
+                  />
+                </RequiredField>
               </div>
               <input
                 className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
@@ -311,21 +354,27 @@ export default function SshConfigModal({
                 </div>
               </div>
               {(sshForm.authType || "password") === "password" ? (
-                <input
-                  type="password"
-                  className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  placeholder={t("Password")}
-                  value={sshForm.password}
-                  onChange={(event) => setSshForm((prev) => ({ ...prev, password: event.target.value }))}
-                />
-              ) : (
-                <div className="space-y-2">
+                <RequiredField>
                   <input
-                    className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                    placeholder={t("Private key path")}
-                    value={sshForm.privateKeyPath}
-                    onChange={(event) => setSshForm((prev) => ({ ...prev, privateKeyPath: event.target.value }))}
+                    type="password"
+                    className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                    placeholder={t("Password")}
+                    aria-required="true"
+                    value={sshForm.password}
+                    onChange={(event) => setSshForm((prev) => ({ ...prev, password: event.target.value }))}
                   />
+                </RequiredField>
+              ) : sshForm.authType === "keyboardInteractive" ? null : (
+                <div className="space-y-2">
+                  <RequiredField>
+                    <input
+                      className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                      placeholder={t("Private key path")}
+                      aria-required="true"
+                      value={sshForm.privateKeyPath}
+                      onChange={(event) => setSshForm((prev) => ({ ...prev, privateKeyPath: event.target.value }))}
+                    />
+                  </RequiredField>
                   <input
                     type="password"
                     className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
@@ -346,13 +395,16 @@ export default function SshConfigModal({
                     {t("Use password fallback")}
                   </label>
                   {sshForm.usePasswordFallback ? (
-                    <input
-                      type="password"
-                      className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                      placeholder={t("Fallback password")}
-                      value={sshForm.password}
-                      onChange={(event) => setSshForm((prev) => ({ ...prev, password: event.target.value }))}
-                    />
+                    <RequiredField>
+                      <input
+                        type="password"
+                        className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                        placeholder={t("Fallback password")}
+                        aria-required="true"
+                        value={sshForm.password}
+                        onChange={(event) => setSshForm((prev) => ({ ...prev, password: event.target.value }))}
+                      />
+                    </RequiredField>
                   ) : null}
                 </div>
               )}

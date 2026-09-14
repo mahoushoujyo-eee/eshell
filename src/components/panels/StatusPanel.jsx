@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Clock3, HardDrive, List } from "lucide-react";
+import { Activity, Clock3, Gpu, HardDrive, List } from "lucide-react";
 import { useI18n } from "../../lib/i18n";
 import StatusResourceBars from "./status/StatusResourceBars";
 import StatusTrafficPanel from "./status/StatusTrafficPanel";
@@ -14,6 +14,7 @@ const emptyTrafficRate = Object.freeze({
 const DETAIL_VIEW = Object.freeze({
   processes: "processes",
   disks: "disks",
+  gpus: "gpus",
 });
 
 const parsePercent = (value) => {
@@ -124,8 +125,148 @@ function DisksView({ rows = [] }) {
   );
 }
 
-const INTERVAL_OPTIONS = [
-  { label: "1s", value: 1000 },
+function MetricBar({ label, value, percent, tone = "bg-accent" }) {
+  const safePercent = Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : null;
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[10px] text-muted">{label}</span>
+        <span className="text-[11px] font-medium tabular-nums text-text">{value}</span>
+      </div>
+      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-warm">
+        {safePercent === null ? null : (
+          <div className={["h-full rounded-full", tone].join(" ")} style={{ width: `${safePercent}%` }} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GpusView({ rows = [], formatMemoryGb }) {
+  const { t } = useI18n();
+
+  if (!rows.length) {
+    return (
+      <div className="px-3 py-4 text-sm text-muted">
+        {t("No NVIDIA GPU detected on this host.")}
+      </div>
+    );
+  }
+
+  const formatNumber = (value, unit, digits = 0) =>
+    Number.isFinite(Number(value)) ? `${Number(value).toFixed(digits)}${unit}` : "-";
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
+      <div className="space-y-2">
+        {rows.map((gpu) => {
+          const usedMb = Number(gpu.memoryUsedMb);
+          const totalMb = Number(gpu.memoryTotalMb);
+          const memoryPercent =
+            Number.isFinite(usedMb) && Number.isFinite(totalMb) && totalMb > 0
+              ? (usedMb / totalMb) * 100
+              : null;
+          const memoryTone =
+            memoryPercent === null
+              ? "bg-accent"
+              : memoryPercent >= 90
+                ? "bg-danger"
+                : memoryPercent >= 75
+                  ? "bg-warning"
+                  : "bg-accent";
+
+          const utilization = Number(gpu.utilizationPercent);
+          const drawW = Number(gpu.powerDrawW);
+          const limitW = Number(gpu.powerLimitW);
+          const powerPercent =
+            Number.isFinite(drawW) && Number.isFinite(limitW) && limitW > 0
+              ? (drawW / limitW) * 100
+              : null;
+
+          const processes = Array.isArray(gpu.processes) ? gpu.processes : [];
+
+          return (
+            <div key={gpu.index} className="rounded-lg border border-border/70 bg-surface/20 px-3 py-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold" title={gpu.name}>
+                    {gpu.name}
+                  </div>
+                  <div className="text-[10px] text-muted">
+                    GPU {gpu.index}
+                    {Number.isFinite(Number(gpu.temperatureC))
+                      ? ` · ${formatNumber(gpu.temperatureC, "°C")}`
+                      : ""}
+                    {Number.isFinite(Number(gpu.fanPercent))
+                      ? ` · ${t("Fan")} ${formatNumber(gpu.fanPercent, "%")}`
+                      : ""}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <MetricBar
+                  label={t("GPU load")}
+                  value={formatNumber(utilization, "%")}
+                  percent={utilization}
+                />
+                <MetricBar
+                  label={t("VRAM")}
+                  value={
+                    Number.isFinite(usedMb) && Number.isFinite(totalMb)
+                      ? `${formatMemoryGb(usedMb)} / ${formatMemoryGb(totalMb)} GB`
+                      : "-"
+                  }
+                  percent={memoryPercent}
+                  tone={memoryTone}
+                />
+                <MetricBar
+                  label={t("Power")}
+                  value={
+                    Number.isFinite(drawW)
+                      ? Number.isFinite(limitW)
+                        ? `${drawW.toFixed(0)} / ${limitW.toFixed(0)} W`
+                        : `${drawW.toFixed(0)} W`
+                      : "-"
+                  }
+                  percent={powerPercent}
+                />
+              </div>
+
+              <div className="mt-2 border-t border-border/45 pt-2">
+                {processes.length ? (
+                  <div className="space-y-1">
+                    {processes.map((proc) => (
+                      <div
+                        key={`${gpu.index}-${proc.pid}-${proc.command}`}
+                        className="grid grid-cols-[64px_84px_minmax(0,1fr)] items-baseline gap-2 text-[11px]"
+                      >
+                        <span className="tabular-nums text-text">{proc.pid}</span>
+                        <span className="tabular-nums text-muted">
+                          {Number.isFinite(Number(proc.memoryMb))
+                            ? `${Number(proc.memoryMb).toFixed(0)} MB`
+                            : "-"}
+                        </span>
+                        <span className="truncate text-text" title={proc.command}>
+                          {proc.command}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-muted">{t("No process is using this GPU")}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const INTERVAL_OPTIONS = [  { label: "1s", value: 1000 },
   { label: "3s", value: 3000 },
   { label: "5s", value: 5000 },
   { label: "10s", value: 10000 },
@@ -293,11 +434,20 @@ export default function StatusPanel({
                   count={currentStatus.disks?.length || 0}
                   onClick={() => setDetailView(DETAIL_VIEW.disks)}
                 />
+                <DetailSwitchButton
+                  active={detailView === DETAIL_VIEW.gpus}
+                  icon={Gpu}
+                  label={t("GPU")}
+                  count={currentStatus.gpus?.length || 0}
+                  onClick={() => setDetailView(DETAIL_VIEW.gpus)}
+                />
               </div>
             </div>
 
             {detailView === DETAIL_VIEW.disks ? (
               <DisksView rows={currentStatus.disks || []} />
+            ) : detailView === DETAIL_VIEW.gpus ? (
+              <GpusView rows={currentStatus.gpus || []} formatMemoryGb={formatMemoryGb} />
             ) : (
               <ProcessesView rows={currentStatus.topProcesses || []} />
             )}

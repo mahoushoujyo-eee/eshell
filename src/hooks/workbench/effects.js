@@ -22,7 +22,10 @@ export function useWorkbenchEffects({
   onError,
   setSftpTransfers,
   setSftpEntries,
+  setSelectedEntry,
   setOpenFilePath,
+  openFileSessionId,
+  setOpenFileSessionId,
   setOpenFileContent,
   setDirtyFile,
   currentPath,
@@ -133,8 +136,8 @@ export function useWorkbenchEffects({
 
   useEffect(() => {
     if (!activeSessionId) {
-      setSftpEntries([]);
       setOpenFilePath("");
+      setOpenFileSessionId(null);
       setOpenFileContent("");
       setDirtyFile(false);
       return undefined;
@@ -149,8 +152,17 @@ export function useWorkbenchEffects({
     setDirtyFile,
     setOpenFileContent,
     setOpenFilePath,
-    setSftpEntries,
+    setOpenFileSessionId,
   ]);
+
+  // Switching tabs must not carry the previous tab's directory listing or
+  // selection over: the toolbar acts on `selectedEntry`, so a stale selection
+  // would delete or download a path on whichever server is now in front. The
+  // listing for the tab being switched to is refetched by the effect above.
+  useEffect(() => {
+    setSftpEntries([]);
+    setSelectedEntry(null);
+  }, [activeSessionId, setSelectedEntry, setSftpEntries]);
 
   // A PTY worker died (timeout, EOF, transport error): flag the session so the
   // terminal shows the reconnect overlay instead of silently freezing.
@@ -209,7 +221,7 @@ export function useWorkbenchEffects({
   ]);
 
   useEffect(() => {
-    if (!activeSessionId || !openFilePath || !dirtyFile) {
+    if (!openFileSessionId || !openFilePath || !dirtyFile) {
       return undefined;
     }
     if (saveTimerRef.current) {
@@ -218,7 +230,8 @@ export function useWorkbenchEffects({
     saveTimerRef.current = setTimeout(async () => {
       try {
         await runBusy("Save edited file", () =>
-          runWithSessionReconnect(activeSessionId, (sessionId) =>
+          // Target the session the file was opened from, not the active tab.
+          runWithSessionReconnect(openFileSessionId, (sessionId) =>
             // Save with debounce to avoid writing on each keystroke.
             api.sftpWriteFile(sessionId, openFilePath, openFileContent),
           ),
@@ -235,11 +248,11 @@ export function useWorkbenchEffects({
       }
     };
   }, [
-    activeSessionId,
     dirtyFile,
     onError,
     openFileContent,
     openFilePath,
+    openFileSessionId,
     runBusy,
     runWithSessionReconnect,
     saveTimerRef,

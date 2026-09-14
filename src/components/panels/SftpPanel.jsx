@@ -5,13 +5,14 @@ import SftpCreateEntryDialog from "./sftp/SftpCreateEntryDialog";
 import SftpDeleteConfirmDialog from "./sftp/SftpDeleteConfirmDialog";
 import SftpEntriesPane from "./sftp/SftpEntriesPane";
 import SftpEntryContextMenu from "./sftp/SftpEntryContextMenu";
+import SftpRenameEntryDialog from "./sftp/SftpRenameEntryDialog";
 import SftpTextOpenConfirmDialog from "./sftp/SftpTextOpenConfirmDialog";
 import SftpToolbar from "./sftp/SftpToolbar";
 import SftpTransferQueue from "./sftp/SftpTransferQueue";
 import SftpTreePane from "./sftp/SftpTreePane";
 import { getSftpTextOpenGuard } from "./sftp/sftpOpenGuard";
 import { getDirectoryNodes } from "./sftp/sftpPanelUtils";
-import { useI18n } from "../../lib/i18n";
+import { api } from "../../lib/tauri-api";
 
 export default function SftpPanel({
   activeSessionId,
@@ -35,7 +36,6 @@ export default function SftpPanel({
   onOpenFileEditor,
   formatBytes,
 }) {
-  const { t } = useI18n();
   const [treeNodesByPath, setTreeNodesByPath] = useState({});
   const [expandedPaths, setExpandedPaths] = useState({ "/": true });
   const [loadingPaths, setLoadingPaths] = useState({});
@@ -48,6 +48,8 @@ export default function SftpPanel({
   const [confirmCreateBusy, setConfirmCreateBusy] = useState(false);
   const [pendingDeleteEntry, setPendingDeleteEntry] = useState(null);
   const [confirmDeleteBusy, setConfirmDeleteBusy] = useState(false);
+  const [pendingRenameEntry, setPendingRenameEntry] = useState(null);
+  const [confirmRenameBusy, setConfirmRenameBusy] = useState(false);
 
   const cacheNodeChildren = useCallback((targetPath, entries) => {
     const normalized = normalizeRemotePath(targetPath);
@@ -183,17 +185,28 @@ export default function SftpPanel({
     setPendingDeleteEntry(entry);
   };
 
-  const requestRenameEntry = async (entry) => {
-    if (!entry || typeof window === "undefined") {
+  const requestRenameEntry = (entry) => {
+    if (!entry) {
       return;
     }
     closeEntryContextMenu();
-    const currentName = entry.name?.trim() || "";
-    const nextName = window.prompt(t("Rename to"), currentName);
-    if (nextName === null) {
+    setPendingRenameEntry(entry);
+  };
+
+  const confirmRenameEntry = async (nextName) => {
+    if (!pendingRenameEntry) {
       return;
     }
-    await renameSftpEntry?.(entry, nextName);
+
+    setConfirmRenameBusy(true);
+    try {
+      const renamed = await renameSftpEntry?.(pendingRenameEntry, nextName);
+      if (renamed) {
+        setPendingRenameEntry(null);
+      }
+    } finally {
+      setConfirmRenameBusy(false);
+    }
   };
 
   const confirmDeleteEntry = async () => {
@@ -219,14 +232,17 @@ export default function SftpPanel({
     setPendingCreateEntryType(entryType);
   };
 
-  const confirmCreateEntry = async (name) => {
-    if (!pendingCreateEntryType) {
+  // `pendingCreateEntryType` both opens the dialog and seeds its type; the type
+  // actually created is whichever one the dialog reports back.
+  const confirmCreateEntry = async (name, entryType) => {
+    const targetType = entryType || pendingCreateEntryType;
+    if (!targetType) {
       return;
     }
 
     setConfirmCreateBusy(true);
     try {
-      const created = await createSftpEntry(pendingCreateEntryType, name);
+      const created = await createSftpEntry(targetType, name);
       if (created) {
         setPendingCreateEntryType(null);
       }
@@ -240,14 +256,15 @@ export default function SftpPanel({
     item && ["queued", "started", "progress"].includes(item.stage),
   ).length;
 
-  const configureDownloadDirectory = () => {
-    if (typeof onDownloadDirectoryChange !== "function" || typeof window === "undefined") {
+  const configureDownloadDirectory = async () => {
+    if (typeof onDownloadDirectoryChange !== "function") {
       return;
     }
 
     const current = typeof downloadDirectory === "string" ? downloadDirectory : "";
-    const next = window.prompt(t("Set local download directory"), current);
-    if (next === null) {
+    const selected = await api.sftpSelectDownloadDir(current);
+    const next = Array.isArray(selected) ? selected[0] : selected;
+    if (!next) {
       return;
     }
     onDownloadDirectoryChange(next);
@@ -292,8 +309,6 @@ export default function SftpPanel({
         activeSessionId={activeSessionId}
         currentPath={currentPath}
         refreshSftp={refreshSftp}
-        configureDownloadDirectory={configureDownloadDirectory}
-        downloadDirectory={downloadDirectory}
         uploadFile={uploadFile}
         createSftpEntry={requestCreateEntry}
         downloadFile={downloadFile}
@@ -416,6 +431,19 @@ export default function SftpPanel({
           setPendingDeleteEntry(null);
         }}
         onConfirm={confirmDeleteEntry}
+      />
+
+      <SftpRenameEntryDialog
+        open={Boolean(pendingRenameEntry)}
+        entry={pendingRenameEntry}
+        busy={confirmRenameBusy}
+        onCancel={() => {
+          if (confirmRenameBusy) {
+            return;
+          }
+          setPendingRenameEntry(null);
+        }}
+        onConfirm={confirmRenameEntry}
       />
     </div>
   );

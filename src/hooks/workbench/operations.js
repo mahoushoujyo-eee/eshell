@@ -120,6 +120,8 @@ export function useWorkbenchOperations({
   setSelectedEntry,
   openFilePath,
   setOpenFilePath,
+  openFileSessionId,
+  setOpenFileSessionId,
   setOpenFileContent,
   setDirtyFile,
   setScripts,
@@ -814,21 +816,31 @@ export function useWorkbenchOperations({
         return { opened: false };
       }
       try {
-        const file = await runBusy(tRef.current("Read file"), () =>
-          runWithSessionReconnect(activeSessionId, (sessionId) =>
-            api.sftpReadFile(sessionId, entry.path),
-          ),
+        const opened = await runBusy(tRef.current("Read file"), () =>
+          runWithSessionReconnect(activeSessionId, async (sessionId) => ({
+            sessionId,
+            file: await api.sftpReadFile(sessionId, entry.path),
+          })),
         );
-        setOpenFilePath(normalizeRemotePath(file.path));
-        setOpenFileContent(file.content || "");
+        // Remember the owning session so later saves cannot land on another tab.
+        setOpenFileSessionId(opened.sessionId);
+        setOpenFilePath(normalizeRemotePath(opened.file.path));
+        setOpenFileContent(opened.file.content || "");
         setDirtyFile(false);
-        return { opened: true, path: normalizeRemotePath(file.path) };
+        return { opened: true, path: normalizeRemotePath(opened.file.path) };
       } catch (err) {
         onError(err);
         return { opened: false };
       }
     },
-    [activeSessionId, onError, refreshSftp, runBusy, runWithSessionReconnect],
+    [
+      activeSessionId,
+      onError,
+      refreshSftp,
+      runBusy,
+      runWithSessionReconnect,
+      setOpenFileSessionId,
+    ],
   );
 
   const selectSftpEntry = useCallback((entry) => {
@@ -1074,9 +1086,11 @@ export function useWorkbenchOperations({
         if (
           targetEntry.entryType !== "directory" &&
           openFilePath &&
+          openFileSessionId === activeSessionId &&
           normalizeRemotePath(openFilePath) === remotePath
         ) {
           setOpenFilePath("");
+          setOpenFileSessionId(null);
           setOpenFileContent("");
           setDirtyFile(false);
         }
@@ -1098,6 +1112,7 @@ export function useWorkbenchOperations({
       currentPath,
       onError,
       openFilePath,
+      openFileSessionId,
       pushUiNotice,
       refreshSftp,
       runBusy,
@@ -1106,6 +1121,7 @@ export function useWorkbenchOperations({
       setDirtyFile,
       setOpenFileContent,
       setOpenFilePath,
+      setOpenFileSessionId,
       setSelectedEntry,
     ],
   );
@@ -1140,6 +1156,7 @@ export function useWorkbenchOperations({
         if (
           targetEntry.entryType !== "directory" &&
           openFilePath &&
+          openFileSessionId === activeSessionId &&
           normalizeRemotePath(openFilePath) === remotePath
         ) {
           setOpenFilePath(nextPath);
@@ -1166,6 +1183,7 @@ export function useWorkbenchOperations({
       currentPath,
       onError,
       openFilePath,
+      openFileSessionId,
       pushUiNotice,
       refreshSftp,
       runBusy,

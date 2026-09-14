@@ -1,6 +1,6 @@
 pub mod commands;
 mod service;
-mod status_parser;
+mod status;
 
 pub use service::{
     close_shell_session, default_download_dir, execute_command, fetch_server_status,

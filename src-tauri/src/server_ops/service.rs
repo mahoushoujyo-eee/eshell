@@ -16,20 +16,18 @@ use ssh2::{ErrorCode, FileStat, HashType, HostKeyType, RenameFlags, Session};
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
-use super::status_parser::{
-    parse_cpu_percent, parse_disks, parse_memory, parse_network_interfaces, parse_top_processes,
-};
+use super::status::{default_probes, ServerStatusDraft};
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    now_rfc3339, CommandExecutionResult, FetchServerStatusInput, MemoryStatus,
-    NetworkInterfaceStatus, PtyClosedEvent, PtyOutputEvent, SftpCreateInput, SftpDeleteInput,
-    SftpDownloadInput, SftpDownloadPayload, SftpDownloadToLocalInput, SftpEntry, SftpEntryType,
-    SftpFileContent, SftpListInput, SftpListResponse, SftpReadInput, SftpRenameInput,
-    SftpTransferEvent, SftpTransferResult, SftpUploadInput, SftpUploadLocalWithProgressInput,
-    SftpUploadWithProgressInput, SftpWriteInput, ShellSession, SshAuthType, SshConfig,
-    SshHostKeyTrustChallenge, SshHostKeyTrustReason, SshKiPromptEvent, SshKiPromptItem,
+    now_rfc3339, CommandExecutionResult, FetchServerStatusInput, PtyClosedEvent, PtyOutputEvent,
+    SftpCreateInput, SftpDeleteInput, SftpDownloadInput, SftpDownloadPayload,
+    SftpDownloadToLocalInput, SftpEntry, SftpEntryType, SftpFileContent, SftpListInput,
+    SftpListResponse, SftpReadInput, SftpRenameInput, SftpTransferEvent, SftpTransferResult,
+    SftpUploadInput, SftpUploadLocalWithProgressInput, SftpUploadWithProgressInput, SftpWriteInput,
+    ShellSession, SshAuthType, SshConfig, SshHostKeyTrustChallenge, SshHostKeyTrustReason,
+    SshKiPromptEvent, SshKiPromptItem,
 };
-use crate::state::{AppState, PtyCommand, SharedSshSession};
+use crate::state::{AppState, PtyCommand, SharedSshSession, SshSessionKind};
 
 const DEFAULT_PTY_COLS: u16 = 120;
 const DEFAULT_PTY_ROWS: u16 = 36;
@@ -44,6 +42,11 @@ const SFTP_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(200);
 const SSH_CONNECT_TOTAL_TIMEOUT: Duration = Duration::from_secs(45);
 const SSH_CONNECT_SLICE_TIMEOUT: Duration = Duration::from_millis(500);
 const SSH_CONNECT_POLL_INTERVAL: Duration = Duration::from_millis(25);
+/// Upper bound for the libssh2 handshake (banner + key exchange) and non-interactive auth.
+///
+/// `TcpStream::set_read_timeout` does not bound these: libssh2 switches the socket to
+/// non-blocking mode and polls using its own `api_timeout`, which defaults to 0 (wait forever).
+const SSH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 const SSH_CONNECTION_CANCELLED_MESSAGE: &str = "SSH connection cancelled by user";
 const SSH_HOST_KEY_TRUST_REQUIRED_PREFIX: &str = "SSH_HOST_KEY_TRUST_REQUIRED:";
 const SSH_KI_PROMPT_EVENT: &str = "ssh-ki-prompt";
@@ -90,7 +93,9 @@ fn open_shell_session_inner(
         )));
     }
 
-    let cwd = sanitize_cwd(pwd_out.trim());
+    // A login shell that prints a banner on stdout would otherwise seed the
+    // session with that banner as its working directory.
+    let cwd = parse_pwd_output(&pwd_out).unwrap_or_else(|| "/".to_string());
     let now = now_rfc3339();
     let session_id = Uuid::new_v4().to_string();
     let session = ShellSession {
@@ -138,22 +143,25 @@ pub fn pty_resize(state: &AppState, session_id: &str, cols: u16, rows: u16) -> A
 }
 
 /// Executes user command in context of a shell session while preserving tab-specific cwd.
+///
+/// Commands run on a cached, tab-bound SSH connection (`SshSessionKind::Exec`) rather than
+/// a fresh TCP + handshake + auth round trip per command. One connection per command let
+/// bursts of commands (agent loops, scripts, rapid submits) pile up unauthenticated
+/// connections on the server and trip sshd `MaxStartups`, which surfaced to the user as
+/// intermittent `Session(-8)` key exchange failures.
 pub fn execute_command(
     state: &AppState,
     session_id: &str,
     command: &str,
 ) -> AppResult<CommandExecutionResult> {
     let session = state.get_session(session_id)?;
-    let config = state.storage.find_ssh_config(&session.config_id)?;
-    let started_at = now_rfc3339();
-    let started_clock = Instant::now();
-
-    let ssh = connect(&state, &config)?;
-
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return Err(AppError::Validation("command cannot be empty".to_string()));
     }
+
+    let started_at = now_rfc3339();
+    let started_clock = Instant::now();
 
     let result = if let Some(target) = parse_cd_target(trimmed) {
         let cd_target = target.unwrap_or_else(|| "~".to_string());
@@ -162,14 +170,32 @@ pub fn execute_command(
             shell_quote(&session.current_dir),
             cd_target
         );
-        let (stdout, stderr, exit_code) = run_channel_command(&ssh, &cd_cmd)?;
+        let (stdout, stderr, exit_code) =
+            run_session_command(state, None, session_id, SshSessionKind::Exec, &cd_cmd)?;
         if exit_code == 0 {
-            let new_dir = sanitize_cwd(stdout.trim());
-            state.mutate_session(session_id, |entry| {
-                entry.current_dir = new_dir.clone();
-                entry.last_output = stdout.trim().to_string();
-                entry.updated_at = now_rfc3339();
-            })?;
+            match parse_pwd_output(&stdout) {
+                Some(new_dir) => {
+                    state.mutate_session(session_id, |entry| {
+                        entry.current_dir = new_dir.clone();
+                        entry.last_output = stdout.trim().to_string();
+                        entry.updated_at = now_rfc3339();
+                    })?;
+                }
+                None => {
+                    // Keep the previous directory: adopting this output would be
+                    // pasted into every later command in the session.
+                    append_server_ops_debug_log(
+                        state,
+                        "shell.cd.unexpected_pwd_output",
+                        session_id,
+                        format!("bytes={} command={}", stdout.trim().len(), trimmed),
+                    );
+                    state.mutate_session(session_id, |entry| {
+                        entry.last_output = stdout.trim().to_string();
+                        entry.updated_at = now_rfc3339();
+                    })?;
+                }
+            }
         }
         CommandExecutionResult {
             session_id: session_id.to_string(),
@@ -184,7 +210,8 @@ pub fn execute_command(
         }
     } else {
         let exec_cmd = format!("cd {} && {}", shell_quote(&session.current_dir), command);
-        let (stdout, stderr, exit_code) = run_channel_command(&ssh, &exec_cmd)?;
+        let (stdout, stderr, exit_code) =
+            run_session_command(state, None, session_id, SshSessionKind::Exec, &exec_cmd)?;
 
         state.mutate_session(session_id, |entry| {
             entry.last_output = format_stdout_stderr(&stdout, &stderr);
@@ -213,9 +240,9 @@ pub fn sftp_list_dir(
     app: Option<&AppHandle>,
     input: SftpListInput,
 ) -> AppResult<SftpListResponse> {
-    let ssh = operation_ssh_session(state, app, &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let requested_path = normalize_remote_path(&input.path);
     let raw_entries = sftp.readdir(Path::new(&requested_path))?;
 
@@ -259,9 +286,9 @@ pub fn sftp_read_file(
     app: Option<&AppHandle>,
     input: SftpReadInput,
 ) -> AppResult<SftpFileContent> {
-    let ssh = operation_ssh_session(state, app, &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.path);
     let mut file = sftp.open(Path::new(&remote_path))?;
     let mut bytes = Vec::new();
@@ -279,9 +306,9 @@ pub fn sftp_write_file(
     app: Option<&AppHandle>,
     input: SftpWriteInput,
 ) -> AppResult<()> {
-    let ssh = operation_ssh_session(state, app, &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.path);
     let temp_path = atomic_write_temp_path(&remote_path);
     let temp_path_ref = Path::new(&temp_path);
@@ -330,9 +357,9 @@ pub fn sftp_create_file(
     app: Option<&AppHandle>,
     input: SftpCreateInput,
 ) -> AppResult<()> {
-    let ssh = operation_ssh_session(state, app, &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.path);
     ensure_creatable_remote_path(&sftp, &remote_path)?;
     let mut file = sftp.create(Path::new(&remote_path))?;
@@ -346,9 +373,9 @@ pub fn sftp_create_directory(
     app: Option<&AppHandle>,
     input: SftpCreateInput,
 ) -> AppResult<()> {
-    let ssh = operation_ssh_session(state, app, &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.path);
     ensure_creatable_remote_path(&sftp, &remote_path)?;
     sftp.mkdir(Path::new(&remote_path), 0o755)?;
@@ -361,9 +388,9 @@ pub fn sftp_upload_file(
     app: Option<&AppHandle>,
     input: SftpUploadInput,
 ) -> AppResult<()> {
-    let ssh = operation_ssh_session(state, app, &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let mut file = sftp.create(Path::new(&remote_path))?;
     let bytes = BASE64_STANDARD.decode(input.content_base64.as_bytes())?;
@@ -377,9 +404,9 @@ pub fn sftp_delete_entry(
     app: Option<&AppHandle>,
     input: SftpDeleteInput,
 ) -> AppResult<()> {
-    let ssh = operation_ssh_session(state, app, &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.path);
     if remote_path == "/" {
         return Err(AppError::Validation(
@@ -400,9 +427,9 @@ pub fn sftp_rename_entry(
     app: Option<&AppHandle>,
     input: SftpRenameInput,
 ) -> AppResult<()> {
-    let ssh = operation_ssh_session(state, app, &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.path);
     let target_path = renamed_remote_path(&remote_path, &input.new_name)?;
     if remote_path == target_path {
@@ -421,9 +448,9 @@ pub fn sftp_upload_file_with_progress(
     input: SftpUploadWithProgressInput,
 ) -> AppResult<SftpTransferResult> {
     let _transfer_guard = SftpTransferGuard::new(state, &input.transfer_id);
-    let ssh = operation_ssh_session(state, Some(app), &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, Some(app), &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let file_name = input
         .local_name
@@ -580,9 +607,9 @@ pub fn sftp_upload_local_file_with_progress(
     let total_bytes = source.total_bytes;
     let mut local_file = File::open(&source.path)?;
 
-    let ssh = operation_ssh_session(state, Some(app), &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, Some(app), &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let mut transferred_bytes = 0_u64;
     let mut progress_throttle = TransferProgressThrottle::new(SFTP_PROGRESS_MIN_INTERVAL);
@@ -753,9 +780,9 @@ pub fn sftp_download_file(
     app: Option<&AppHandle>,
     input: SftpDownloadInput,
 ) -> AppResult<SftpDownloadPayload> {
-    let ssh = operation_ssh_session(state, app, &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, app, &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let mut file = sftp.open(Path::new(&remote_path))?;
     let mut bytes = Vec::new();
@@ -782,9 +809,9 @@ pub fn sftp_download_file_to_local(
     input: SftpDownloadToLocalInput,
 ) -> AppResult<SftpTransferResult> {
     let _transfer_guard = SftpTransferGuard::new(state, &input.transfer_id);
-    let ssh = operation_ssh_session(state, Some(app), &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
-    let sftp = ssh.sftp()?;
+    let shared_ssh = operation_ssh_session(state, Some(app), &input.session_id)?;
+    let ssh = lock_ssh_session(&shared_ssh)?;
+    let sftp = open_operation_sftp(state, &input.session_id, &shared_ssh, &ssh)?;
     let remote_path = normalize_remote_path(&input.remote_path);
     let file_name = extract_remote_file_name(&remote_path);
     let local_dir = normalize_local_dir(&input.local_dir)?;
@@ -991,50 +1018,41 @@ pub fn sftp_cancel_transfer(state: &AppState, transfer_id: &str) -> bool {
 }
 
 /// Collects server runtime metrics and updates session-bound cache.
+///
+/// Each metric is a probe that carries its own command; adding one means adding
+/// a module under `status`, not editing this function.
 pub fn fetch_server_status(
     state: &AppState,
     app: Option<&AppHandle>,
     input: FetchServerStatusInput,
 ) -> AppResult<crate::models::ServerStatus> {
-    let ssh = operation_ssh_session(state, app, &input.session_id)?;
-    let ssh = lock_ssh_session(&ssh)?;
+    let mut draft = ServerStatusDraft::default();
 
-    let top_output = run_channel_command(&ssh, "LANG=C top -bn1 | head -n 10")?.0;
-    let cpu_percent = parse_cpu_percent(&top_output).unwrap_or(0.0);
-    let memory = parse_memory(&top_output).unwrap_or(MemoryStatus {
-        used_mb: 0.0,
-        total_mb: 0.0,
-        used_percent: 0.0,
-    });
+    for probe in default_probes() {
+        let output = match run_session_command(
+            state,
+            app,
+            &input.session_id,
+            SshSessionKind::Operation,
+            &probe.command(),
+        ) {
+            Ok(result) => result.0,
+            Err(err) => {
+                // Name the metric that broke; the error alone only says a
+                // command failed, and five of them run per poll.
+                append_server_ops_debug_log(
+                    state,
+                    "status.probe.failed",
+                    &input.session_id,
+                    format!("probe={} error={err}", probe.id()),
+                );
+                return Err(err);
+            }
+        };
+        probe.apply(&output, &mut draft);
+    }
 
-    let net_output = run_channel_command(&ssh, "cat /proc/net/dev")?.0;
-    let network_interfaces = parse_network_interfaces(&net_output);
-    let selected_interface = pick_selected_interface(&network_interfaces, input.selected_interface);
-    let selected_interface_traffic = selected_interface.as_ref().and_then(|name| {
-        network_interfaces
-            .iter()
-            .find(|item| &item.interface == name)
-            .cloned()
-    });
-
-    let process_output =
-        run_channel_command(&ssh, "ps -eo pid,pcpu,rss,comm --sort=-pcpu | head -n 5")?.0;
-    let top_processes = parse_top_processes(&process_output);
-
-    let disk_output = run_channel_command(&ssh, "df -hP")?.0;
-    let disks = parse_disks(&disk_output);
-
-    let status = crate::models::ServerStatus {
-        cpu_percent,
-        memory,
-        network_interfaces,
-        selected_interface,
-        selected_interface_traffic,
-        top_processes,
-        disks,
-        fetched_at: now_rfc3339(),
-    };
-
+    let status = draft.into_status(input.selected_interface);
     state.put_cached_status(&input.session_id, status.clone());
     Ok(status)
 }
@@ -1291,18 +1309,6 @@ fn resolve_default_download_dir() -> PathBuf {
         .join("downloads")
 }
 
-fn pick_selected_interface(
-    all: &[NetworkInterfaceStatus],
-    preferred: Option<String>,
-) -> Option<String> {
-    if let Some(preferred_name) = preferred {
-        if all.iter().any(|item| item.interface == preferred_name) {
-            return Some(preferred_name);
-        }
-    }
-    all.first().map(|item| item.interface.clone())
-}
-
 fn stat_to_entry_type(stat: &FileStat) -> SftpEntryType {
     let Some(perm) = stat.perm else {
         return SftpEntryType::Other;
@@ -1408,14 +1414,73 @@ fn delete_remote_dir_recursive(sftp: &ssh2::Sftp, path: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Recognizes a command whose *only* effect is changing directory, so the
+/// session's tracked cwd can follow it.
+///
+/// `Some(None)` is a bare `cd` (go home), `Some(Some(target))` is `cd <target>`,
+/// and `None` means "not a plain cd" — the caller runs it as an ordinary
+/// command instead.
+///
+/// Anything that chains or redirects (`&&`, `||`, `;`, `|`, `&`, `<`, `>`, a
+/// newline) is deliberately rejected. Matching on the `cd ` prefix alone meant
+/// `cd /srv/app && docker compose ...` was treated as a directory change, and
+/// the whole chain's stdout was then stored as the session's working
+/// directory. Every later command is built as `cd '<current_dir>' && ...`, so
+/// one such command left the tab failing with "File name too long" until it
+/// was closed.
 fn parse_cd_target(command: &str) -> Option<Option<String>> {
     let trimmed = command.trim();
     if trimmed == "cd" {
         return Some(None);
     }
-    trimmed
-        .strip_prefix("cd ")
-        .map(|target| Some(target.trim().to_string()))
+
+    let target = trimmed.strip_prefix("cd ")?.trim();
+    if target.is_empty() {
+        return Some(None);
+    }
+    if !is_single_cd_target(target) {
+        return None;
+    }
+    Some(Some(target.to_string()))
+}
+
+/// Whether a `cd` argument can still hold a second command.
+///
+/// A newline is a command separator too, and is covered by the control-char
+/// check. Expansions (`~`, `$HOME`, globs) stay allowed: they only ever produce
+/// the directory name, so `pwd` remains the single thing written to stdout.
+fn is_single_cd_target(target: &str) -> bool {
+    !target
+        .chars()
+        .any(|ch| matches!(ch, '&' | '|' | ';' | '<' | '>') || ch.is_control())
+}
+
+/// Linux caps a path at PATH_MAX; nothing longer can be a real directory.
+const MAX_REMOTE_CWD_LEN: usize = 4096;
+
+/// Reads the output of a `pwd` as the session's new working directory.
+///
+/// Returns `None` unless the output really is one absolute path. The caller
+/// then keeps the previous directory rather than adopting the text, which is
+/// what stops a surprising command from bricking the tab: `current_dir` is
+/// pasted into every later command, and there is no way to reset it from the
+/// UI short of closing the session.
+///
+/// Note this rejects rather than repairs. `sanitize_cwd` alone was not enough:
+/// it prepends a `/` to whatever it is given, so arbitrary command output came
+/// back out shaped like a path.
+fn parse_pwd_output(output: &str) -> Option<String> {
+    let trimmed = output.trim();
+    if trimmed.is_empty() || trimmed.len() > MAX_REMOTE_CWD_LEN {
+        return None;
+    }
+    if !trimmed.starts_with('/') {
+        return None;
+    }
+    if trimmed.chars().any(char::is_control) {
+        return None;
+    }
+    Some(sanitize_cwd(trimmed))
 }
 
 fn shell_quote(value: &str) -> String {
@@ -1807,9 +1872,19 @@ fn operation_ssh_session(
     app: Option<&AppHandle>,
     session_id: &str,
 ) -> AppResult<SharedSshSession> {
+    cached_ssh_session(state, app, session_id, SshSessionKind::Operation)
+}
+
+/// Returns the cached SSH connection of `kind` for a shell tab, connecting on first use.
+fn cached_ssh_session(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    session_id: &str,
+    kind: SshSessionKind,
+) -> AppResult<SharedSshSession> {
     let session = state.get_session(session_id)?;
     let config = state.storage.find_ssh_config(&session.config_id)?;
-    state.get_or_insert_ssh_session(session_id, || {
+    state.get_or_insert_ssh_session(session_id, kind, || {
         let ssh = connect_with_app(state, app, &config, None)?;
         ssh.set_keepalive(true, 20);
         Ok(ssh)
@@ -1822,8 +1897,115 @@ fn lock_ssh_session(session: &SharedSshSession) -> AppResult<std::sync::MutexGua
         .map_err(|_| AppError::Runtime("cached SSH session lock poisoned".to_string()))
 }
 
-fn connect(state: &AppState, config: &SshConfig) -> AppResult<Session> {
-    connect_with_app(state, None, config, None)
+/// Opens an SFTP channel on the cached operation session.
+///
+/// Opening the channel is the first thing that touches the socket, so a connection the
+/// server has since dropped (idle timeout, sshd restart, network reset) surfaces here.
+/// Such a connection is evicted so the next operation reconnects, instead of the tab
+/// failing every SFTP action until it is closed. The current operation is not retried:
+/// the caller may be mid-way through non-idempotent work.
+fn open_operation_sftp(
+    state: &AppState,
+    session_id: &str,
+    shared: &SharedSshSession,
+    ssh: &Session,
+) -> AppResult<ssh2::Sftp> {
+    ssh.sftp().map_err(|err| {
+        let err = AppError::Ssh(err);
+        if is_stale_connection_error(&err) {
+            let evicted = state.evict_ssh_session(session_id, SshSessionKind::Operation, shared);
+            append_server_ops_debug_log(
+                state,
+                "ssh.operation_session.stale",
+                session_id,
+                format!("evicted={evicted} error={err}"),
+            );
+        }
+        err
+    })
+}
+
+/// Runs one non-interactive command on the cached SSH connection of `kind`.
+///
+/// If the cached connection turns out to be dead when the exec channel is opened, it is
+/// evicted and rebuilt once, then the command is sent again. The retry happens only on
+/// channel-open failure, i.e. before the command ever reached the server, so a
+/// non-idempotent command is never executed twice. A failure after the command was sent
+/// is returned as-is, still evicting the dead connection so the next call reconnects.
+fn run_session_command(
+    state: &AppState,
+    app: Option<&AppHandle>,
+    session_id: &str,
+    kind: SshSessionKind,
+    command: &str,
+) -> AppResult<(String, String, i32)> {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let shared = cached_ssh_session(state, app, session_id, kind)?;
+        let ssh = lock_ssh_session(&shared)?;
+
+        let channel = match open_exec_channel(&ssh, command) {
+            Ok(channel) => channel,
+            Err(err) => {
+                if !is_stale_connection_error(&err) {
+                    return Err(err);
+                }
+                drop(ssh);
+                let evicted = state.evict_ssh_session(session_id, kind, &shared);
+                append_server_ops_debug_log(
+                    state,
+                    "ssh.session_command.stale",
+                    session_id,
+                    format!("kind={kind:?} attempt={attempt} evicted={evicted} error={err}"),
+                );
+                if attempt >= 2 {
+                    return Err(err);
+                }
+                continue;
+            }
+        };
+
+        return match collect_channel_output(channel) {
+            Ok(output) => Ok(output),
+            Err(err) => {
+                if is_stale_connection_error(&err) {
+                    drop(ssh);
+                    state.evict_ssh_session(session_id, kind, &shared);
+                }
+                Err(err)
+            }
+        };
+    }
+}
+
+/// Whether an error means the underlying SSH transport is gone, as opposed to a remote
+/// command exiting non-zero, a missing path, or a permission problem.
+fn is_stale_connection_error(err: &AppError) -> bool {
+    match err {
+        AppError::Ssh(ssh_err) => matches!(
+            ssh_err.code(),
+            ErrorCode::Session(
+                // SOCKET_SEND / SOCKET_DISCONNECT / SOCKET_RECV / BAD_SOCKET
+                -7 | -13 | -43 | -45
+                // TIMEOUT / SOCKET_TIMEOUT
+                | -9 | -30
+                // BANNER_RECV / BANNER_SEND / PROTO / DECRYPT / INVALID_MAC:
+                // the stream is corrupted or the peer went away mid-packet.
+                | -2 | -3 | -14 | -12 | -4
+            )
+        ),
+        AppError::Io(io_err) => matches!(
+            io_err.kind(),
+            std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::NotConnected
+                | std::io::ErrorKind::TimedOut
+                | std::io::ErrorKind::UnexpectedEof
+        ),
+        _ => false,
+    }
 }
 
 fn connect_with_app(
@@ -1854,6 +2036,9 @@ fn connect_with_app(
 
     let mut session = Session::new()?;
     session.set_tcp_stream(tcp);
+    // Bound the handshake. Without this a peer that stalls mid key exchange hangs the
+    // caller forever, because libssh2 polls on its own api_timeout (0 means no limit).
+    session.set_timeout(handshake_timeout_ms());
     check_shell_connection_cancelled(cancellation)?;
     session
         .handshake()
@@ -1870,7 +2055,14 @@ fn connect_with_app(
         )));
     }
 
+    // Restore the libssh2 default for everything downstream. Long-running commands,
+    // large SFTP transfers and the PTY worker must not inherit the handshake deadline.
+    session.set_timeout(0);
     Ok(session)
+}
+
+fn handshake_timeout_ms() -> u32 {
+    u32::try_from(SSH_HANDSHAKE_TIMEOUT.as_millis()).unwrap_or(u32::MAX)
 }
 
 #[allow(dead_code)]
@@ -2048,6 +2240,10 @@ fn authenticate_session(
                 app,
                 request_id: request_id.clone(),
             };
+            // The prompt callback blocks for up to SSH_KI_TIMEOUT waiting for the user,
+            // and libssh2 measures api_timeout from the moment the API call is entered,
+            // so the handshake deadline must not apply here.
+            session.set_timeout(0);
             session
                 .userauth_keyboard_interactive(&config.username, &mut prompter)
                 .map_err(|err| {
@@ -2245,27 +2441,53 @@ fn is_retryable_connect_error(err: &std::io::Error) -> bool {
 }
 
 fn map_handshake_error(config: &SshConfig, err: ssh2::Error) -> AppError {
+    let endpoint = format!("{}@{}:{}", config.username, config.host, config.port);
+    let detail = err.message().trim();
+    let detail_suffix = if detail.is_empty() {
+        String::new()
+    } else {
+        format!(" (detail: {detail})")
+    };
+
     match err.code() {
-        ErrorCode::Session(-8) => {
-            let detail = err.message().trim();
-            let detail_suffix = if detail.is_empty() {
-                String::new()
-            } else {
-                format!(" (detail: {detail})")
-            };
-            AppError::Runtime(format!(
-                "SSH key exchange failed for {}@{}:{} (Session -8). Client and server could not negotiate compatible algorithms (KEX/Cipher/HostKey/MAC). Please check server-side sshd algorithm settings or use a host with modern SSH settings.{detail_suffix}",
-                config.username, config.host, config.port
-            ))
-        }
+        // LIBSSH2_ERROR_KEX_FAILURE: the algorithm lists genuinely do not overlap.
+        // Deterministic for a given client and server pair, so retrying cannot help.
+        ErrorCode::Session(-5) => AppError::Runtime(format!(
+            "SSH algorithm negotiation failed for {endpoint} (Session -5). Client and server share no compatible key exchange, cipher, host key or MAC algorithm. Check the server-side sshd algorithm settings or use a host with modern SSH settings.{detail_suffix}"
+        )),
+        // LIBSSH2_ERROR_KEY_EXCHANGE_FAILURE: a key exchange packet round trip failed.
+        // In practice the connection was cut mid-handshake (sshd dropping connections
+        // under MaxStartups pressure, network reset, firewall), not a mismatch.
+        ErrorCode::Session(-8) => AppError::Runtime(format!(
+            "SSH key exchange was interrupted for {endpoint} (Session -8). The server or network closed the connection during the handshake, for example sshd shedding load under MaxStartups. Retrying usually succeeds.{detail_suffix}"
+        )),
+        // LIBSSH2_ERROR_TIMEOUT: our own handshake deadline elapsed.
+        ErrorCode::Session(-9) => AppError::Runtime(format!(
+            "SSH handshake timed out after {}s for {endpoint} (Session -9). The server accepted the TCP connection but did not complete the SSH handshake in time.{detail_suffix}",
+            SSH_HANDSHAKE_TIMEOUT.as_secs()
+        )),
+        // SOCKET_DISCONNECT / SOCKET_RECV / SOCKET_SEND / BANNER_RECV
+        ErrorCode::Session(code @ (-13 | -43 | -7 | -2)) => AppError::Runtime(format!(
+            "SSH connection to {endpoint} was closed during the handshake (Session {code}).{detail_suffix}"
+        )),
         _ => AppError::Ssh(err),
     }
 }
 
 fn run_channel_command(session: &Session, command: &str) -> AppResult<(String, String, i32)> {
+    let channel = open_exec_channel(session, command)?;
+    collect_channel_output(channel)
+}
+
+/// Opens a session channel and sends the exec request. Nothing has run remotely if this
+/// fails, which is what makes retrying it on a fresh connection safe.
+fn open_exec_channel(session: &Session, command: &str) -> AppResult<ssh2::Channel> {
     let mut channel = session.channel_session()?;
     channel.exec(command)?;
+    Ok(channel)
+}
 
+fn collect_channel_output(mut channel: ssh2::Channel) -> AppResult<(String, String, i32)> {
     let mut stdout = Vec::new();
     channel.read_to_end(&mut stdout)?;
 
@@ -2355,12 +2577,197 @@ mod tests {
     }
 
     #[test]
+    /// The reported failure: a `cd` followed by a chain was taken for a plain
+    /// directory change, and the chain's whole stdout became the session cwd.
+    /// Every later command in that tab then died with "File name too long".
+    #[test]
+    fn parse_cd_target_rejects_a_cd_that_chains_another_command() {
+        assert_eq!(
+            parse_cd_target("cd /opt/spring-blog && echo hi > compose.yml && sed -i s/a/b/ x"),
+            None
+        );
+        assert_eq!(parse_cd_target("cd /srv && docker compose down"), None);
+        assert_eq!(parse_cd_target("cd /tmp; ls -la"), None);
+        assert_eq!(parse_cd_target("cd /tmp || true"), None);
+        assert_eq!(parse_cd_target("cd /tmp | tee out"), None);
+        assert_eq!(parse_cd_target("cd /tmp &"), None);
+        assert_eq!(parse_cd_target("cd /tmp > out"), None);
+        assert_eq!(parse_cd_target("cd /tmp < in"), None);
+        assert_eq!(parse_cd_target("cd /tmp\nrm -rf /"), None);
+    }
+
+    #[test]
+    fn parse_cd_target_accepts_a_directory_change_on_its_own() {
+        assert_eq!(parse_cd_target("cd"), Some(None));
+        assert_eq!(parse_cd_target("  cd  "), Some(None));
+        assert_eq!(parse_cd_target("cd "), Some(None));
+        assert_eq!(
+            parse_cd_target("cd /opt/spring-blog"),
+            Some(Some("/opt/spring-blog".to_string()))
+        );
+        assert_eq!(parse_cd_target("cd .."), Some(Some("..".to_string())));
+        assert_eq!(parse_cd_target("cd -"), Some(Some("-".to_string())));
+        // Expansions only ever yield the directory name, so `pwd` stays the
+        // only thing on stdout and the cwd can still be tracked.
+        assert_eq!(parse_cd_target("cd ~"), Some(Some("~".to_string())));
+        assert_eq!(
+            parse_cd_target("cd ~/work"),
+            Some(Some("~/work".to_string()))
+        );
+        assert_eq!(
+            parse_cd_target("cd $HOME/logs"),
+            Some(Some("$HOME/logs".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_cd_target_ignores_commands_that_merely_start_with_cd() {
+        assert_eq!(parse_cd_target("cdk deploy"), None);
+        assert_eq!(parse_cd_target("cd/tmp"), None);
+        assert_eq!(parse_cd_target("echo cd /tmp"), None);
+        assert_eq!(parse_cd_target("ls"), None);
+        assert_eq!(parse_cd_target(""), None);
+    }
+
+    #[test]
+    fn parse_pwd_output_accepts_only_one_absolute_path() {
+        assert_eq!(
+            parse_pwd_output("/opt/spring-blog\n"),
+            Some("/opt/spring-blog".to_string())
+        );
+        assert_eq!(
+            parse_pwd_output("  /srv/app  "),
+            Some("/srv/app".to_string())
+        );
+        assert_eq!(parse_pwd_output("/"), Some("/".to_string()));
+
+        // Command output rather than a path.
+        assert_eq!(parse_pwd_output(""), None);
+        assert_eq!(parse_pwd_output("   "), None);
+        assert_eq!(parse_pwd_output("relative/path"), None);
+        assert_eq!(
+            parse_pwd_output("services:\n  web:\n    image: nginx\n/opt/spring-blog"),
+            None
+        );
+        assert_eq!(
+            parse_pwd_output(&format!("/{}", "a".repeat(MAX_REMOTE_CWD_LEN))),
+            None
+        );
+    }
+
+    /// `sanitize_cwd` reshapes anything into something path-like, which is how
+    /// a wall of command output was accepted as a working directory.
+    #[test]
+    fn parse_pwd_output_rejects_what_sanitize_cwd_would_have_reshaped() {
+        let compose_dump = "services:\n  web:\n    image: nginx:alpine\n";
+
+        assert_eq!(
+            sanitize_cwd(compose_dump),
+            "/services:\n  web:\n    image: nginx:alpine"
+        );
+        assert_eq!(parse_pwd_output(compose_dump), None);
+    }
+
+    #[test]
     fn is_transient_ssh_error_only_accepts_eagain() {
         let eagain = ssh2::Error::new(ErrorCode::Session(-37), "would block");
         assert!(is_transient_ssh_error(&eagain));
 
         let socket_send = ssh2::Error::new(ErrorCode::Session(-7), "unable to send data on socket");
         assert!(!is_transient_ssh_error(&socket_send));
+    }
+
+    fn handshake_test_config() -> SshConfig {
+        SshConfig {
+            id: "config-1".to_string(),
+            name: "Test host".to_string(),
+            host: "example.invalid".to_string(),
+            port: 22,
+            username: "tester".to_string(),
+            auth_type: SshAuthType::Password,
+            password: String::new(),
+            private_key_path: String::new(),
+            private_key_passphrase: String::new(),
+            use_password_fallback: false,
+            jump_host_id: None,
+            description: String::new(),
+            created_at: now_rfc3339(),
+            updated_at: now_rfc3339(),
+        }
+    }
+
+    /// -5 and -8 both surface as "unable to exchange encryption keys" from libssh2, so the
+    /// numeric code is the only thing that separates a genuine algorithm mismatch from a
+    /// connection cut mid-handshake. Users act on these very differently.
+    #[test]
+    fn map_handshake_error_separates_negotiation_from_interruption() {
+        let config = handshake_test_config();
+
+        let negotiation = map_handshake_error(
+            &config,
+            ssh2::Error::new(ErrorCode::Session(-5), "Unable to exchange encryption keys"),
+        )
+        .to_string();
+        assert!(negotiation.contains("Session -5"), "{negotiation}");
+        assert!(negotiation.contains("no compatible"), "{negotiation}");
+        assert!(!negotiation.contains("Retrying"), "{negotiation}");
+
+        let interrupted = map_handshake_error(
+            &config,
+            ssh2::Error::new(ErrorCode::Session(-8), "Unable to exchange encryption keys"),
+        )
+        .to_string();
+        assert!(interrupted.contains("Session -8"), "{interrupted}");
+        assert!(interrupted.contains("MaxStartups"), "{interrupted}");
+        assert!(!interrupted.contains("no compatible"), "{interrupted}");
+
+        let timed_out =
+            map_handshake_error(&config, ssh2::Error::new(ErrorCode::Session(-9), "timeout"))
+                .to_string();
+        assert!(timed_out.contains("Session -9"), "{timed_out}");
+        assert!(timed_out.contains("timed out"), "{timed_out}");
+
+        // Every mapped variant must still name the endpoint the user configured.
+        for message in [negotiation, interrupted, timed_out] {
+            assert!(message.contains("tester@example.invalid:22"), "{message}");
+        }
+    }
+
+    #[test]
+    fn map_handshake_error_passes_through_unrelated_codes() {
+        let config = handshake_test_config();
+        let auth_failed = map_handshake_error(
+            &config,
+            ssh2::Error::new(ErrorCode::Session(-18), "authentication failed"),
+        );
+        assert!(matches!(auth_failed, AppError::Ssh(_)));
+    }
+
+    #[test]
+    fn stale_connection_errors_cover_dead_transports_but_not_remote_failures() {
+        for code in [-7, -13, -43, -45, -9, -30, -2, -3, -14, -12, -4] {
+            let err = AppError::Ssh(ssh2::Error::new(ErrorCode::Session(code), "transport gone"));
+            assert!(
+                is_stale_connection_error(&err),
+                "code {code} should be stale"
+            );
+        }
+
+        // A file that is absent or an authentication failure says nothing about the socket.
+        for code in [-18, -31, -16] {
+            let err = AppError::Ssh(ssh2::Error::new(ErrorCode::Session(code), "remote failure"));
+            assert!(
+                !is_stale_connection_error(&err),
+                "code {code} should not be stale"
+            );
+        }
+
+        assert!(is_stale_connection_error(&AppError::Io(
+            std::io::Error::new(std::io::ErrorKind::ConnectionReset, "reset")
+        )));
+        assert!(!is_stale_connection_error(&AppError::Validation(
+            "bad input".to_string()
+        )));
     }
 
     #[test]

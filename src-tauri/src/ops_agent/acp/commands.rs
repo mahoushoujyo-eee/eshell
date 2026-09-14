@@ -52,38 +52,50 @@ fn default_true() -> bool {
     true
 }
 
-/// Default agent set written on first run. Windows needs the cmd shim for
-/// npm-installed `.cmd` launchers.
+/// Default agent set written on first run.
+///
+/// Each entry is launched through `npx`, so a missing adapter is fetched on
+/// first start rather than being a hard install prerequisite. Windows needs the
+/// `cmd /c` shim because npm installs its launchers as `.cmd` scripts, which
+/// `CreateProcess` cannot execute directly.
 pub fn default_agents() -> Vec<AcpAgentSpawnConfig> {
-    let (command, args): (String, Vec<String>) = if cfg!(windows) {
+    // (id, display name, npx arguments)
+    const DEFAULTS: [(&str, &str, &[&str]); 3] = [
+        ("codex", "Codex", &["-y", "@agentclientprotocol/codex-acp"]),
         (
-            "cmd".to_string(),
-            vec![
-                "/c".to_string(),
-                "npx".to_string(),
-                "-y".to_string(),
-                "@agentclientprotocol/codex-acp".to_string(),
-            ],
-        )
-    } else {
-        (
-            "npx".to_string(),
-            vec![
-                "-y".to_string(),
-                "@agentclientprotocol/codex-acp".to_string(),
-            ],
-        )
-    };
-    vec![AcpAgentSpawnConfig {
-        id: "codex".to_string(),
-        name: "Codex".to_string(),
-        command,
-        args,
-        env: HashMap::new(),
-        cwd: None,
-        mcp_servers: Vec::new(),
-        eshell_tools: true,
-    }]
+            "claude",
+            "Claude Code",
+            &["-y", "@agentclientprotocol/claude-agent-acp"],
+        ),
+        ("opencode", "OpenCode", &["-y", "opencode-ai", "acp"]),
+    ];
+
+    DEFAULTS
+        .iter()
+        .map(|(id, name, npx_args)| {
+            let (command, args): (String, Vec<String>) = if cfg!(windows) {
+                let mut args = vec!["/c".to_string(), "npx".to_string()];
+                args.extend(npx_args.iter().map(|arg| arg.to_string()));
+                ("cmd".to_string(), args)
+            } else {
+                (
+                    "npx".to_string(),
+                    npx_args.iter().map(|arg| arg.to_string()).collect(),
+                )
+            };
+
+            AcpAgentSpawnConfig {
+                id: (*id).to_string(),
+                name: (*name).to_string(),
+                command,
+                args,
+                env: HashMap::new(),
+                cwd: None,
+                mcp_servers: Vec::new(),
+                eshell_tools: true,
+            }
+        })
+        .collect()
 }
 
 impl AcpAgentSpawnConfig {
@@ -521,7 +533,13 @@ fn history_dir(state: &crate::state::AppState) -> std::path::PathBuf {
 fn history_file_name(id: &str) -> String {
     let sanitized: String = id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .take(96)
         .collect();
     format!("{sanitized}.json")
@@ -615,15 +633,77 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_agents_use_cmd_shim_on_windows() {
+    fn default_agents_ship_codex_claude_and_opencode() {
         let agents = default_agents();
-        assert_eq!(agents.len(), 1);
-        assert_eq!(agents[0].id, "codex");
-        if cfg!(windows) {
-            assert_eq!(agents[0].command, "cmd");
-            assert_eq!(agents[0].args[0], "/c");
-            assert!(agents[0].args.contains(&"@agentclientprotocol/codex-acp".to_string()));
+        let ids: Vec<&str> = agents.iter().map(|agent| agent.id.as_str()).collect();
+        assert_eq!(ids, vec!["codex", "claude", "opencode"]);
+
+        // The frontend resolves brand marks by matching the id/name, so these
+        // have to keep matching `acpAgentBrands.js`.
+        let names: Vec<&str> = agents.iter().map(|agent| agent.name.as_str()).collect();
+        assert_eq!(names, vec!["Codex", "Claude Code", "OpenCode"]);
+
+        for agent in &agents {
+            assert!(
+                agent.eshell_tools,
+                "{} should get the eShell tools",
+                agent.id
+            );
+            let spawn = format!("{} {}", agent.command, agent.args.join(" "));
+            assert!(spawn.contains("npx"), "{spawn}");
+            if cfg!(windows) {
+                // npm installs launchers as `.cmd`, which CreateProcess cannot
+                // run directly.
+                assert_eq!(agent.command, "cmd");
+                assert_eq!(agent.args[0], "/c");
+                assert_eq!(agent.args[1], "npx");
+            } else {
+                assert_eq!(agent.command, "npx");
+                assert_eq!(agent.args[0], "-y");
+            }
         }
+    }
+
+    /// The reported problem: a fresh install only had Codex in the picker.
+    /// This covers the write path, not just `default_agents` in isolation.
+    #[test]
+    fn first_run_writes_every_default_agent_to_disk() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("eshell-acp-defaults-{nonce}"));
+        std::fs::create_dir_all(&root).expect("create temp storage root");
+
+        let first_run = load_agent_configs(&root).expect("first run");
+        let ids: Vec<&str> = first_run.iter().map(|agent| agent.id.as_str()).collect();
+        assert_eq!(ids, vec!["codex", "claude", "opencode"]);
+
+        let raw = std::fs::read_to_string(root.join(ACP_AGENTS_FILE)).expect("config written");
+        assert!(raw.contains("@agentclientprotocol/codex-acp"), "{raw}");
+        assert!(raw.contains("@agentclientprotocol/claude-agent-acp"), "{raw}");
+        assert!(raw.contains("opencode-ai"), "{raw}");
+
+        // A second launch reads the file back rather than rewriting it.
+        let second_run = load_agent_configs(&root).expect("second run");
+        assert_eq!(second_run.len(), 3);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn default_agents_point_at_their_own_adapter() {        let spawn_of = |id: &str| {
+            let agents = default_agents();
+            let agent = agents
+                .into_iter()
+                .find(|agent| agent.id == id)
+                .unwrap_or_else(|| panic!("missing default agent {id}"));
+            agent.args.join(" ")
+        };
+
+        assert!(spawn_of("codex").contains("@agentclientprotocol/codex-acp"));
+        assert!(spawn_of("claude").contains("@agentclientprotocol/claude-agent-acp"));
+        assert!(spawn_of("opencode").contains("opencode-ai acp"));
     }
 
     #[test]
@@ -717,7 +797,10 @@ mod tests {
     fn builds_sdk_agent_from_config() {
         let config = default_agents().remove(0);
         let agent = config.to_acp_agent();
-        assert_eq!(agent.config().command(), std::path::Path::new(&config.command));
+        assert_eq!(
+            agent.config().command(),
+            std::path::Path::new(&config.command)
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
@@ -11,6 +11,22 @@ import { recordTerminalResize, recordXtermWrite, recordPtyChunk } from "../../li
 import XtermSelectionAction from "./xterm/XtermSelectionAction";
 
 const transparentTerminalBackground = "rgba(0, 0, 0, 0)";
+
+const XTERM_OPTIONS = {
+  cursorBlink: true,
+  convertEol: false,
+  scrollback: 8_000,
+  fontSize: 13,
+  lineHeight: 1.28,
+  fontFamily: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace',
+  allowTransparency: true,
+  theme: {
+    foreground: "#d6f6dc",
+    background: transparentTerminalBackground,
+    cursor: "#d6f6dc",
+    selectionBackground: "rgba(90, 166, 134, 0.34)",
+  },
+};
 
 // Full-frame overlay shown when the session's PTY died: explains that the
 // terminal is no longer interactive and offers a reconnect.
@@ -71,7 +87,21 @@ function XtermDisconnectOverlay({ reason, onReconnect }) {
   );
 }
 
+/**
+ * Renders one xterm instance per shell session.
+ *
+ * Every session keeps its own terminal and scrollback for as long as the tab is
+ * open, and all of them stay subscribed to PTY output. A single shared terminal
+ * that was reset on every tab switch lost the history of both tabs and dropped
+ * whatever a background session printed while it was not on screen.
+ *
+ * All hosts are stacked and laid out at full size; only the active one is
+ * visible. Keeping inactive hosts in the layout (rather than `display: none`)
+ * is what lets their terminals stay correctly sized, so output that arrives in
+ * the background wraps at the same width the backend PTY is using.
+ */
 export default function XtermConsole({
+  sessionIds,
   activeSessionId,
   activeSessionName,
   disconnected = false,
@@ -83,20 +113,21 @@ export default function XtermConsole({
   wallpaper,
 }) {
   const { t } = useI18n();
-  const hostRef = useRef(null);
-  const termRef = useRef(null);
-  const fitAddonRef = useRef(null);
-  const resizeObserverRef = useRef(null);
+  const containerRef = useRef(null);
+  const terminalsRef = useRef(new Map());
   const activeSessionIdRef = useRef(activeSessionId);
   const activeSessionNameRef = useRef(activeSessionName);
   const disconnectedRef = useRef(disconnected);
   const onInputRef = useRef(onInput);
   const onResizeRef = useRef(onResize);
   const onAttachSelectionRef = useRef(onAttachSelection);
-  const unlistenRef = useRef(null);
   const [selectionText, setSelectionText] = useState("");
   const normalizedWallpaper = useMemo(() => normalizeWallpaperSelection(wallpaper), [wallpaper]);
   const wallpaperStyle = useMemo(() => getTerminalWallpaperStyle(normalizedWallpaper), [normalizedWallpaper]);
+
+  // `sessionIds` is a fresh array on every parent render; depend on its contents
+  // so terminals are not torn down and rebuilt on unrelated re-renders.
+  const sessionIdKey = Array.isArray(sessionIds) ? sessionIds.join("|") : "";
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
@@ -126,197 +157,278 @@ export default function XtermConsole({
     setSelectionText("");
   }, [activeSessionId]);
 
-  // Initialize xterm.js terminal (once)
-  useEffect(() => {
-    if (!hostRef.current) {
-      return undefined;
+  const fitTerminal = useCallback((entry, reason) => {
+    if (!entry) {
+      return;
     }
-
-    const term = new Xterm({
-      cursorBlink: true,
-      convertEol: false,
-      scrollback: 8_000,
-      fontSize: 13,
-      lineHeight: 1.28,
-      fontFamily: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace',
-      allowTransparency: true,
-      theme: {
-        foreground: "#d6f6dc",
-        background: transparentTerminalBackground,
-        cursor: "#d6f6dc",
-        selectionBackground: "rgba(90, 166, 134, 0.34)",
-      },
-    });
-    const fitAddon = new FitAddon();
-
-    term.loadAddon(fitAddon);
-
-    // Canvas renderer for GPU-accelerated rendering (major perf win over DOM renderer)
-    import("@xterm/addon-canvas").then(({ CanvasAddon }) => {
-      try {
-        term.loadAddon(new CanvasAddon());
-      } catch {
-        // Canvas renderer is optional; DOM fallback is fine if addon fails.
+    try {
+      entry.fitAddon.fit();
+      if (entry.term.cols > 0 && entry.term.rows > 0) {
+        recordTerminalResize(entry.sessionId, entry.term.cols, entry.term.rows, reason);
+        onResizeRef.current?.(entry.sessionId, entry.term.cols, entry.term.rows);
       }
-    }).catch(() => {
-      // Addon not available, DOM renderer will be used
-    });
-
-    term.attachCustomKeyEventHandler((event) => {
-      const isSaveShortcut =
-        event.type === "keydown" &&
-        (event.key === "s" || event.key === "S") &&
-        (event.ctrlKey || event.metaKey) &&
-        !event.altKey;
-
-      if (!isSaveShortcut) {
-        return true;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      return false;
-    });
-    term.open(hostRef.current);
-    term.focus();
-
-    termRef.current = term;
-    fitAddonRef.current = fitAddon;
-
-    // Direct input: send keystrokes immediately, no batching delay
-    const dataDisposable = term.onData((data) => {
-      // Swallow keystrokes while the session is disconnected; the PTY worker
-      // is gone and blind writes would only surface as errors.
-      if (disconnectedRef.current) {
-        return;
-      }
-      const sessionId = activeSessionIdRef.current;
-      if (sessionId) {
-        onInputRef.current?.(sessionId, data);
-      }
-    });
-
-    const resizeDisposable = term.onResize(({ cols, rows }) => {
-      const sessionId = activeSessionIdRef.current;
-      if (sessionId && cols > 0 && rows > 0) {
-        recordTerminalResize(sessionId, cols, rows, "xterm");
-        onResizeRef.current?.(sessionId, cols, rows);
-      }
-    });
-
-    const selectionDisposable = term.onSelectionChange(() => {
-      setSelectionText(normalizeShellContextContent(term.getSelection()) || "");
-    });
-
-    const fitTerminal = () => {
-      try {
-        fitAddon.fit();
-        const sessionId = activeSessionIdRef.current;
-        if (sessionId && term.cols > 0 && term.rows > 0) {
-          recordTerminalResize(sessionId, term.cols, term.rows, "fit");
-          onResizeRef.current?.(sessionId, term.cols, term.rows);
-        }
-      } catch (_err) {
-        // Ignore transient layout errors during mount / resize races.
-      }
-    };
-
-    fitTerminal();
-
-    const observer = new ResizeObserver(() => {
-      fitTerminal();
-    });
-    observer.observe(hostRef.current);
-    resizeObserverRef.current = observer;
-    window.addEventListener("resize", fitTerminal);
-
-    return () => {
-      window.removeEventListener("resize", fitTerminal);
-      dataDisposable.dispose();
-      resizeDisposable.dispose();
-      selectionDisposable.dispose();
-      if (resizeObserverRef.current) {
-        resizeObserverRef.current.disconnect();
-      }
-      term.dispose();
-      fitAddonRef.current = null;
-      termRef.current = null;
-    };
+    } catch (_err) {
+      // Ignore transient layout errors during mount / resize races.
+    }
   }, []);
 
-  // Subscribe to PTY output events directly, bypassing React state entirely.
-  // Only re-subscribes when the active session changes.
-  useEffect(() => {
-    const term = termRef.current;
-    if (!term) {
-      return undefined;
-    }
+  // Creates the terminal for one session on demand and keeps it until the tab closes.
+  const ensureTerminal = useCallback(
+    (sessionId) => {
+      if (!sessionId) {
+        return null;
+      }
+      const existing = terminalsRef.current.get(sessionId);
+      if (existing) {
+        return existing;
+      }
+      const container = containerRef.current;
+      if (!container) {
+        return null;
+      }
 
-    // Clean up previous listener
-    if (unlistenRef.current) {
-      unlistenRef.current();
-      unlistenRef.current = null;
+      const host = document.createElement("div");
+      host.className = "terminal-session-host";
+      // Set inline rather than with utility classes: this node is created
+      // outside JSX, so it must not depend on the CSS scanner picking it up.
+      host.style.position = "absolute";
+      host.style.inset = "0";
+      host.style.visibility = "hidden";
+      container.appendChild(host);
+
+      const term = new Xterm(XTERM_OPTIONS);
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+
+      // Canvas renderer for GPU-accelerated rendering (major perf win over DOM renderer)
+      import("@xterm/addon-canvas")
+        .then(({ CanvasAddon }) => {
+          try {
+            term.loadAddon(new CanvasAddon());
+          } catch {
+            // Canvas renderer is optional; DOM fallback is fine if addon fails.
+          }
+        })
+        .catch(() => {
+          // Addon not available, DOM renderer will be used
+        });
+
+      term.attachCustomKeyEventHandler((event) => {
+        const isSaveShortcut =
+          event.type === "keydown" &&
+          (event.key === "s" || event.key === "S") &&
+          (event.ctrlKey || event.metaKey) &&
+          !event.altKey;
+
+        if (!isSaveShortcut) {
+          return true;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+      });
+      term.open(host);
+
+      const entry = { sessionId, term, fitAddon, host, disposables: [] };
+
+      entry.disposables.push(
+        term.onData((data) => {
+          // Swallow keystrokes while the session is disconnected; the PTY worker
+          // is gone and blind writes would only surface as errors.
+          if (disconnectedRef.current && activeSessionIdRef.current === sessionId) {
+            return;
+          }
+          onInputRef.current?.(sessionId, data);
+        }),
+      );
+
+      entry.disposables.push(
+        term.onResize(({ cols, rows }) => {
+          if (cols > 0 && rows > 0) {
+            recordTerminalResize(sessionId, cols, rows, "xterm");
+            onResizeRef.current?.(sessionId, cols, rows);
+          }
+        }),
+      );
+
+      entry.disposables.push(
+        term.onSelectionChange(() => {
+          if (activeSessionIdRef.current !== sessionId) {
+            return;
+          }
+          setSelectionText(normalizeShellContextContent(term.getSelection()) || "");
+        }),
+      );
+
+      terminalsRef.current.set(sessionId, entry);
+      fitTerminal(entry, "session-open");
+      return entry;
+    },
+    [fitTerminal],
+  );
+
+  const disposeTerminal = useCallback((sessionId) => {
+    const entry = terminalsRef.current.get(sessionId);
+    if (!entry) {
+      return;
     }
+    terminalsRef.current.delete(sessionId);
+    entry.disposables.forEach((disposable) => {
+      try {
+        disposable.dispose();
+      } catch (_err) {
+        // Already disposed; nothing to clean up.
+      }
+    });
+    try {
+      entry.term.dispose();
+    } catch (_err) {
+      // Already disposed.
+    }
+    entry.host.remove();
+  }, []);
+
+  // Create terminals for newly opened tabs and drop the ones whose tab is gone.
+  useEffect(() => {
+    const ids = sessionIdKey ? sessionIdKey.split("|").filter(Boolean) : [];
+    const live = new Set(ids);
+
+    ids.forEach((sessionId) => {
+      ensureTerminal(sessionId);
+    });
+
+    [...terminalsRef.current.keys()].forEach((sessionId) => {
+      if (!live.has(sessionId)) {
+        disposeTerminal(sessionId);
+      }
+    });
+  }, [disposeTerminal, ensureTerminal, sessionIdKey]);
+
+  // Show only the active session's terminal; the rest keep buffering off screen.
+  useEffect(() => {
+    terminalsRef.current.forEach((entry, sessionId) => {
+      const isActive = sessionId === activeSessionId;
+      entry.host.style.visibility = isActive ? "visible" : "hidden";
+      entry.host.style.zIndex = isActive ? "1" : "0";
+    });
 
     if (!activeSessionId) {
-      term.reset();
-      term.writeln(`\x1b[38;5;245m${t("No active sessions")}\x1b[0m`);
-      return undefined;
+      return;
     }
-
-    term.reset();
-    term.focus();
-
-    // Notify backend of current terminal size for the new session
-    if (term.cols > 0 && term.rows > 0) {
-      recordTerminalResize(activeSessionId, term.cols, term.rows, "session-change");
-      onResizeRef.current?.(activeSessionId, term.cols, term.rows);
+    const entry = ensureTerminal(activeSessionId);
+    if (!entry) {
+      return;
     }
+    fitTerminal(entry, "session-change");
+    entry.term.focus();
+  }, [activeSessionId, ensureTerminal, fitTerminal, sessionIdKey]);
 
+  // One subscription for every session: a tab that is not on screen must keep
+  // filling its own scrollback instead of losing what the server printed.
+  useEffect(() => {
     let disposed = false;
-    const sessionId = activeSessionId;
+    let unlisten = null;
 
     listen("pty-output", (event) => {
-      if (disposed) return;
+      if (disposed) {
+        return;
+      }
       const payload = event.payload;
-      if (!payload || typeof payload !== "object") return;
-      if (payload.sessionId !== sessionId) return;
-      const chunk = payload.chunk;
-      if (typeof chunk !== "string" || !chunk) return;
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+      const { sessionId, chunk } = payload;
+      if (!sessionId || typeof chunk !== "string" || !chunk) {
+        return;
+      }
+      const entry = terminalsRef.current.get(sessionId);
+      if (!entry) {
+        return;
+      }
       recordPtyChunk(sessionId, chunk.length);
       recordXtermWrite(sessionId, chunk.length, chunk.length);
-      term.write(chunk);
-    }).then((unlisten) => {
-      if (disposed) {
-        unlisten();
-      } else {
-        unlistenRef.current = unlisten;
-      }
-    }).catch(() => {
-      // Failed to bind listener; terminal will be silent
-    });
+      entry.term.write(chunk);
+    })
+      .then((dispose) => {
+        if (disposed) {
+          dispose();
+        } else {
+          unlisten = dispose;
+        }
+      })
+      .catch(() => {
+        // Failed to bind listener; terminals will be silent.
+      });
 
     return () => {
       disposed = true;
-      if (unlistenRef.current) {
-        unlistenRef.current();
-        unlistenRef.current = null;
+      if (unlisten) {
+        unlisten();
+        unlisten = null;
       }
     };
-  }, [activeSessionId, t]);
+  }, []);
+
+  // Keep every terminal sized to the container, not just the visible one, so a
+  // background tab does not reflow its scrollback the moment it is selected.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return undefined;
+    }
+
+    const fitAll = () => {
+      terminalsRef.current.forEach((entry) => {
+        fitTerminal(entry, "fit");
+      });
+    };
+
+    const observer = new ResizeObserver(fitAll);
+    observer.observe(container);
+    window.addEventListener("resize", fitAll);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", fitAll);
+    };
+  }, [fitTerminal]);
+
+  useEffect(() => {
+    const terminals = terminalsRef.current;
+    return () => {
+      terminals.forEach((entry) => {
+        entry.disposables.forEach((disposable) => {
+          try {
+            disposable.dispose();
+          } catch (_err) {
+            // Already disposed.
+          }
+        });
+        try {
+          entry.term.dispose();
+        } catch (_err) {
+          // Already disposed.
+        }
+        entry.host.remove();
+      });
+      terminals.clear();
+    };
+  }, []);
 
   const handleAttachSelection = () => {
-    const term = termRef.current;
-    if (!term || !selectionText || !activeSessionIdRef.current) {
+    const sessionId = activeSessionIdRef.current;
+    const entry = sessionId ? terminalsRef.current.get(sessionId) : null;
+    if (!entry || !selectionText) {
       return;
     }
 
     onAttachSelectionRef.current?.({
-      sessionId: activeSessionIdRef.current,
+      sessionId,
       sessionName: activeSessionNameRef.current || "Shell",
       content: selectionText,
     });
-    term.clearSelection();
+    entry.term.clearSelection();
     setSelectionText("");
   };
 
@@ -332,8 +444,13 @@ export default function XtermConsole({
         {disconnected && activeSessionId ? (
           <XtermDisconnectOverlay reason={disconnectReason} onReconnect={onReconnect} />
         ) : null}
+        {!activeSessionId ? (
+          <div className="absolute inset-0 z-10 flex items-center justify-center text-xs text-muted">
+            {t("No active sessions")}
+          </div>
+        ) : null}
         <div
-          ref={hostRef}
+          ref={containerRef}
           className={[
             "terminal-host relative h-full w-full",
             normalizedWallpaper.glass ? "terminal-host--glass" : "",

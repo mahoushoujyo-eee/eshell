@@ -1,4 +1,11 @@
-use crate::models::{DiskStatus, MemoryStatus, NetworkInterfaceStatus, ProcessStatus};
+//! CPU load and memory, read from a single `top` snapshot.
+
+use std::borrow::Cow;
+
+use crate::models::MemoryStatus;
+
+use super::text::round2;
+use super::{MetricProbe, ServerStatusDraft};
 
 /// Parses `top -bn1` output and extracts CPU usage plus memory totals.
 #[allow(dead_code)]
@@ -58,97 +65,6 @@ pub fn parse_memory(top_output: &str) -> Option<MemoryStatus> {
     }
 
     None
-}
-
-/// Parses `/proc/net/dev` output to per-interface RX/TX traffic.
-pub fn parse_network_interfaces(output: &str) -> Vec<NetworkInterfaceStatus> {
-    let mut rows = Vec::new();
-
-    for line in output.lines().skip(2) {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let Some((iface, stats)) = trimmed.split_once(':') else {
-            continue;
-        };
-        let cols: Vec<&str> = stats.split_whitespace().collect();
-        if cols.len() < 16 {
-            continue;
-        }
-        let Ok(rx_bytes) = cols[0].parse::<u64>() else {
-            continue;
-        };
-        let Ok(tx_bytes) = cols[8].parse::<u64>() else {
-            continue;
-        };
-        rows.push(NetworkInterfaceStatus {
-            interface: iface.trim().to_string(),
-            rx_bytes,
-            tx_bytes,
-        });
-    }
-
-    rows
-}
-
-/// Parses top process rows from `ps -eo pid,pcpu,rss,comm --sort=-pcpu`.
-///
-/// The `ps` process itself always shows up in its own output with a wildly
-/// inflated %CPU (its lifetime is milliseconds, so the lifetime-average CPU
-/// ratio `ps` reports is meaningless). It's sampler noise, not real load —
-/// drop the row.
-pub fn parse_top_processes(output: &str) -> Vec<ProcessStatus> {
-    output
-        .lines()
-        .skip(1)
-        .filter_map(|line| {
-            let cols: Vec<&str> = line.split_whitespace().collect();
-            if cols.len() < 4 {
-                return None;
-            }
-
-            let command = cols[3..].join(" ");
-            if command == "ps" {
-                return None;
-            }
-
-            Some(ProcessStatus {
-                pid: cols[0].parse::<i32>().ok()?,
-                cpu_percent: cols[1].parse::<f64>().ok().map(round2)?,
-                memory_mb: cols[2]
-                    .parse::<f64>()
-                    .ok()
-                    .map(|value_kb| round2(value_kb / 1024.0))?,
-                command,
-            })
-        })
-        .collect()
-}
-
-/// Parses `df -hP` output into filesystem rows.
-pub fn parse_disks(output: &str) -> Vec<DiskStatus> {
-    output
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .skip(1)
-        .filter_map(|line| {
-            let cols: Vec<&str> = line.split_whitespace().collect();
-            if cols.len() < 6 {
-                return None;
-            }
-            if cols[0].eq_ignore_ascii_case("filesystem") {
-                return None;
-            }
-            Some(DiskStatus {
-                filesystem: cols[0].to_string(),
-                total: cols[1].to_string(),
-                used: cols[2].to_string(),
-                used_percent: cols[4].to_string(),
-                mount_point: cols[5].to_string(),
-            })
-        })
-        .collect()
 }
 
 fn extract_metric_value(line: &str, suffix: &str) -> Option<f64> {
@@ -256,8 +172,27 @@ fn build_memory_status(used: f64, total: f64) -> MemoryStatus {
     }
 }
 
-fn round2(value: f64) -> f64 {
-    (value * 100.0).round() / 100.0
+/// CPU load and memory come from one `top` snapshot, so they share a probe.
+pub(super) struct CpuMemoryProbe;
+
+impl MetricProbe for CpuMemoryProbe {
+    fn id(&self) -> &'static str {
+        "cpu_memory"
+    }
+
+    fn command(&self) -> Cow<'static, str> {
+        // `LANG=C` keeps the field labels parseable on localised hosts.
+        Cow::Borrowed("LANG=C top -bn1 | head -n 10")
+    }
+
+    fn apply(&self, output: &str, draft: &mut ServerStatusDraft) {
+        if let Some(cpu) = parse_cpu_percent(output) {
+            draft.cpu_percent = cpu;
+        }
+        if let Some(memory) = parse_memory(output) {
+            draft.memory = memory;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -302,59 +237,5 @@ KiB Mem : 2061548 total, 1219396 free,   68676 used,  773476 buff/cache
         assert_eq!(parsed.1.used_mb, 67.07);
         assert_eq!(parsed.1.total_mb, 2013.23);
         assert_eq!(parsed.1.used_percent, 3.33);
-    }
-
-    #[test]
-    fn parse_network_interfaces_works() {
-        let raw = r#"
-Inter-|   Receive                                                |  Transmit
- face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
-  lo: 205700  1024 0 0 0 0 0 0 205700  1024 0 0 0 0 0 0
-eth0: 9876543 9999 0 0 0 0 0 0 1234567 8888 0 0 0 0 0 0
-"#;
-        let rows = parse_network_interfaces(raw);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[1].interface, "eth0");
-        assert_eq!(rows[1].tx_bytes, 1_234_567);
-    }
-
-    #[test]
-    fn parse_top_processes_works() {
-        let raw = r#"
-PID %CPU RSS COMMAND
-123 12.5 41984 java
-234 5.0 2048 nginx
-"#;
-        let rows = parse_top_processes(raw);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].pid, 123);
-        assert_eq!(rows[0].cpu_percent, 12.5);
-        assert_eq!(rows[0].memory_mb, 41.0);
-        assert_eq!(rows[1].memory_mb, 2.0);
-    }
-
-    #[test]
-    fn parse_top_processes_drops_ps_itself() {
-        let raw = r#"
-PID %CPU RSS COMMAND
-106721 1300.0 4400 ps
-123 12.5 41984 java
-"#;
-        let rows = parse_top_processes(raw);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].command, "java");
-    }
-
-    #[test]
-    fn parse_disks_works() {
-        let raw = r#"
-Filesystem      Size  Used Avail Use% Mounted on
-/dev/sda1       100G   25G   70G  27% /
-tmpfs           1.9G  2.0M  1.9G   1% /run
-"#;
-        let rows = parse_disks(raw);
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].filesystem, "/dev/sda1");
-        assert_eq!(rows[0].used_percent, "27%");
     }
 }

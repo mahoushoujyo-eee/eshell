@@ -1,14 +1,18 @@
 import AgentConfigModal from "../sidebar/AgentConfigModal";
 import ScriptConfigModal from "../sidebar/ScriptConfigModal";
+import SettingsModal from "../sidebar/SettingsModal";
 import SshConfigModal from "../sidebar/SshConfigModal";
 import WallpaperModal from "../sidebar/WallpaperModal";
 import SshHostTrustDialog from "./SshHostTrustDialog";
 import SshKiPromptDialog from "./SshKiPromptDialog";
+import { getWallpaperLabel } from "../../constants/workbench";
+import { useI18n } from "../../lib/i18n";
 
 export default function AppModals({
   workbench,
   modalState,
 }) {
+  const { t } = useI18n();
   const {
     sshConfigs,
     sshForm,
@@ -24,6 +28,8 @@ export default function AppModals({
     runScript,
     handleDeleteScript,
     pushUiNotice,
+    theme,
+    setTheme,
     wallpaper,
     setWallpaper,
     hostKeyTrustPrompt,
@@ -40,6 +46,9 @@ export default function AppModals({
     onCloseAgentConfig,
     isWallpaperModalOpen,
     onCloseWallpaperModal,
+    isSettingsOpen,
+    onCloseSettings,
+    onOpenWallpaperPicker,
   } = modalState;
 
   return (
@@ -72,6 +81,15 @@ export default function AppModals({
         onClose={onCloseAgentConfig}
         sshConfigs={sshConfigs}
         onNotice={pushUiNotice}
+      />
+
+      <SettingsModal
+        open={isSettingsOpen}
+        onClose={onCloseSettings}
+        theme={theme}
+        onSelectTheme={setTheme}
+        wallpaperLabel={t(getWallpaperLabel(wallpaper))}
+        onOpenWallpaperPicker={onOpenWallpaperPicker}
       />
 
       <WallpaperModal

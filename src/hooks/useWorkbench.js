@@ -67,6 +67,10 @@ export function useWorkbench() {
   const [sftpEntries, setSftpEntries] = useState([]);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [openFilePath, setOpenFilePath] = useState("");
+  // Which session the open file was read from. Saves must go back to that
+  // session rather than whichever tab happens to be active when the debounced
+  // write fires, otherwise switching tabs mid-edit writes to the wrong server.
+  const [openFileSessionId, setOpenFileSessionId] = useState(null);
   const [openFileContent, setOpenFileContent] = useState("");
   const [dirtyFile, setDirtyFile] = useState(false);
 
@@ -245,6 +249,8 @@ export function useWorkbench() {
     setSelectedEntry,
     openFilePath,
     setOpenFilePath,
+    openFileSessionId,
+    setOpenFileSessionId,
     setOpenFileContent,
     setDirtyFile,
     setScripts,
@@ -278,7 +284,10 @@ export function useWorkbench() {
     onError,
     setSftpTransfers,
     setSftpEntries,
+    setSelectedEntry,
     setOpenFilePath,
+    openFileSessionId,
+    setOpenFileSessionId,
     setOpenFileContent,
     setDirtyFile,
     currentPath,

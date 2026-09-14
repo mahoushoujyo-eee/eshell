@@ -28,6 +28,7 @@ function App() {
   const [isAgentConfigOpen, setIsAgentConfigOpen] = useState(false);
   const [isFileEditorOpen, setIsFileEditorOpen] = useState(false);
   const [isWallpaperModalOpen, setIsWallpaperModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -138,6 +139,7 @@ function App() {
           onOpenSshConfig: () => setIsSshModalOpen(true),
           onOpenScriptConfig: () => setIsScriptModalOpen(true),
           onOpenWallpaperPicker: () => setIsWallpaperModalOpen(true),
+          onOpenSettings: () => setIsSettingsOpen(true),
           onOpenAgentConfig: () => setIsAgentConfigOpen(true),
           workspaceRef,
           aiPanelWidth,
@@ -160,6 +162,9 @@ function App() {
           onCloseAgentConfig: () => setIsAgentConfigOpen(false),
           isWallpaperModalOpen,
           onCloseWallpaperModal: () => setIsWallpaperModalOpen(false),
+          isSettingsOpen,
+          onCloseSettings: () => setIsSettingsOpen(false),
+          onOpenWallpaperPicker: () => setIsWallpaperModalOpen(true),
         }}
       />
     </div>
