@@ -59,6 +59,10 @@ jobs:
 
       - name: Build Tauri bundles
         shell: bash
+        env:
+          # Signs the updater artifacts (.sig) required by tauri-plugin-updater.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           if [ -n "${{ matrix.tauri_args }}" ]; then
             npx tauri build ${{ matrix.tauri_args }}
@@ -86,6 +90,45 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
+      - name: Generate updater manifest (latest.json)
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          version="${TAG#v}"
+          base_url="$REPO_URL/releases/download/$TAG"
+          platforms="{}"
+
+          add() {
+            local platform="$1" file="$2"
+            [ -n "$file" ] || return 0
+            [ -f "release-artifacts/$file" ] || return 0
+            # A .sig next to the installer proves it was signed with the updater key.
+            [ -f "release-artifacts/$file.sig" ] || return 0
+            platforms=$(jq -n --arg platform "$platform" --argjson platforms "$platforms" \
+              --arg url "$base_url/$file" --rawfile signature "release-artifacts/$file.sig" \
+              '$platforms + {($platform): {url: $url, signature: $signature}}')
+          }
+
+          # NSIS is the preferred Windows update channel; fall back to the msi.
+          for file in release-artifacts/*-setup.exe; do add windows-x86_64 "${file##*/}"; break; done
+          if ! jq -e 'has("windows-x86_64")' >/dev/null 2>&1 <<<"$platforms"; then
+            for file in release-artifacts/*.msi; do add windows-x86_64 "${file##*/}"; break; done
+          fi
+          for file in release-artifacts/*.app.tar.gz; do add darwin-aarch64 "${file##*/}"; break; done
+          for file in release-artifacts/*.AppImage; do add linux-x86_64 "${file##*/}"; break; done
+
+          if [ "$platforms" = "{}" ]; then
+            echo "::warning::no signed updater artifacts found; skipping latest.json"
+            exit 0
+          fi
+
+          jq -n --arg version "$version" --argjson platforms "$platforms" \
+            '{version: $version, pub_date: (now | todateiso8601), platforms: $platforms}' \
+            > release-artifacts/latest.json
+          cat release-artifacts/latest.json
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -100,3 +143,4 @@ jobs:
             release-artifacts/**/*.dmg
             release-artifacts/**/*.app.tar.gz
             release-artifacts/**/*.tar.gz
+            release-artifacts/**/latest.json

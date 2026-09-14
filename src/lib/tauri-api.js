@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 export const api = {
   listSshConfigs: () => invoke("list_ssh_configs"),
@@ -53,6 +55,14 @@ export const api = {
     open({
       multiple: false,
       directory: false,
+    }),
+  // OS folder picker for the local download target. Typing the path by hand was
+  // the only option before, and a wrong one only surfaced when a transfer failed.
+  sftpSelectDownloadDir: (defaultPath) =>
+    open({
+      multiple: false,
+      directory: true,
+      defaultPath: defaultPath?.trim() ? defaultPath : undefined,
     }),
   sftpUploadLocalFileWithProgress: (
     sessionId,
@@ -121,4 +131,29 @@ export const api = {
   acpHistorySave: (record) => invoke("acp_history_save", { input: { record } }),
   acpHistoryGet: (id) => invoke("acp_history_get", { input: { id } }),
   acpHistoryDelete: (id) => invoke("acp_history_delete", { input: { id } }),
+  appVersion: () => invoke("app_version"),
+  checkAppUpdate: () => invoke("check_app_update"),
+
+  // Signature-verified in-app update via tauri-plugin-updater. The endpoint is
+  // the latest.json the release CI publishes next to the signed installers.
+  // `check` throws while the pubkey is still the placeholder (or on old
+  // installers built before the plugin existed), so callers treat a rejection
+  // here as "in-app update unavailable" and fall back to the GitHub lookup.
+  updaterCheck: () => check({ timeout: 15000 }),
+  // `update` is the Update instance previously resolved from updaterCheck.
+  updaterDownloadAndInstall: async (update, onProgress) => {
+    await update.downloadAndInstall((event) => {
+      if (!onProgress) {
+        return;
+      }
+      if (event.event === "Started") {
+        onProgress({ started: true, contentLength: event.data.contentLength ?? null });
+      } else if (event.event === "Progress") {
+        onProgress({ downloaded: event.data.chunkLength });
+      } else if (event.event === "Finished") {
+        onProgress({ finished: true });
+      }
+    });
+  },
+  relaunchApp: () => relaunch(),
 };

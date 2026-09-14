@@ -182,10 +182,10 @@ export default function WallpaperCropModal({ open, source, onCancel, onApply }) 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/65 p-4">
       <div
-        className="w-full max-w-6xl rounded-3xl border border-border/80 bg-panel p-4 shadow-2xl"
+        className="flex max-h-[85vh] w-full max-w-6xl flex-col rounded-3xl border border-border/80 bg-panel p-4 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold">{t("Crop And Scale")}</div>
             <div className="text-xs text-muted">
@@ -207,7 +207,7 @@ export default function WallpaperCropModal({ open, source, onCancel, onApply }) 
           </button>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
+        <div className="scroll-region grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1 lg:grid-cols-[1.7fr_1fr]">
           <WallpaperCropPreview
             previewCanvasRef={previewCanvasRef}
             onPointerDown={handlePreviewPointerDown}

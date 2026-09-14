@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* Brand wordmark face — geometric, slightly techy, reads well at small sizes.
+   Latin-subset woff2 bundled locally so the logo renders offline. */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./assets/fonts/SpaceGrotesk-Bold.woff2") format("woff2");
+}
+
 /* The theme is driven by `data-theme` on <html> (see hooks/workbench/effects.js),
    not by the OS preference, so `dark:` has to follow that attribute. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
@@ -15,6 +25,7 @@
   --es-accent-soft: #d9f1ea;
   --es-warm: #e8ddca;
   --es-warning: #b26a16;
+  --es-danger: #c24832;
   --es-shadow: 18px 18px 40px rgba(64, 56, 38, 0.12);
 }
 
@@ -29,6 +40,9 @@
   --es-accent-soft: #23453d;
   --es-warm: #2a343d;
   --es-warning: #d8a45f;
+  /* Lifted like accent and warning are: the light value sits at ~3.1:1 on the
+     dark surfaces, below AA for text. */
+  --es-danger: #e07a63;
   --es-shadow: 14px 18px 42px rgba(0, 0, 0, 0.35);
 }
 
@@ -44,7 +58,7 @@
   --color-warm: var(--es-warm);
   --color-warning: var(--es-warning);
   --color-success: #3e8f57;
-  --color-danger: #c24832;
+  --color-danger: var(--es-danger);
 }
 
 html,
@@ -120,6 +134,13 @@ body > #root {
   border-radius: 14px;
   background: color-mix(in srgb, var(--es-panel) 90%, white 10%);
   box-shadow: var(--es-shadow);
+}
+
+/* Brand wordmark: "eShell" in the display face, mixed case, no CSS uppercase. */
+.brand-wordmark {
+  font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .ai-markdown {

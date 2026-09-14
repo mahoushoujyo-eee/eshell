@@ -5,14 +5,11 @@ import {
   CircleCheck,
   FileText,
   FolderOpen,
-  Image,
-  Languages,
   LoaderCircle,
-  Moon,
   NotebookPen,
   Server,
+  Settings,
   Settings2,
-  Sun,
 } from "lucide-react";
 import {
   panelVisibilityMarker,
@@ -24,8 +21,6 @@ import {
 import { useI18n } from "../../lib/i18n";
 
 export default function TopToolbar({
-  theme,
-  wallpaperLabel,
   showSftpPanel,
   showStatusPanel,
   showCommandDraftPanel,
@@ -37,12 +32,11 @@ export default function TopToolbar({
   onToggleSftpPanel,
   onToggleStatusPanel,
   onToggleCommandDraftPanel,
-  onOpenWallpaperPicker,
-  onToggleTheme,
+  onOpenSettings,
   busy,
   error,
 }) {
-  const { language, t, toggleLanguage } = useI18n();
+  const { t } = useI18n();
   const hasError = Boolean(error && String(error).trim());
   const normalizedError = hasError ? String(error).trim() : "";
   const isWarning =
@@ -60,8 +54,6 @@ export default function TopToolbar({
       : t("Recent issue")
     : t("No issues");
   const errorTitle = hasError ? errorDetail : errorText;
-  const currentLanguageLabel = language === "zh" ? "简体中文" : "English";
-  const nextLanguageLabel = language === "zh" ? "English" : "简体中文";
 
   return (
     <aside
@@ -84,14 +76,13 @@ export default function TopToolbar({
                 : ""
             }
           >
-            <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-[0.2em] text-muted uppercase">
+            <div className="inline-flex items-center gap-2 text-sm text-muted">
               <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
-              {!collapsed ? "eShell" : null}
+              {!collapsed ? <span className="brand-wordmark">eShell</span> : null}
             </div>
           </div>
           <ToggleSidebarButton collapsed={collapsed} onClick={onToggleCollapsed} />
         </div>
-        {!collapsed ? <div className="mt-2 text-base font-semibold">{t("Operations Console")}</div> : null}
       </div>
 
       <div className="mt-2 space-y-2">
@@ -132,21 +123,9 @@ export default function TopToolbar({
       <div className="mt-auto pt-2">
         <ToolbarSection title={t("Quick")} collapsed={collapsed}>
           <RailButton
-            icon={Image}
-            label={wallpaperLabel ? t("Wallpaper: {label}", { label: wallpaperLabel }) : t("Wallpaper")}
-            onClick={onOpenWallpaperPicker}
-            collapsed={collapsed}
-          />
-          <RailButton
-            icon={theme === "light" ? Moon : Sun}
-            label={theme === "light" ? t("Dark Mode") : t("Light Mode")}
-            onClick={onToggleTheme}
-            collapsed={collapsed}
-          />
-          <RailButton
-            icon={Languages}
-            label={t("Language: {language}", { language: currentLanguageLabel })}
-            onClick={toggleLanguage}
+            icon={Settings}
+            label={t("Settings")}
+            onClick={onOpenSettings}
             collapsed={collapsed}
           />
 
@@ -174,11 +153,6 @@ export default function TopToolbar({
               />
             </div>
           </div>
-          {!collapsed ? (
-            <div className="px-1 text-[10px] text-muted">
-              {t("Switch to {language}", { language: nextLanguageLabel })}
-            </div>
-          ) : null}
         </ToolbarSection>
       </div>
     </aside>

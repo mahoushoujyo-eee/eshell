@@ -321,11 +321,8 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
         isMacPlatform ? "mx-auto max-w-[48%] justify-center text-center" : "flex-1",
       ].join(" ")}
     >
-      <span data-tauri-drag-region className="text-[11px] font-semibold tracking-[0.2em] uppercase">
+      <span data-tauri-drag-region className="brand-wordmark text-sm text-muted">
         eShell
-      </span>
-      <span data-tauri-drag-region className="truncate text-xs opacity-85">
-        {t("Operations Console")}
       </span>
     </div>
   );

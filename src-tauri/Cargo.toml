@@ -1,6 +1,6 @@
 [package]
 name = "eshell"
-version = "1.5.1"
+version = "1.5.2"
 description = "A Tauri App"
 authors = ["eee"]
 edition = "2021"
@@ -36,3 +36,5 @@ hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

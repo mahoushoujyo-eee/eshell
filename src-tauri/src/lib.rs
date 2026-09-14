@@ -45,7 +45,11 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
+            commands::app_update::app_version,
+            commands::app_update::check_app_update,
             commands::config::list_ssh_configs,
             commands::config::save_ssh_config,
             commands::config::delete_ssh_config,

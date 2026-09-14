@@ -107,10 +107,10 @@ export default function WallpaperModal({ open, onClose, wallpaper, onChangeWallp
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={handleClose}>
         <div
-          className="w-full max-w-4xl rounded-3xl border border-border/80 bg-panel p-5 shadow-2xl"
+          className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-3xl border border-border/80 bg-panel p-5 shadow-2xl"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="mb-4 flex items-center justify-between gap-4">
+          <div className="mb-4 flex shrink-0 items-center justify-between gap-4">
             <div>
               <h3 className="inline-flex items-center gap-2 text-base font-semibold">
               <ImageIcon className="h-4 w-4 text-accent" aria-hidden="true" />
@@ -131,38 +131,40 @@ export default function WallpaperModal({ open, onClose, wallpaper, onChangeWallp
             </button>
           </div>
 
-          <WallpaperCurrentPreview
-            normalized={normalized}
-            onChangeWallpaper={onChangeWallpaper}
-            onClose={onClose}
-            onCancelPendingCrop={cancelPendingCrop}
-          />
+          <div className="scroll-region min-h-0 flex-1 overflow-y-auto pr-1">
+            <WallpaperCurrentPreview
+              normalized={normalized}
+              onChangeWallpaper={onChangeWallpaper}
+              onClose={onClose}
+              onCancelPendingCrop={cancelPendingCrop}
+            />
 
-          <div className="mb-4">
-            <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-              {t("Presets")}
+            <div className="mb-4">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                {t("Presets")}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {WALLPAPER_PRESETS.map((preset) => (
+                  <WallpaperPresetCard
+                    key={preset.id}
+                    active={normalized.type === "preset" && normalized.id === preset.id}
+                    title={t(preset.name)}
+                    style={getWallpaperPreviewStyle({ type: "preset", id: preset.id })}
+                    onClick={() => choosePreset(preset.id)}
+                  />
+                ))}
+              </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {WALLPAPER_PRESETS.map((preset) => (
-                <WallpaperPresetCard
-                  key={preset.id}
-                  active={normalized.type === "preset" && normalized.id === preset.id}
-                  title={t(preset.name)}
-                  style={getWallpaperPreviewStyle({ type: "preset", id: preset.id })}
-                  onClick={() => choosePreset(preset.id)}
-                />
-              ))}
-            </div>
+            <WallpaperUploadSection
+              normalized={normalized}
+              onChangeWallpaper={onChangeWallpaper}
+              fileInputRef={fileInputRef}
+              handleFileChange={handleFileChange}
+              uploading={uploading}
+              pendingCrop={pendingCrop}
+              uploadError={uploadError}
+            />
           </div>
-          <WallpaperUploadSection
-            normalized={normalized}
-            onChangeWallpaper={onChangeWallpaper}
-            fileInputRef={fileInputRef}
-            handleFileChange={handleFileChange}
-            uploading={uploading}
-            pendingCrop={pendingCrop}
-            uploadError={uploadError}
-          />
         </div>
       </div>
 
