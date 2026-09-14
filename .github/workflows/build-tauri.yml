@@ -111,13 +111,15 @@ jobs:
               '$platforms + {($platform): {url: $url, signature: $signature}}')
           }
 
+          # Installers land in bundle subdirectories (nsis/, msi/, macos/,
+          # appimage/), so glob recursively and pass plain file names.
           # NSIS is the preferred Windows update channel; fall back to the msi.
-          for file in release-artifacts/*-setup.exe; do add windows-x86_64 "${file##*/}"; break; done
+          for file in $(find release-artifacts -name "*-setup.exe" | sort | head -1); do add windows-x86_64 "${file##*/}"; done
           if ! jq -e 'has("windows-x86_64")' >/dev/null 2>&1 <<<"$platforms"; then
-            for file in release-artifacts/*.msi; do add windows-x86_64 "${file##*/}"; break; done
+            for file in $(find release-artifacts -name "*.msi" | sort | head -1); do add windows-x86_64 "${file##*/}"; done
           fi
-          for file in release-artifacts/*.app.tar.gz; do add darwin-aarch64 "${file##*/}"; break; done
-          for file in release-artifacts/*.AppImage; do add linux-x86_64 "${file##*/}"; break; done
+          for file in $(find release-artifacts -name "*.app.tar.gz" | sort | head -1); do add darwin-aarch64 "${file##*/}"; done
+          for file in $(find release-artifacts -name "*.AppImage" | sort | head -1); do add linux-x86_64 "${file##*/}"; done
 
           if [ "$platforms" = "{}" ]; then
             echo "::warning::no signed updater artifacts found; skipping latest.json"
