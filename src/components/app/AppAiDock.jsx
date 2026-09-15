@@ -7,7 +7,6 @@ export default function AppAiDock({
   aiPanelWidth,
   isAiPanelResizing,
   onStartAiPanelResize,
-  onClose,
 }) {
   const { t } = useI18n();
 
@@ -35,7 +34,7 @@ export default function AppAiDock({
         aria-hidden={!showAiPanel}
       >
         <div className="h-full" style={{ width: `${aiPanelWidth}px` }}>
-          <AcpAgentPanel acp={acp} onClose={onClose} />
+          <AcpAgentPanel acp={acp} />
         </div>
       </div>
     </>

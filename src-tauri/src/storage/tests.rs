@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::{
-    AiAgentMode, AiApiType, AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput,
-    AiProfilesState, ScriptInput, SshAuthType, SshConfigInput, TrustSshHostKeyInput,
+    AiAgentMode, AiApiType, AiApprovalMode, AiConfigInput, AiProfile, AiProfileInput, ScriptInput,
+    SshAuthType, SshConfigInput, TrustSshHostKeyInput,
 };
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -17,45 +17,22 @@ fn temp_dir(name: &str) -> PathBuf {
     env::temp_dir().join(format!("eshell-{name}-{stamp}"))
 }
 
-fn is_usable_profile(profile: &AiProfile) -> bool {
-    !profile.base_url.trim().is_empty()
-        && !profile.api_key.trim().is_empty()
-        && !profile.model.trim().is_empty()
-        && (0.0..=2.0).contains(&profile.temperature)
-        && profile.max_tokens > 0
-        && profile.max_context_tokens > 0
-}
-
-fn eshell_ai_profiles_path() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let candidates = vec![
-        manifest_dir.join(".eshell-data").join("ai_profiles.json"),
-        PathBuf::from(".eshell-data").join("ai_profiles.json"),
-        PathBuf::from("src-tauri")
-            .join(".eshell-data")
-            .join("ai_profiles.json"),
-    ];
-    candidates
-        .into_iter()
-        .find(|path| path.exists())
-        .unwrap_or_else(|| {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join(".eshell-data")
-                .join("ai_profiles.json")
-        })
-}
-
-fn first_usable_profile_from_eshell_data() -> AiProfile {
-    let path = eshell_ai_profiles_path();
-    let raw = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("read {} failed: {error}", path.as_path().display()));
-    let state: AiProfilesState = serde_json::from_str(&raw)
-        .unwrap_or_else(|error| panic!("parse {} failed: {error}", path.as_path().display()));
-    state
-        .profiles
-        .into_iter()
-        .find(is_usable_profile)
-        .unwrap_or_else(|| panic!("no usable ai profile found in {}", path.as_path().display()))
+// Storage unit tests must not depend on a developer's real API credentials.
+fn test_ai_profile() -> AiProfile {
+    AiProfile {
+        id: "fixture".to_string(),
+        name: "Fixture".to_string(),
+        api_type: AiApiType::OpenAiChatCompletions,
+        base_url: "https://example.invalid/v1".to_string(),
+        api_key: "test-only-key".to_string(),
+        model: "test-model".to_string(),
+        system_prompt: "Test prompt".to_string(),
+        temperature: 0.2,
+        max_tokens: 800,
+        max_context_tokens: 100_000,
+        created_at: crate::models::now_rfc3339(),
+        updated_at: crate::models::now_rfc3339(),
+    }
 }
 
 #[test]
@@ -237,7 +214,7 @@ fn script_crud_works() {
 
 #[test]
 fn ai_profile_crud_works() {
-    let profile_seed = first_usable_profile_from_eshell_data();
+    let profile_seed = test_ai_profile();
     let storage = Storage::new(temp_dir("ai-profile")).expect("create storage");
     let created_state = storage
         .save_ai_profile(AiProfileInput {
@@ -280,7 +257,7 @@ fn ai_profile_crud_works() {
 
 #[test]
 fn save_ai_config_updates_active_profile() {
-    let profile_seed = first_usable_profile_from_eshell_data();
+    let profile_seed = test_ai_profile();
     let expected_base_url = profile_seed.base_url.trim_end_matches('/').to_string();
     let storage = Storage::new(temp_dir("ai-config")).expect("create storage");
     let updated = storage
@@ -324,8 +301,7 @@ fn agent_contexts_are_stored_as_markdown_files() {
         .save_agent_context(Some("server-1"), "server notes")
         .expect("save server context");
     assert!(
-        server.path.ends_with("agent\\server-1.md")
-            || server.path.ends_with("agent/server-1.md")
+        server.path.ends_with("agent\\server-1.md") || server.path.ends_with("agent/server-1.md")
     );
 
     let bundle = storage
@@ -337,7 +313,7 @@ fn agent_contexts_are_stored_as_markdown_files() {
 
 #[test]
 fn get_ai_config_prefers_requested_active_profile() {
-    let profile_seed = first_usable_profile_from_eshell_data();
+    let profile_seed = test_ai_profile();
     const REQUESTED_PROFILE_ID: &str = "requested-profile";
     let expected_base_url = profile_seed.base_url.trim_end_matches('/').to_string();
     let requested_name = profile_seed.name.clone();
@@ -494,7 +470,7 @@ fn legacy_profile_approval_mode_is_migrated_to_global_setting() {
 
 #[test]
 fn save_ai_approval_mode_updates_global_setting_only() {
-    let profile_seed = first_usable_profile_from_eshell_data();
+    let profile_seed = test_ai_profile();
     let storage = Storage::new(temp_dir("ai-approval-mode")).expect("create storage");
 
     let created_state = storage

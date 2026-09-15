@@ -28,11 +28,12 @@ description: >-
 
 | 路径 | 类型 | 用途 / 格式 | 谁在写 |
 | --- | --- | --- | --- |
-| `agent/AGENTS.md` | 文件 | **全局 agent 上下文**。可编辑 AGENTS.md（`save_agent_context(None, ...)` 写这里），无 ACP 自动注入，供 agent 自行引用 | Agent 配置 |
+| `agent/AGENTS.md` | 文件 | **全局 agent 上下文**。可编辑 AGENTS.md（`save_agent_context(None, ...)` 写这里）；不自动注入 prompt，ACP agent 经 MCP 工具 `read_agent_context` 读取 | Agent 配置 |
 | `ssh_configs.json` | 文件 | `SshConfig[]` 数组（见 §1） | SSH 配置管理 |
 | `known_hosts.json` | 文件 | **SSH host key 信任指纹**：`[{host, port, keyType, fingerprint, createdAt, updatedAt}]`，连接时校验，新主机首次连接走 `trust_ssh_host_key` 确认后写入 | SSH 连接层 |
 | `acp_agents.json` | 文件 | `{agents:[AcpAgentSpawnConfig]}`（见 §2） | ACP 配置管理 |
-| `acp_sessions/` | 目录 | **ACP 历史会话**，每会话一个 JSON：`{id, agentId, agentName, title, createdAt, updatedAt, transcript: [...]
+| `projects.json` | 文件 | **项目目录注册表**：`{projects:[{id,name,path,createdAt}]}`。ACP 面板「项目」按本地 cwd 归类会话；`acp_project_*` 命令读写 | ACP 面板 |
+| `acp_sessions/` | 目录 | **ACP 历史会话**，每会话一个 JSON：`{id, agentId, agentName, title, projectId, cwd, createdAt, updatedAt, transcript: [...]
 
 }`（transcript 为面板条目原样，图片只留 mimeType）。`acp_history_*` 命令读写 | ACP 面板 |
 | `agent/<serverId>.md` | 文件 | **服务器级 agent 上下文**，每台服务器一个 `.md`。文件名 = SSH profile 的 `id`。`save_agent_context(Some(server_id), ...)` 写这里 | Agent 配置 |
@@ -134,6 +135,7 @@ eShell 内置 MCP bridge（loopback + 每运行随机 Bearer token），只暴�
 
 | 工具 | 参数 | 返回 |
 | --- | --- | --- |
+| `read_agent_context` | 无 | `{agentsMd:{path,exists,content}, eshellConfigSkill:{path,content}}` —— 用户的 AGENTS.md 与本 skill 全文，**会话开始时先调它** |
 | `list_ssh_profiles` | 无 | `{profiles:[{id,name,host,port,username}]}` |
 | `list_shell_sessions` | 无 | `{sessions:[{sessionId,profile,configId,currentDir,updatedAt}]}` |
 | `execute_command` | `sessionId`, `command` | `{stdout,stderr,exitCode,currentDir,durationMs}` |

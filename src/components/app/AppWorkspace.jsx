@@ -91,7 +91,6 @@ export default function AppWorkspace({
             aiPanelWidth={aiPanelWidth}
             isAiPanelResizing={isAiPanelResizing}
             onStartAiPanelResize={onStartAiPanelResize}
-            onClose={() => setShowAiPanel(false)}
           />
         </div>
       </div>

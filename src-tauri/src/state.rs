@@ -1,7 +1,12 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, RwLock};
+
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::oneshot;
+use tokio::sync::Mutex as AsyncMutex;
+use tokio_util::sync::CancellationToken;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{ServerStatus, ShellSession};
@@ -11,26 +16,16 @@ use crate::ops_agent::infrastructure::attachments::OpsAgentAttachmentStore;
 use crate::ops_agent::infrastructure::run_registry::OpsAgentRunRegistry;
 use crate::ops_agent::infrastructure::store::OpsAgentStore;
 use crate::ops_agent::tools::{default_ops_agent_tool_registry, OpsAgentToolRegistry};
+use crate::server_ops::transport::Connection;
 use crate::storage::Storage;
-use ssh2::Session;
 
-pub type SharedSshSession = Arc<Mutex<Session>>;
-
-/// Purpose of a cached SSH session bound to one shell tab.
+/// One long-lived SSH connection, shared by every operation on a shell tab.
 ///
-/// Each kind is a separate long-lived connection so a slow SFTP transfer never
-/// blocks command execution on the same tab (and vice versa), while the total
-/// number of connections per tab stays bounded instead of growing per command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SshSessionKind {
-    /// Shared by SFTP browsing / editing and server status polling.
-    Operation,
-    /// Dedicated to non-interactive command execution (`execute_command`).
-    Exec,
-}
-
-/// Cache key for one connection: which shell tab it belongs to, and what it is for.
-type SshSessionKey = (String, SshSessionKind);
+/// The transport owns the actual socket and a background reader; `Arc` lets the
+/// cache and any in-flight operation hold the same handle, while
+/// [`Connection::shutdown`] is the explicit close signal (dropping the last
+/// `Arc` must not be relied on, because the reader task keeps the socket alive).
+pub type SharedSshSession = Arc<Connection>;
 
 #[derive(Debug, Clone)]
 pub enum PtyCommand {
@@ -53,6 +48,14 @@ pub struct McpBridgeInfo {
 /// - Keep persistent data concerns in `Storage`.
 /// - Keep runtime-only data (shell sessions, status cache) in memory.
 /// - Keep core logic testable by not tightly coupling service code to Tauri types.
+///
+/// Locking:
+/// - Every map other than the per-tab connect lock is a plain `std` `RwLock`.
+///   Those critical sections are short and synchronous; no guard is ever held
+///   across an `.await`.
+/// - Establishing a connection is serialized per shell tab with a
+///   `tokio::sync::Mutex`, because the handshake is asynchronous (seconds long)
+///   and must not block the other tabs' maps.
 pub struct AppState {
     pub storage: Storage,
     pub ops_agent: OpsAgentStore,
@@ -63,16 +66,20 @@ pub struct AppState {
     pub acp_agents: AcpAgentRegistry,
     mcp_bridge: RwLock<Option<McpBridgeInfo>>,
     sessions: RwLock<HashMap<String, ShellSession>>,
-    ssh_sessions: RwLock<HashMap<SshSessionKey, SharedSshSession>>,
-    /// One lock per cache key, held while that key's connection is being
-    /// established. Connecting must not hold `ssh_sessions` itself: a handshake
-    /// takes seconds, and that map is shared by every tab.
-    ssh_connect_locks: Mutex<HashMap<SshSessionKey, Arc<Mutex<()>>>>,
+    /// One connection per shell tab, keyed by session id only.
+    ssh_sessions: RwLock<HashMap<String, SharedSshSession>>,
+    /// One lock per shell tab, held across that tab's handshake. Connecting must
+    /// not hold `ssh_sessions` itself: a handshake takes seconds and that map is
+    /// shared by every tab.
+    ssh_connect_locks: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
     status_cache: RwLock<HashMap<String, ServerStatus>>,
-    pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>,
-    shell_connection_cancellations: RwLock<HashMap<String, bool>>,
-    sftp_transfer_cancellations: RwLock<HashMap<String, bool>>,
-    ki_pending: RwLock<HashMap<String, Sender<Vec<String>>>>,
+    pty_channels: RwLock<HashMap<String, UnboundedSender<PtyCommand>>>,
+    /// Cancellation token per shell tab. Created by `put_session`, never reset by
+    /// later updates, and cancelled by `remove_session`.
+    shell_session_tokens: RwLock<HashMap<String, CancellationToken>>,
+    shell_connection_cancellations: RwLock<HashMap<String, CancellationToken>>,
+    sftp_transfer_cancellations: RwLock<HashMap<String, CancellationToken>>,
+    ki_pending: RwLock<HashMap<String, oneshot::Sender<Vec<String>>>>,
 }
 
 impl AppState {
@@ -100,6 +107,7 @@ impl AppState {
             ssh_connect_locks: Mutex::new(HashMap::new()),
             status_cache: RwLock::new(HashMap::new()),
             pty_channels: RwLock::new(HashMap::new()),
+            shell_session_tokens: RwLock::new(HashMap::new()),
             shell_connection_cancellations: RwLock::new(HashMap::new()),
             sftp_transfer_cancellations: RwLock::new(HashMap::new()),
             ki_pending: RwLock::new(HashMap::new()),
@@ -130,10 +138,7 @@ impl AppState {
     /// Stores or updates a shell session in the runtime registry.
     /// Records where the local MCP bridge listens.
     pub fn set_mcp_bridge(&self, info: McpBridgeInfo) {
-        *self
-            .mcp_bridge
-            .write()
-            .expect("mcp bridge lock poisoned") = Some(info);
+        *self.mcp_bridge.write().expect("mcp bridge lock poisoned") = Some(info);
     }
 
     /// Returns the local MCP bridge endpoint, if it started successfully.
@@ -144,11 +149,22 @@ impl AppState {
             .clone()
     }
 
+    /// Stores or updates a shell session and ensures it has a live cancellation token.
+    ///
+    /// Updating an existing session must not replace its token: PTY / SFTP work
+    /// already holds it, and a reset would silently detach that work from a later
+    /// `remove_session`.
     pub fn put_session(&self, session: ShellSession) {
-        self.sessions
+        let session_id = session.id.clone();
+        // Hold `sessions` across the token creation so no reader can observe the
+        // session without its token (which `get_or_insert_ssh_session` validates).
+        let mut sessions = self.sessions.write().expect("session lock poisoned");
+        sessions.insert(session_id.clone(), session);
+        self.shell_session_tokens
             .write()
-            .expect("session lock poisoned")
-            .insert(session.id.clone(), session);
+            .expect("shell session token lock poisoned")
+            .entry(session_id)
+            .or_insert_with(CancellationToken::new);
     }
 
     /// Retrieves a shell session by id.
@@ -174,10 +190,21 @@ impl AppState {
         Ok(session.clone())
     }
 
+    /// Returns the cancellation token bound to one shell tab.
+    ///
+    /// The token is cancelled by [`AppState::remove_session`], so a PTY worker or
+    /// long-running transfer can observe tab closure without polling the session map.
+    pub fn shell_session_token(&self, session_id: &str) -> AppResult<CancellationToken> {
+        self.shell_session_tokens
+            .read()
+            .expect("shell session token lock poisoned")
+            .get(session_id)
+            .cloned()
+            .ok_or_else(|| AppError::NotFound(format!("shell session {session_id}")))
+    }
+
     /// Removes a shell session and any stale cache bound to that session.
     pub fn remove_session(&self, session_id: &str) -> AppResult<()> {
-        self.remove_pty_channel(session_id);
-
         let removed = self
             .sessions
             .write()
@@ -186,6 +213,17 @@ impl AppState {
         if removed.is_none() {
             return Err(AppError::NotFound(format!("shell session {session_id}")));
         }
+        self.remove_pty_channel(session_id);
+
+        if let Some(token) = self
+            .shell_session_tokens
+            .write()
+            .expect("shell session token lock poisoned")
+            .remove(session_id)
+        {
+            token.cancel();
+        }
+
         self.status_cache
             .write()
             .expect("status cache lock poisoned")
@@ -194,127 +232,218 @@ impl AppState {
         Ok(())
     }
 
-    /// Returns the cached SSH session of one kind for a shell session, creating it once when absent.
+    /// Returns the cached connection for a shell tab, creating it once when absent.
     ///
-    /// `connect` runs without holding `ssh_sessions`, because establishing an SSH
-    /// connection takes seconds (TCP + handshake + auth) and that map is shared by
-    /// every open tab. Holding it across the handshake stalled every other tab's
-    /// SFTP, status and command traffic until the new connection came up.
+    /// `connect` runs without holding any state map, because establishing an SSH
+    /// connection takes seconds (TCP + handshake + auth) and the maps are shared by
+    /// every open tab. Concurrent callers for the *same* tab still take turns on a
+    /// per-tab `tokio::sync::Mutex` and re-check the cache afterwards, so a burst of
+    /// operations on a fresh tab opens one connection rather than one per caller.
+    /// Callers for different tabs never block each other.
     ///
-    /// Concurrent callers for the *same* key still take turns on a per-key lock, so
-    /// a burst of operations on a fresh tab opens one connection rather than one per
-    /// caller. Callers for different keys never block each other.
-    pub fn get_or_insert_ssh_session<F>(
+    /// Close-vs-insert race: the `sessions` map is held for reading across the
+    /// existence check *and* the cache insertion. `remove_session` takes that same
+    /// map for writing before it touches `ssh_sessions`, so a tab can never be seen
+    /// as live here and then closed-and-forgotten before the connection is cached.
+    /// If the tab closed during the handshake the fresh connection is shut down
+    /// instead of inserted, so nothing leaks and removal stays authoritative.
+    ///
+    /// Tab teardown also wins over queued work: the tab token is validated before
+    /// the per-tab lock is touched, and it is raced against both the lock wait and
+    /// the handshake itself. A caller waiting behind another handshake therefore
+    /// aborts when the tab closes instead of starting a fresh handshake afterwards.
+    pub async fn get_or_insert_ssh_session<F, Fut>(
         &self,
         session_id: &str,
-        kind: SshSessionKind,
         connect: F,
     ) -> AppResult<SharedSshSession>
     where
-        F: FnOnce() -> AppResult<Session>,
+        F: FnOnce() -> Fut + Send,
+        Fut: Future<Output = AppResult<Connection>> + Send,
     {
-        let key = (session_id.to_string(), kind);
-        if let Some(session) = self.cached_ssh_session(&key) {
-            return Ok(session);
-        }
-
-        let connect_lock = self.ssh_connect_lock(&key);
-        let _connect_guard = connect_lock
-            .lock()
-            .map_err(|_| AppError::Runtime("ssh connect lock poisoned".to_string()))?;
-
-        // Another caller may have finished connecting for this key while we waited.
-        if let Some(session) = self.cached_ssh_session(&key) {
-            return Ok(session);
-        }
-
-        let session = Arc::new(Mutex::new(connect()?));
-
-        // The tab may have been closed during the handshake. Dropping the freshly
-        // opened connection here keeps `remove_session` authoritative; inserting it
-        // would leak a connection nothing ever closes.
-        if !self.has_shell_session(session_id) {
+        // Validate the tab before taking any lock. After `remove_session` the token
+        // is gone, so stale callers fail fast rather than opening a new connection.
+        let tab_cancel = self.shell_session_token(session_id)?;
+        if tab_cancel.is_cancelled() {
             return Err(AppError::NotFound(format!("shell session {session_id}")));
         }
 
-        self.ssh_sessions
-            .write()
-            .expect("ssh session lock poisoned")
-            .insert(key, Arc::clone(&session));
-        Ok(session)
+        if let Some(connection) = self.cached_ssh_session(session_id) {
+            return Ok(connection);
+        }
+
+        let connect_lock = self.ssh_connect_lock(session_id);
+        // A caller queued behind another handshake must give up when the tab closes,
+        // otherwise it would start a fresh handshake after removal.
+        let _connect_guard = tokio::select! {
+            biased;
+            _ = tab_cancel.cancelled() => {
+                return Err(AppError::NotFound(format!("shell session {session_id}")));
+            }
+            guard = connect_lock.lock() => guard,
+        };
+
+        // Another caller may have finished connecting for this tab while we waited.
+        if let Some(connection) = self.cached_ssh_session(session_id) {
+            return Ok(connection);
+        }
+        if tab_cancel.is_cancelled() {
+            return Err(AppError::NotFound(format!("shell session {session_id}")));
+        }
+
+        // The handshake races the tab token too: a close during connect drops the
+        // connect future instead of letting it cache a connection for a dead tab.
+        let connection = tokio::select! {
+            biased;
+            _ = tab_cancel.cancelled() => {
+                return Err(AppError::NotFound(format!("shell session {session_id}")));
+            }
+            result = connect() => result?,
+        };
+        let shared = Arc::new(connection);
+
+        {
+            let sessions_guard = self.sessions.read().expect("session lock poisoned");
+            if !sessions_guard.contains_key(session_id) {
+                // The tab was closed during the handshake. Release the read lock
+                // before closing so the shutdown never runs under a state lock.
+                drop(sessions_guard);
+                shared.shutdown();
+                return Err(AppError::NotFound(format!("shell session {session_id}")));
+            }
+
+            self.ssh_sessions
+                .write()
+                .expect("ssh session lock poisoned")
+                .insert(session_id.to_string(), Arc::clone(&shared));
+        }
+
+        Ok(shared)
     }
 
-    fn cached_ssh_session(&self, key: &SshSessionKey) -> Option<SharedSshSession> {
+    /// Caches an already-connected transport for one shell tab.
+    ///
+    /// Used to seed the connection opened by the PTY worker so later operations
+    /// reuse it instead of dialing again. The caller must have registered the
+    /// session first (`put_session`). A missing tab returns `NotFound` and never
+    /// resurrects the cache entry, matching `get_or_insert_ssh_session`: the
+    /// `sessions` read guard is held across the cache insertion so a concurrent
+    /// `remove_session` cannot interleave between the check and the insert.
+    ///
+    /// Replacing an existing connection shuts the previous one down.
+    pub fn put_ssh_session(&self, session_id: &str, connection: SharedSshSession) -> AppResult<()> {
+        let sessions_guard = self.sessions.read().expect("session lock poisoned");
+        if !sessions_guard.contains_key(session_id) {
+            return Err(AppError::NotFound(format!("shell session {session_id}")));
+        }
+
+        let previous = self
+            .ssh_sessions
+            .write()
+            .expect("ssh session lock poisoned")
+            .insert(session_id.to_string(), Arc::clone(&connection));
+        drop(sessions_guard);
+
+        if let Some(previous) = previous {
+            if !Arc::ptr_eq(&previous, &connection) {
+                previous.shutdown();
+            }
+        }
+        Ok(())
+    }
+
+    fn cached_ssh_session(&self, session_id: &str) -> Option<SharedSshSession> {
         self.ssh_sessions
             .read()
             .expect("ssh session lock poisoned")
-            .get(key)
+            .get(session_id)
             .cloned()
     }
 
-    fn ssh_connect_lock(&self, key: &SshSessionKey) -> Arc<Mutex<()>> {
+    fn ssh_connect_lock(&self, session_id: &str) -> Arc<AsyncMutex<()>> {
         let mut guard = self
             .ssh_connect_locks
             .lock()
             .expect("ssh connect lock registry poisoned");
-        Arc::clone(guard.entry(key.clone()).or_default())
+        Arc::clone(guard.entry(session_id.to_string()).or_default())
     }
 
-    fn has_shell_session(&self, session_id: &str) -> bool {
-        self.sessions
-            .read()
-            .expect("session lock poisoned")
-            .contains_key(session_id)
-    }
-
-    /// Drops one cached SSH session after its transport turned out to be dead.
+    /// Drops the cached connection after its transport turned out to be dead.
     ///
-    /// Only evicts when the cache still holds the very same connection, so a
-    /// caller that observed a stale connection never throws away a fresh one
-    /// that another caller has already re-established in the meantime.
+    /// Only evicts when the cache still holds the very same `Arc`, so a caller
+    /// that observed a stale connection never throws away a fresh one that another
+    /// caller has already re-established in the meantime. `Arc::ptr_eq` is the
+    /// exact generation check: pointer equality only holds for the same
+    /// allocation. The evicted connection is shut down so its reader task ends.
     /// Returns whether an entry was removed.
-    pub fn evict_ssh_session(
-        &self,
-        session_id: &str,
-        kind: SshSessionKind,
-        stale: &SharedSshSession,
-    ) -> bool {
-        let key = (session_id.to_string(), kind);
-        let mut guard = self
-            .ssh_sessions
-            .write()
-            .expect("ssh session lock poisoned");
-        match guard.get(&key) {
-            Some(current) if Arc::ptr_eq(current, stale) => {
-                guard.remove(&key);
+    pub fn evict_ssh_session(&self, session_id: &str, stale: &SharedSshSession) -> bool {
+        let removed = {
+            let mut guard = self
+                .ssh_sessions
+                .write()
+                .expect("ssh session lock poisoned");
+            let is_observed_connection = guard
+                .get(session_id)
+                .is_some_and(|current| Arc::ptr_eq(current, stale));
+            if is_observed_connection {
+                guard.remove(session_id)
+            } else {
+                None
+            }
+        };
+
+        match removed {
+            Some(_) => {
+                stale.shutdown();
                 true
             }
-            _ => false,
+            None => false,
         }
     }
 
-    /// Removes every cached SSH session (all kinds) for one shell session.
+    /// Removes the cached connection for one shell session and closes it.
     pub fn remove_ssh_session(&self, session_id: &str) {
-        self.ssh_sessions
+        let removed = self
+            .ssh_sessions
             .write()
             .expect("ssh session lock poisoned")
-            .retain(|(cached_id, _), _| cached_id != session_id);
+            .remove(session_id);
+        if let Some(connection) = removed {
+            connection.shutdown();
+        }
+
         self.ssh_connect_locks
             .lock()
             .expect("ssh connect lock registry poisoned")
-            .retain(|(cached_id, _), _| cached_id != session_id);
+            .remove(session_id);
     }
 
     #[cfg(test)]
-    pub fn has_ssh_session(&self, session_id: &str, kind: SshSessionKind) -> bool {
+    pub fn has_ssh_session(&self, session_id: &str) -> bool {
         self.ssh_sessions
             .read()
             .expect("ssh session lock poisoned")
-            .contains_key(&(session_id.to_string(), kind))
+            .contains_key(session_id)
     }
 
     /// Registers or replaces PTY control channel for one shell session.
-    pub fn put_pty_channel(&self, session_id: String, sender: Sender<PtyCommand>) {
+    ///
+    /// The sender is a tokio unbounded sender, whose `send` is synchronous, so the
+    /// Tauri command layer can forward frontend keystrokes without an executor
+    /// turn (and without blocking on a full channel).
+    ///
+    /// The `sessions` map is held for reading across the registration so a PTY
+    /// worker seeded concurrently with `remove_session` cannot leave a channel
+    /// behind for a tab that is gone. When the tab is already closed the sender is
+    /// dropped (after a close hint) so the worker's receiver ends and it exits.
+    pub fn put_pty_channel(&self, session_id: String, sender: UnboundedSender<PtyCommand>) {
+        let sessions_guard = self.sessions.read().expect("session lock poisoned");
+        if !sessions_guard.contains_key(session_id.as_str()) {
+            drop(sessions_guard);
+            let _ = sender.send(PtyCommand::Close);
+            return;
+        }
+
         if let Some(previous) = self
             .pty_channels
             .write()
@@ -334,9 +463,9 @@ impl AppState {
             .get(session_id)
             .cloned()
             .ok_or_else(|| AppError::NotFound(format!("pty session {session_id}")))?;
-        sender.send(command).map_err(|err| {
-            AppError::Runtime(format!("pty worker channel closed for {session_id}: {err}"))
-        })
+        sender
+            .send(command)
+            .map_err(|_| AppError::Runtime(format!("pty worker channel closed for {session_id}")))
     }
 
     /// Unregisters PTY channel and asks worker to stop.
@@ -352,22 +481,40 @@ impl AppState {
     }
 
     /// Marks one shell connection attempt as active unless it was already pre-cancelled.
-    pub fn begin_shell_connection(&self, request_id: &str) {
-        self.shell_connection_cancellations
-            .write()
-            .expect("shell connection cancellation lock poisoned")
-            .entry(request_id.to_string())
-            .or_insert(false);
-    }
-
-    /// Requests cancellation for a shell connection attempt.
-    pub fn cancel_shell_connection(&self, request_id: &str) -> bool {
+    ///
+    /// Returns the token the attempt must observe. An existing token is reused
+    /// unchanged, so a `cancel_shell_connection` that arrived first still wins.
+    pub fn begin_shell_connection(&self, request_id: &str) -> CancellationToken {
         let mut guard = self
             .shell_connection_cancellations
             .write()
             .expect("shell connection cancellation lock poisoned");
-        let existed = guard.contains_key(request_id);
-        guard.insert(request_id.to_string(), true);
+        guard
+            .entry(request_id.to_string())
+            .or_insert_with(CancellationToken::new)
+            .clone()
+    }
+
+    /// Requests cancellation for a shell connection attempt.
+    ///
+    /// Returns whether the attempt was already registered. Cancelling before the
+    /// attempt begins records a pre-cancelled token, so the later
+    /// `begin_shell_connection` observes cancellation instead of starting work.
+    pub fn cancel_shell_connection(&self, request_id: &str) -> bool {
+        let (existed, token) = {
+            let mut guard = self
+                .shell_connection_cancellations
+                .write()
+                .expect("shell connection cancellation lock poisoned");
+            let existed = guard.contains_key(request_id);
+            let token = guard
+                .entry(request_id.to_string())
+                .or_insert_with(CancellationToken::new)
+                .clone();
+            (existed, token)
+        };
+        // Cancel outside the write guard: the critical section stays a plain map update.
+        token.cancel();
         existed
     }
 
@@ -377,7 +524,7 @@ impl AppState {
             .read()
             .expect("shell connection cancellation lock poisoned")
             .get(request_id)
-            .copied()
+            .map(CancellationToken::is_cancelled)
             .unwrap_or(false)
     }
 
@@ -399,7 +546,15 @@ impl AppState {
     }
 
     /// Updates cached status for a session.
+    ///
+    /// The `sessions` map is held for reading across the insert so a status result
+    /// that raced with `remove_session` is not cached for a tab that no longer
+    /// exists (the caller's earlier `get_session` check alone can be overtaken).
     pub fn put_cached_status(&self, session_id: &str, status: ServerStatus) {
+        let sessions_guard = self.sessions.read().expect("session lock poisoned");
+        if !sessions_guard.contains_key(session_id) {
+            return;
+        }
         self.status_cache
             .write()
             .expect("status cache lock poisoned")
@@ -407,22 +562,40 @@ impl AppState {
     }
 
     /// Marks one transfer as active unless it was already pre-cancelled.
-    pub fn begin_sftp_transfer(&self, transfer_id: &str) {
-        self.sftp_transfer_cancellations
-            .write()
-            .expect("sftp cancellation lock poisoned")
-            .entry(transfer_id.to_string())
-            .or_insert(false);
-    }
-
-    /// Requests cancellation for a transfer.
-    pub fn cancel_sftp_transfer(&self, transfer_id: &str) -> bool {
+    ///
+    /// Returns the token the transfer must observe. An existing token is reused
+    /// unchanged, so a `cancel_sftp_transfer` that arrived first still wins.
+    pub fn begin_sftp_transfer(&self, transfer_id: &str) -> CancellationToken {
         let mut guard = self
             .sftp_transfer_cancellations
             .write()
             .expect("sftp cancellation lock poisoned");
-        let existed = guard.contains_key(transfer_id);
-        guard.insert(transfer_id.to_string(), true);
+        guard
+            .entry(transfer_id.to_string())
+            .or_insert_with(CancellationToken::new)
+            .clone()
+    }
+
+    /// Requests cancellation for a transfer.
+    ///
+    /// Returns whether the transfer was already registered. Cancelling before the
+    /// transfer begins records a pre-cancelled token, so the later
+    /// `begin_sftp_transfer` observes cancellation instead of starting work.
+    pub fn cancel_sftp_transfer(&self, transfer_id: &str) -> bool {
+        let (existed, token) = {
+            let mut guard = self
+                .sftp_transfer_cancellations
+                .write()
+                .expect("sftp cancellation lock poisoned");
+            let existed = guard.contains_key(transfer_id);
+            let token = guard
+                .entry(transfer_id.to_string())
+                .or_insert_with(CancellationToken::new)
+                .clone();
+            (existed, token)
+        };
+        // Cancel outside the write guard: the critical section stays a plain map update.
+        token.cancel();
         existed
     }
 
@@ -432,7 +605,7 @@ impl AppState {
             .read()
             .expect("sftp cancellation lock poisoned")
             .get(transfer_id)
-            .copied()
+            .map(CancellationToken::is_cancelled)
             .unwrap_or(false)
     }
 
@@ -445,7 +618,7 @@ impl AppState {
     }
 
     /// Registers a sender to receive keyboard-interactive responses for one auth challenge.
-    pub fn put_ki_pending(&self, request_id: &str, sender: Sender<Vec<String>>) {
+    pub fn put_ki_pending(&self, request_id: &str, sender: oneshot::Sender<Vec<String>>) {
         self.ki_pending
             .write()
             .expect("ki pending lock poisoned")
@@ -477,13 +650,80 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::now_rfc3339;
-    use ssh2::Session;
+    use crate::models::{now_rfc3339, SshAuthType, SshConfig, TrustSshHostKeyInput};
+    use crate::server_ops::transport;
+    use crate::server_ops::transport::test_support::{
+        TestSshServer, TEST_SSH_PASSWORD, TEST_SSH_USERNAME,
+    };
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::mpsc;
-    use std::sync::Arc;
-    use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    /// An in-process SSH server plus the host-key trust and config needed to reach it.
+    ///
+    /// Every fixture owns its own server, so tests open real localhost russh
+    /// connections instead of a libssh2 dummy. Keep it alive for the whole test:
+    /// dropping it only leaks the (task-held) listener, but the connections the
+    /// tests opened are shut down explicitly through the state under test.
+    struct TestFixture {
+        _server: TestSshServer,
+        config: SshConfig,
+    }
+
+    impl TestFixture {
+        async fn start(state: &AppState) -> Self {
+            let server = TestSshServer::start().await.expect("start test ssh server");
+            state
+                .storage
+                .trust_ssh_host_key(TrustSshHostKeyInput {
+                    host: "127.0.0.1".to_string(),
+                    port: server.addr().port(),
+                    key_type: server.key_type().to_string(),
+                    fingerprint: server.fingerprint().to_string(),
+                })
+                .expect("trust test host key");
+
+            let config = SshConfig {
+                id: "config-1".to_string(),
+                name: "Test host".to_string(),
+                host: "127.0.0.1".to_string(),
+                port: server.addr().port(),
+                username: TEST_SSH_USERNAME.to_string(),
+                auth_type: SshAuthType::Password,
+                password: TEST_SSH_PASSWORD.to_string(),
+                private_key_path: String::new(),
+                private_key_passphrase: String::new(),
+                use_password_fallback: false,
+                jump_host_id: None,
+                description: String::new(),
+                created_at: now_rfc3339(),
+                updated_at: now_rfc3339(),
+            };
+
+            Self {
+                _server: server,
+                config,
+            }
+        }
+    }
+
+    /// Opens one real connection to the fixture's localhost server.
+    async fn open_connection(state: &Arc<AppState>, config: &SshConfig) -> AppResult<Connection> {
+        transport::connect(state, None, config, CancellationToken::new()).await
+    }
+
+    /// Builds a `get_or_insert_ssh_session` connector for a fixture.
+    ///
+    /// The fresh clones keep the connector independent of the receiver borrow,
+    /// which `get_or_insert_ssh_session` holds while it calls the closure.
+    macro_rules! connector {
+        ($state:expr, $config:expr) => {{
+            let state = Arc::clone(&$state);
+            let config = $config.clone();
+            move || async move {
+                transport::connect(&state, None, &config, CancellationToken::new()).await
+            }
+        }};
+    }
 
     fn temp_state(name: &str) -> AppState {
         let nonce = SystemTime::now()
@@ -557,82 +797,88 @@ mod tests {
 
     /// An SSH handshake takes seconds. It must not be performed while holding the
     /// shared session map, or every other tab freezes until it finishes.
-    #[test]
-    fn connecting_one_tab_does_not_block_another_tab() {
+    #[tokio::test]
+    async fn connecting_one_tab_does_not_block_another_tab() {
         let state = Arc::new(temp_state("ssh-parallel-connect"));
+        let fixture = TestFixture::start(&state).await;
+        let config = fixture.config.clone();
         state.put_session(shell_session("session-1"));
         state.put_session(shell_session("session-2"));
 
-        let (started_tx, started_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel::<()>();
 
+        let gate_state = Arc::clone(&state);
+        let gate_config = config.clone();
         let slow = {
             let state = Arc::clone(&state);
-            thread::spawn(move || {
-                state.get_or_insert_ssh_session("session-1", SshSessionKind::Operation, || {
-                    started_tx.send(()).expect("signal connect start");
-                    release_rx.recv().expect("wait for release");
-                    Ok(Session::new()?)
-                })
+            tokio::spawn(async move {
+                state
+                    .get_or_insert_ssh_session("session-1", move || async move {
+                        let _ = started_tx.send(());
+                        let _ = release_rx.await;
+                        open_connection(&gate_state, &gate_config).await
+                    })
+                    .await
             })
         };
 
-        started_rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("slow connect started");
+        started_rx.await.expect("slow connect started");
 
-        // Run the second tab's connect on its own thread so a regression shows up as
-        // a clean timeout instead of hanging the whole test binary.
-        let (done_tx, done_rx) = mpsc::channel();
-        {
-            let state = Arc::clone(&state);
-            thread::spawn(move || {
-                let result =
-                    state.get_or_insert_ssh_session("session-2", SshSessionKind::Operation, || {
-                        Ok(Session::new()?)
-                    });
-                let _ = done_tx.send(result.is_ok());
-            });
-        }
+        // Run the second tab's connect under a timeout so a regression shows up as
+        // a clean failure instead of hanging the test binary.
+        let fast = tokio::time::timeout(
+            Duration::from_secs(10),
+            state.get_or_insert_ssh_session("session-2", connector!(state, config)),
+        )
+        .await
+        .expect("a tab must be able to connect while another tab is still handshaking");
+        assert!(fast.is_ok());
 
-        assert_eq!(
-            done_rx.recv_timeout(Duration::from_secs(5)).ok(),
-            Some(true),
-            "a tab must be able to connect while another tab is still handshaking"
-        );
-
-        release_tx.send(()).expect("release slow connect");
-        slow.join().expect("join slow connect").expect("connect");
+        let _ = release_tx.send(());
+        slow.await
+            .expect("join slow connect")
+            .expect("slow connect");
     }
 
     /// A fresh tab fires several operations at once (SFTP listing, status poll).
     /// They must share one handshake instead of racing into several connections.
-    #[test]
-    fn concurrent_callers_for_one_key_open_a_single_connection() {
+    #[tokio::test]
+    async fn concurrent_callers_for_one_tab_open_a_single_connection() {
         let state = Arc::new(temp_state("ssh-single-connect"));
+        let fixture = TestFixture::start(&state).await;
+        let config = fixture.config.clone();
         state.put_session(shell_session("session-1"));
         let connects = Arc::new(AtomicUsize::new(0));
 
         let handles: Vec<_> = (0..4)
             .map(|_| {
                 let state = Arc::clone(&state);
+                let config = config.clone();
                 let connects = Arc::clone(&connects);
-                thread::spawn(move || {
+                tokio::spawn(async move {
+                    let connect_state = Arc::clone(&state);
+                    let connect_config = config.clone();
+                    let connects = Arc::clone(&connects);
                     state
-                        .get_or_insert_ssh_session("session-1", SshSessionKind::Operation, || {
+                        .get_or_insert_ssh_session("session-1", move || async move {
                             connects.fetch_add(1, Ordering::SeqCst);
-                            thread::sleep(Duration::from_millis(50));
-                            Ok(Session::new()?)
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                            open_connection(&connect_state, &connect_config).await
                         })
+                        .await
                         .expect("cached ssh session")
                 })
             })
             .collect();
 
-        let sessions: Vec<SharedSshSession> = handles
-            .into_iter()
-            .map(|handle| handle.join().expect("join"))
-            .collect();
+        let sessions: Vec<SharedSshSession> = {
+            let mut sessions = Vec::new();
+            for handle in handles {
+                sessions.push(handle.await.expect("join"));
+            }
+            sessions
+        };
 
         assert_eq!(connects.load(Ordering::SeqCst), 1);
         for session in &sessions {
@@ -641,97 +887,407 @@ mod tests {
     }
 
     /// Closing a tab mid-handshake must not leave an orphan connection behind that
-    /// nothing will ever close.
-    #[test]
-    fn connection_finished_after_session_removal_is_not_cached() {
-        let state = temp_state("ssh-removed-midconnect");
+    /// nothing will ever close, nor let the late connection resurrect the cache.
+    #[tokio::test]
+    async fn connection_finished_after_session_removal_is_not_cached() {
+        let state = Arc::new(temp_state("ssh-removed-midconnect"));
+        let fixture = TestFixture::start(&state).await;
+        let config = fixture.config.clone();
         state.put_session(shell_session("session-1"));
 
-        let result = state.get_or_insert_ssh_session("session-1", SshSessionKind::Exec, || {
-            state.remove_session("session-1").expect("remove shell");
-            Ok(Session::new()?)
-        });
+        let connect_state = Arc::clone(&state);
+        let connect_config = config.clone();
+        let result = state
+            .get_or_insert_ssh_session("session-1", move || async move {
+                connect_state
+                    .remove_session("session-1")
+                    .expect("remove shell");
+                open_connection(&connect_state, &connect_config).await
+            })
+            .await;
 
         assert!(matches!(result, Err(AppError::NotFound(_))));
-        assert!(!state.has_ssh_session("session-1", SshSessionKind::Exec));
+        assert!(!state.has_ssh_session("session-1"));
     }
 
-    #[test]
-    fn ssh_operation_session_is_reused_for_the_same_shell_session() {
-        let state = temp_state("ssh-reuse");
+    /// A caller queued behind another tab's handshake must not start a fresh
+    /// handshake after the tab is closed, even if it already read the tab token.
+    #[tokio::test]
+    async fn waiting_callers_do_not_start_a_handshake_after_removal() {
+        let state = Arc::new(temp_state("ssh-close-wait"));
+        let fixture = TestFixture::start(&state).await;
+        let config = fixture.config.clone();
+        state.put_session(shell_session("session-1"));
+
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel::<()>();
+
+        let gate_state = Arc::clone(&state);
+        let gate_config = config.clone();
+        let first = tokio::spawn({
+            let state = Arc::clone(&state);
+            async move {
+                state
+                    .get_or_insert_ssh_session("session-1", move || async move {
+                        let _ = started_tx.send(());
+                        let _ = release_rx.await;
+                        open_connection(&gate_state, &gate_config).await
+                    })
+                    .await
+            }
+        });
+        started_rx.await.expect("first handshake started");
+
+        // Second caller queues behind the per-tab connect lock.
+        let waiter = tokio::spawn({
+            let state = Arc::clone(&state);
+            let config = config.clone();
+            async move {
+                let connect_state = Arc::clone(&state);
+                let connect_config = config.clone();
+                state
+                    .get_or_insert_ssh_session("session-1", move || async move {
+                        open_connection(&connect_state, &connect_config).await
+                    })
+                    .await
+            }
+        });
+        // Let the waiter reach the lock wait before the tab disappears.
+        tokio::task::yield_now().await;
+
+        state.remove_session("session-1").expect("remove shell");
+        let _ = release_tx.send(());
+
+        let first_result = first.await.expect("join first");
+        let waiter_result = waiter.await.expect("join waiter");
+        assert!(matches!(first_result, Err(AppError::NotFound(_))));
+        assert!(matches!(waiter_result, Err(AppError::NotFound(_))));
+        assert!(!state.has_ssh_session("session-1"));
+    }
+
+    /// A tab that is closed and immediately re-created must get a new connection,
+    /// not the one that was shut down with the previous incarnation.
+    #[tokio::test]
+    async fn connection_is_not_reused_across_tab_recreation() {
+        let state = Arc::new(temp_state("ssh-recreate"));
+        let fixture = TestFixture::start(&state).await;
+        let config = fixture.config.clone();
         state.put_session(shell_session("session-1"));
 
         let first = state
-            .get_or_insert_ssh_session("session-1", SshSessionKind::Operation, || {
-                Ok(Session::new()?)
-            })
+            .get_or_insert_ssh_session("session-1", connector!(state, config))
+            .await
+            .expect("first ssh session");
+        state.remove_session("session-1").expect("remove shell");
+        assert!(
+            first.is_closed(),
+            "removal must close the cached connection"
+        );
+
+        state.put_session(shell_session("session-1"));
+        let second = state
+            .get_or_insert_ssh_session("session-1", connector!(state, config))
+            .await
+            .expect("second ssh session");
+        assert!(!Arc::ptr_eq(&first, &second));
+    }
+
+    #[tokio::test]
+    async fn ssh_session_is_reused_for_the_same_shell_session() {
+        let state = Arc::new(temp_state("ssh-reuse"));
+        let fixture = TestFixture::start(&state).await;
+        let config = fixture.config.clone();
+        state.put_session(shell_session("session-1"));
+
+        let first = state
+            .get_or_insert_ssh_session("session-1", connector!(state, config))
+            .await
             .expect("first ssh session");
         let second = state
-            .get_or_insert_ssh_session("session-1", SshSessionKind::Operation, || {
-                Ok(Session::new()?)
+            .get_or_insert_ssh_session("session-1", || async {
+                Err::<Connection, AppError>(AppError::Runtime(
+                    "cached session must not reconnect".to_string(),
+                ))
             })
+            .await
             .expect("second ssh session");
 
         assert!(Arc::ptr_eq(&first, &second));
     }
 
-    #[test]
-    fn ssh_session_kinds_are_cached_independently() {
-        let state = temp_state("ssh-kinds");
+    /// A connection seeded by the PTY worker is what later operations reuse.
+    #[tokio::test]
+    async fn put_ssh_session_seeds_the_cache_for_later_operations() {
+        let state = Arc::new(temp_state("ssh-put-seed"));
+        let fixture = TestFixture::start(&state).await;
         state.put_session(shell_session("session-1"));
 
-        let operation = state
-            .get_or_insert_ssh_session("session-1", SshSessionKind::Operation, || {
-                Ok(Session::new()?)
-            })
-            .expect("operation ssh session");
-        let exec = state
-            .get_or_insert_ssh_session("session-1", SshSessionKind::Exec, || Ok(Session::new()?))
-            .expect("exec ssh session");
+        let seeded = Arc::new(
+            open_connection(&state, &fixture.config)
+                .await
+                .expect("seeded"),
+        );
+        state
+            .put_ssh_session("session-1", Arc::clone(&seeded))
+            .expect("seed connection");
+        assert!(state.has_ssh_session("session-1"));
 
-        assert!(!Arc::ptr_eq(&operation, &exec));
-        assert!(state.has_ssh_session("session-1", SshSessionKind::Operation));
-        assert!(state.has_ssh_session("session-1", SshSessionKind::Exec));
+        let reused = state
+            .get_or_insert_ssh_session("session-1", || async {
+                Err::<Connection, AppError>(AppError::Runtime(
+                    "seeded session must not reconnect".to_string(),
+                ))
+            })
+            .await
+            .expect("seeded ssh session");
+        assert!(Arc::ptr_eq(&reused, &seeded));
     }
 
-    #[test]
-    fn evict_ssh_session_only_drops_the_observed_connection() {
-        let state = temp_state("ssh-evict");
+    /// `put_session` must come first: seeding a connection for an unknown or
+    /// already-closed tab is rejected and never populates the cache.
+    #[tokio::test]
+    async fn put_ssh_session_rejects_unknown_and_closed_tabs() {
+        let state = Arc::new(temp_state("ssh-put-missing"));
+        let fixture = TestFixture::start(&state).await;
+        let orphan = Arc::new(
+            open_connection(&state, &fixture.config)
+                .await
+                .expect("orphan"),
+        );
+        assert!(matches!(
+            state.put_ssh_session("session-1", Arc::clone(&orphan)),
+            Err(AppError::NotFound(_))
+        ));
+        assert!(!state.has_ssh_session("session-1"));
+
+        state.put_session(shell_session("session-1"));
+        state.remove_session("session-1").expect("remove shell");
+        let late = Arc::new(
+            open_connection(&state, &fixture.config)
+                .await
+                .expect("late"),
+        );
+        assert!(matches!(
+            state.put_ssh_session("session-1", late),
+            Err(AppError::NotFound(_))
+        ));
+        assert!(!state.has_ssh_session("session-1"));
+    }
+
+    /// Removing a tab closes the cached connection rather than only forgetting it.
+    #[tokio::test]
+    async fn remove_session_shuts_down_cached_ssh_session() {
+        let state = Arc::new(temp_state("ssh-cleanup"));
+        let fixture = TestFixture::start(&state).await;
+        let config = fixture.config.clone();
+        state.put_session(shell_session("session-1"));
+        let cached = state
+            .get_or_insert_ssh_session("session-1", connector!(state, config))
+            .await
+            .expect("cached ssh session");
+
+        state.remove_session("session-1").expect("remove shell");
+
+        assert!(cached.is_closed(), "removal must shut the connection down");
+        assert!(!state.has_ssh_session("session-1"));
+    }
+
+    #[tokio::test]
+    async fn evict_ssh_session_only_drops_the_observed_connection() {
+        let state = Arc::new(temp_state("ssh-evict"));
+        let fixture = TestFixture::start(&state).await;
+        let config = fixture.config.clone();
         state.put_session(shell_session("session-1"));
 
         let stale = state
-            .get_or_insert_ssh_session("session-1", SshSessionKind::Exec, || Ok(Session::new()?))
+            .get_or_insert_ssh_session("session-1", connector!(state, config))
+            .await
             .expect("stale ssh session");
 
-        assert!(state.evict_ssh_session("session-1", SshSessionKind::Exec, &stale));
-        assert!(!state.has_ssh_session("session-1", SshSessionKind::Exec));
+        assert!(state.evict_ssh_session("session-1", &stale));
+        assert!(!state.has_ssh_session("session-1"));
+        assert!(
+            stale.is_closed(),
+            "eviction must shut the stale connection down"
+        );
 
         let fresh = state
-            .get_or_insert_ssh_session("session-1", SshSessionKind::Exec, || Ok(Session::new()?))
+            .get_or_insert_ssh_session("session-1", connector!(state, config))
+            .await
             .expect("fresh ssh session");
         assert!(!Arc::ptr_eq(&stale, &fresh));
 
         // A late caller still holding the stale handle must not evict the fresh connection.
-        assert!(!state.evict_ssh_session("session-1", SshSessionKind::Exec, &stale));
-        assert!(state.has_ssh_session("session-1", SshSessionKind::Exec));
+        assert!(!state.evict_ssh_session("session-1", &stale));
+        assert!(state.has_ssh_session("session-1"));
+        assert!(!fresh.is_closed());
     }
 
     #[test]
-    fn remove_session_drops_cached_ssh_operation_session() {
-        let state = temp_state("ssh-cleanup");
-        state.put_session(shell_session("session-1"));
-        state
-            .get_or_insert_ssh_session("session-1", SshSessionKind::Operation, || {
-                Ok(Session::new()?)
-            })
-            .expect("cached ssh session");
-        state
-            .get_or_insert_ssh_session("session-1", SshSessionKind::Exec, || Ok(Session::new()?))
-            .expect("cached exec session");
+    fn shell_session_token_is_created_once_across_updates() {
+        let state = temp_state("session-token");
+        assert!(matches!(
+            state.shell_session_token("session-1"),
+            Err(AppError::NotFound(_))
+        ));
 
+        state.put_session(shell_session("session-1"));
+        let token = state
+            .shell_session_token("session-1")
+            .expect("token for live session");
+        assert!(!token.is_cancelled());
+
+        // Updates (put_session / mutate_session) must not replace the token: the
+        // original handle observes a cancel applied to the freshly read one.
+        state.put_session(shell_session_created_at(
+            "session-1",
+            "2026-09-14T09:00:00.000000000+00:00",
+        ));
+        state
+            .mutate_session("session-1", |session| {
+                session.current_dir = "/tmp".to_string();
+            })
+            .expect("mutate session");
+        let after_updates = state.shell_session_token("session-1").expect("token");
+        after_updates.cancel();
+        assert!(
+            token.is_cancelled(),
+            "updates must keep the same token instance"
+        );
+    }
+
+    #[test]
+    fn remove_session_cancels_the_shell_session_token() {
+        let state = temp_state("session-token-remove");
+        state.put_session(shell_session("session-1"));
+        let token = state
+            .shell_session_token("session-1")
+            .expect("token for live session");
+        assert!(!token.is_cancelled());
+
+        state.remove_session("session-1").expect("remove session");
+
+        assert!(token.is_cancelled(), "removal must cancel the tab token");
+        assert!(matches!(
+            state.shell_session_token("session-1"),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn shell_connection_cancellation_preserves_pre_cancel() {
+        let state = temp_state("conn-cancel");
+
+        let active = state.begin_shell_connection("req-1");
+        assert!(!active.is_cancelled());
+        assert!(!state.is_shell_connection_cancelled("req-1"));
+
+        assert!(state.cancel_shell_connection("req-1"));
+        assert!(active.is_cancelled());
+        assert!(state.is_shell_connection_cancelled("req-1"));
+
+        state.clear_shell_connection("req-1");
+        assert!(!state.is_shell_connection_cancelled("req-1"));
+
+        // Cancelling before begin leaves the returned token pre-cancelled.
+        assert!(!state.cancel_shell_connection("req-2"));
+        let pre = state.begin_shell_connection("req-2");
+        assert!(pre.is_cancelled());
+        assert!(state.is_shell_connection_cancelled("req-2"));
+    }
+
+    #[test]
+    fn sftp_transfer_cancellation_preserves_pre_cancel() {
+        let state = temp_state("sftp-cancel");
+
+        let active = state.begin_sftp_transfer("transfer-1");
+        assert!(!active.is_cancelled());
+        assert!(!state.is_sftp_transfer_cancelled("transfer-1"));
+
+        assert!(state.cancel_sftp_transfer("transfer-1"));
+        assert!(active.is_cancelled());
+        assert!(state.is_sftp_transfer_cancelled("transfer-1"));
+
+        state.clear_sftp_transfer("transfer-1");
+        assert!(!state.is_sftp_transfer_cancelled("transfer-1"));
+
+        assert!(!state.cancel_sftp_transfer("transfer-2"));
+        let pre = state.begin_sftp_transfer("transfer-2");
+        assert!(pre.is_cancelled());
+        assert!(state.is_sftp_transfer_cancelled("transfer-2"));
+    }
+
+    #[tokio::test]
+    async fn pty_channels_forward_input_synchronously_and_close_on_removal() {
+        let state = temp_state("pty-channel");
+        state.put_session(shell_session("session-1"));
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        state.put_pty_channel("session-1".to_string(), sender);
+
+        // Synchronous send: no `.await` required on the command path.
+        state
+            .send_pty_command("session-1", PtyCommand::Input("ls\n".to_string()))
+            .expect("send input");
+        match receiver.recv().await {
+            Some(PtyCommand::Input(input)) => assert_eq!(input, "ls\n"),
+            other => panic!("expected forwarded input, got {other:?}"),
+        }
+
+        // Replacing the channel asks the previous worker to stop.
+        let (replacement, mut replacement_rx) = tokio::sync::mpsc::unbounded_channel();
+        state.put_pty_channel("session-1".to_string(), replacement);
+        assert!(matches!(receiver.recv().await, Some(PtyCommand::Close)));
+
+        assert!(matches!(
+            state.send_pty_command("missing", PtyCommand::Close),
+            Err(AppError::NotFound(_))
+        ));
+
+        // Removing asks the current worker to stop too.
+        state.remove_pty_channel("session-1");
+        assert!(matches!(
+            replacement_rx.recv().await,
+            Some(PtyCommand::Close)
+        ));
+    }
+
+    /// A PTY worker seeded concurrently with tab teardown must not leave a channel
+    /// registered for a session that is already gone.
+    #[tokio::test]
+    async fn put_pty_channel_is_ignored_after_the_tab_is_removed() {
+        let state = temp_state("pty-channel-closed");
+        state.put_session(shell_session("session-1"));
         state.remove_session("session-1").expect("remove shell");
 
-        assert!(!state.has_ssh_session("session-1", SshSessionKind::Operation));
-        assert!(!state.has_ssh_session("session-1", SshSessionKind::Exec));
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        state.put_pty_channel("session-1".to_string(), sender);
+
+        // The rejected worker is told to stop so its receiver ends and it exits.
+        assert!(matches!(receiver.recv().await, Some(PtyCommand::Close)));
+        assert!(matches!(
+            state.send_pty_command("session-1", PtyCommand::Close),
+            Err(AppError::NotFound(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn ki_responses_are_delivered_over_oneshot() {
+        let state = temp_state("ki-pending");
+        let (sender, receiver) = oneshot::channel();
+        state.put_ki_pending("challenge-1", sender);
+
+        state
+            .respond_ki("challenge-1", vec!["secret".to_string()])
+            .expect("respond");
+        assert_eq!(
+            receiver.await.expect("response"),
+            vec!["secret".to_string()]
+        );
+
+        // A challenge is one-shot: responding twice is a NotFound.
+        assert!(matches!(
+            state.respond_ki("challenge-1", Vec::new()),
+            Err(AppError::NotFound(_))
+        ));
     }
 }

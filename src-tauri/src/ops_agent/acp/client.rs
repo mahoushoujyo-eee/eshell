@@ -276,6 +276,10 @@ pub struct AcpStartInfo {
     pub config_options: Option<Vec<SessionConfigOption>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_info: Option<AcpAgentInfoView>,
+    /// Working directory the session actually got, echoed back so the panel can
+    /// record where a session ran (and resume it there).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 /// Tauri app handle abstraction so the event loop stays decoupled from Tauri.
@@ -317,6 +321,13 @@ enum SessionRequest {
     Cancel {
         session_id: String,
         reply: oneshot::Sender<Result<(), String>>,
+    },
+    /// Creates a follow-up session on the live connection without restarting
+    /// the agent process ("new session" button). `cwd` switches the session to
+    /// another project directory; `None` keeps the connection's current one.
+    NewSession {
+        cwd: Option<PathBuf>,
+        reply: oneshot::Sender<Result<AcpStartInfo, String>>,
     },
     SetMode {
         session_id: String,
@@ -375,10 +386,12 @@ impl AcpSessionRunner {
     /// creates one session — or resumes `resume_session_id` via `session/load`
     /// when the agent supports it — and parks the connection loop for the
     /// session lifetime. Returns the session id plus handshake info.
+    #[allow(clippy::too_many_arguments)]
     pub async fn start(
         self: &Arc<Self>,
         spawn: AcpAgent,
         cwd: PathBuf,
+        default_cwd: PathBuf,
         mcp_servers: Vec<McpServer>,
         resume_session_id: Option<String>,
         sink: Arc<dyn EventSink>,
@@ -401,6 +414,7 @@ impl AcpSessionRunner {
         tokio::spawn(run_connection(
             spawn,
             cwd,
+            default_cwd,
             mcp_servers,
             resume_session_id,
             agent_id,
@@ -459,6 +473,18 @@ impl AcpSessionRunner {
             reply,
         })
         .await?;
+        rx.await
+            .map_err(|_| "acp connection dropped".to_string())?
+    }
+
+    /// Opens a fresh session on the live connection (`session/new` again on
+    /// the same agent process — login state, config options, and the spawn
+    /// itself are all reused). `cwd` overrides the connection's working
+    /// directory for the new session only. Only valid once the handshake has
+    /// completed.
+    pub async fn new_session(&self, cwd: Option<PathBuf>) -> Result<AcpStartInfo, String> {
+        let (reply, rx) = oneshot::channel();
+        self.submit(SessionRequest::NewSession { cwd, reply }).await?;
         rx.await
             .map_err(|_| "acp connection dropped".to_string())?
     }
@@ -583,6 +609,7 @@ impl AcpSessionRunner {
 async fn run_connection(
     spawn: AcpAgent,
     cwd: PathBuf,
+    default_cwd: PathBuf,
     mcp_servers: Vec<McpServer>,
     resume_session_id: Option<String>,
     agent_id: String,
@@ -706,6 +733,7 @@ async fn run_connection(
 
                 let context = SessionContext {
                     cwd,
+                    default_cwd,
                     mcp_servers,
                     resume_session_id,
                     load_session_supported: capabilities.load_session,
@@ -728,6 +756,7 @@ async fn run_connection(
                         modes: None,
                         config_options: None,
                         agent_info: context.agent_info.clone(),
+                        cwd: Some(context.cwd.to_string_lossy().to_string()),
                     },
                     Err(error) => return Err(error),
                 };
@@ -766,7 +795,11 @@ async fn run_connection(
 /// successful sign-in.
 #[derive(Clone)]
 struct SessionContext {
+    /// Working directory of the session being created.
     cwd: PathBuf,
+    /// The agent's configured directory, used when a follow-up session asks
+    /// for no particular folder ("Sessions" group in the panel).
+    default_cwd: PathBuf,
     mcp_servers: Vec<McpServer>,
     /// Session to resume via `session/load` instead of creating a new one.
     resume_session_id: Option<String>,
@@ -808,6 +841,7 @@ async fn establish_session(
                     modes: response.modes.as_ref().map(modes_view),
                     config_options: response.config_options.clone(),
                     agent_info: context.agent_info.clone(),
+                    cwd: Some(context.cwd.to_string_lossy().to_string()),
                 });
             }
             Err(error) if is_auth_required_error(&error) => return Err(error),
@@ -837,6 +871,7 @@ async fn establish_session(
         modes: session.modes.as_ref().map(modes_view),
         config_options: session.config_options.clone(),
         agent_info: context.agent_info.clone(),
+        cwd: Some(context.cwd.to_string_lossy().to_string()),
     })
 }
 
@@ -880,6 +915,24 @@ async fn park_loop(
                     .send_notification(CancelNotification::new(SessionId::new(session_id)))
                     .map_err(|e| e.to_string());
                 let _ = reply.send(result);
+            }
+            SessionRequest::NewSession { cwd, reply } => {
+                // A "new session" is always fresh, even when the current one
+                // came from `session/load` — clear the resume target so
+                // `establish_session` takes the `session/new` path.
+                let connection_for_new = connection.clone();
+                let mut context_for_new = context.clone();
+                context_for_new.resume_session_id = None;
+                // No folder given means "the agent's default directory", not
+                // "wherever this connection happens to be pointed".
+                context_for_new.cwd = cwd.unwrap_or_else(|| context.default_cwd.clone());
+                let _ = connection.spawn(async move {
+                    let result = establish_session(&connection_for_new, &context_for_new)
+                        .await
+                        .map_err(|e| e.to_string());
+                    let _ = reply.send(result);
+                    Ok(())
+                });
             }
             SessionRequest::SetMode {
                 session_id,

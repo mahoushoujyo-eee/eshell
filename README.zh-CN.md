@@ -51,7 +51,7 @@ Ops Agent 是项目的核心 AI 子系统，代码位于 `src-tauri/src/ops_agen
 
 - Tauri 2
 - Rust
-- ssh2
+- russh / russh-sftp（异步 SSH，每个标签页复用一条连接）
 - reqwest
 - serde / serde_json
 

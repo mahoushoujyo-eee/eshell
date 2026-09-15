@@ -84,6 +84,8 @@ export function useAcpAgent() {
   const [usage, setUsage] = useState(null);
   const [turnActive, setTurnActive] = useState(false);
   const [history, setHistory] = useState([]);
+  // Local directories ACP sessions can run in ({id, name, path, createdAt}).
+  const [projects, setProjects] = useState([]);
   // Terminal selection staged for the next prompt ({sessionId, sessionName, content}).
   const [shellContext, setShellContext] = useState(null);
 
@@ -91,6 +93,9 @@ export function useAcpAgent() {
   // arriving during the handshake (e.g. session/load replay) are kept.
   const engagedAgentRef = useRef(null);
   const pendingResumeRef = useRef(null);
+  // Project ({id, path}) the pending start belongs to; survives the sign-in
+  // detour so a post-auth session still lands in the right folder.
+  const projectRef = useRef(null);
   const sessionRef = useRef(null);
   sessionRef.current = session;
   const phaseRef = useRef(phase);
@@ -195,10 +200,67 @@ export function useAcpAgent() {
     }
   }, []);
 
+  const refreshProjects = useCallback(async () => {
+    try {
+      const rows = await api.acpProjectList();
+      if (Array.isArray(rows)) {
+        setProjects(rows);
+      }
+    } catch {
+      // Same deal as history: an unreadable registry shows as "no projects".
+    }
+  }, []);
+
+  // Registers a directory picked in the OS folder dialog. The backend rejects
+  // non-directories and returns the existing entry for a duplicate path.
+  const createProject = useCallback(
+    async (path) => {
+      try {
+        const project = await api.acpProjectCreate(path);
+        await refreshProjects();
+        return project;
+      } catch (err) {
+        pushNotice("error", "project-create-failed", err);
+        return null;
+      }
+    },
+    [pushNotice, refreshProjects],
+  );
+
+  // "New project" flow: OS folder picker, then register the chosen directory.
+  // A cancelled dialog returns null and registers nothing.
+  const addProject = useCallback(async () => {
+    try {
+      const path = await api.selectDirectory();
+      if (!path) {
+        return null;
+      }
+      return await createProject(path);
+    } catch (err) {
+      pushNotice("error", "project-create-failed", err);
+      return null;
+    }
+  }, [createProject, pushNotice]);
+
+  // Removes the project entry only; its transcripts survive as ungrouped
+  // sessions, which is what the backend does too.
+  const deleteProject = useCallback(
+    async (id) => {
+      try {
+        await api.acpProjectDelete(id);
+        await refreshProjects();
+      } catch (err) {
+        pushNotice("error", "project-delete-failed", err);
+      }
+    },
+    [pushNotice, refreshProjects],
+  );
+
   useEffect(() => {
     void refreshAgents();
     void refreshHistory();
-  }, [refreshAgents, refreshHistory]);
+    void refreshProjects();
+  }, [refreshAgents, refreshHistory, refreshProjects]);
 
   // Persists the current transcript; called after each turn and on stop.
   const saveHistory = useCallback(async () => {
@@ -222,6 +284,9 @@ export function useAcpAgent() {
         title,
         createdAt: current.createdAt || "",
         updatedAt: "",
+        // Grouping + resume need to know which project (and folder) this ran in.
+        projectId: current.projectId ?? null,
+        cwd: current.cwd ?? null,
         transcript: sanitizeEntriesForHistory(entries),
       });
       void refreshHistory();
@@ -312,6 +377,7 @@ export function useAcpAgent() {
           void saveHistory();
           engagedAgentRef.current = null;
           pendingResumeRef.current = null;
+          projectRef.current = null;
           setPhase("idle");
           setTurnActive(false);
           setSession(null);
@@ -348,7 +414,7 @@ export function useAcpAgent() {
   ]);
 
   const applyStartInfo = useCallback(
-    (agentId, info) => {
+    (agentId, info, project = null) => {
       const agentName =
         agentsRef.current.find((agent) => agent.id === agentId)?.name || agentId;
       setSession({
@@ -358,6 +424,10 @@ export function useAcpAgent() {
         modes: info.modes || null,
         agentInfo: info.agentInfo || null,
         capabilities: info.capabilities || null,
+        projectId: project?.id ?? null,
+        // The backend echoes the directory the session actually got, which is
+        // the agent's default when no project was named.
+        cwd: project?.path ?? info.cwd ?? null,
         createdAt: new Date().toISOString(),
       });
       setAuthMethods([]);
@@ -373,7 +443,7 @@ export function useAcpAgent() {
   );
 
   const startAgent = useCallback(
-    async (agentId, resumeSessionId = null) => {
+    async (agentId, resumeSessionId = null, project = null) => {
       if (!agentId || phaseRef.current !== "idle") {
         return;
       }
@@ -386,8 +456,9 @@ export function useAcpAgent() {
       setUsage(null);
       engagedAgentRef.current = agentId;
       pendingResumeRef.current = resumeSessionId;
+      projectRef.current = project;
       try {
-        const info = await api.acpAgentStart(agentId, resumeSessionId);
+        const info = await api.acpAgentStart(agentId, resumeSessionId, project?.path ?? null);
         if (info.authRequired) {
           // Connection stays alive parked; the user picks a sign-in method and
           // `authenticate` completes the session (retrying the resume too).
@@ -395,7 +466,7 @@ export function useAcpAgent() {
           setPhase("auth");
           return;
         }
-        applyStartInfo(agentId, info);
+        applyStartInfo(agentId, info, project);
       } catch (err) {
         engagedAgentRef.current = null;
         pendingResumeRef.current = null;
@@ -419,7 +490,12 @@ export function useAcpAgent() {
         return;
       }
       setActiveAgentId(record.agentId);
-      await startAgent(record.agentId, record.id);
+      // Reopen in the folder the session originally ran in, so the agent's
+      // working tree matches the resumed conversation.
+      await startAgent(record.agentId, record.id, {
+        id: record.projectId ?? null,
+        path: record.cwd ?? null,
+      });
     },
     [startAgent],
   );
@@ -433,7 +509,7 @@ export function useAcpAgent() {
       setPhase("authenticating");
       try {
         const info = await api.acpAgentAuthenticate(agentId, methodId);
-        applyStartInfo(agentId, info);
+        applyStartInfo(agentId, info, projectRef.current);
       } catch (err) {
         // The agent may have died mid sign-in; `stopped` already reset state.
         if (engagedAgentRef.current === agentId) {
@@ -485,6 +561,77 @@ export function useAcpAgent() {
     },
     [activeAgentId, startAgent, stop],
   );
+
+  // Opens a session, reusing the agent process when one is already running for
+  // the target agent (a second `session/new` on the live connection) and
+  // spawning otherwise. `project` ({id, path}) picks the working directory.
+  const startSession = useCallback(
+    async ({ agentId = null, project = null } = {}) => {
+      const targetAgent = agentId || activeAgentId;
+      if (!targetAgent) {
+        return;
+      }
+      const current = sessionRef.current;
+
+      if (phaseRef.current === "ready" && current?.agentId === targetAgent) {
+        if (turnActive) {
+          return;
+        }
+        try {
+          // Persists the outgoing transcript under its own session id before
+          // the session state (and transcript) is replaced below.
+          await saveHistory();
+          const info = await api.acpSessionNew(targetAgent, project?.path ?? null);
+          setTranscript([]);
+          setPlan(null);
+          setUsage(null);
+          setTurnActive(false);
+          setSession((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  id: info.sessionId,
+                  modes: info.modes || null,
+                  projectId: project?.id ?? null,
+                  cwd: project?.path ?? info.cwd ?? null,
+                  createdAt: new Date().toISOString(),
+                }
+              : prev,
+          );
+          // Slash commands and the model/thought selectors are agent-level, so
+          // the previous values stay unless the new session advertises its own.
+          if (Array.isArray(info.configOptions)) {
+            setConfigOptions(info.configOptions);
+          }
+        } catch (err) {
+          pushNotice("error", "new-session-failed", err);
+        }
+        return;
+      }
+
+      // No live session for this agent: start one. A runner left over from a
+      // window reload has to be stopped first, or the backend refuses.
+      if (phaseRef.current !== "idle") {
+        return;
+      }
+      if (agentsRef.current.find((agent) => agent.id === targetAgent)?.running) {
+        await stop(targetAgent);
+      }
+      await startAgent(targetAgent, null, project);
+    },
+    [activeAgentId, pushNotice, saveHistory, startAgent, stop, turnActive],
+  );
+
+  // Header button: same agent and project as the live session, just a clean slate.
+  const newSession = useCallback(() => {
+    const current = sessionRef.current;
+    return startSession({
+      agentId: current?.agentId ?? null,
+      project: current
+        ? { id: current.projectId ?? null, path: current.cwd ?? null }
+        : null,
+    });
+  }, [startSession]);
 
   const sendPrompt = useCallback(
     async (text, images = []) => {
@@ -678,12 +825,19 @@ export function useAcpAgent() {
     usage,
     turnActive,
     history,
+    projects,
+    refreshProjects,
+    createProject,
+    addProject,
+    deleteProject,
     shellContext,
     attachShellContext,
     clearShellContext,
     start,
     stop,
     reclaimAndStart,
+    newSession,
+    startSession,
     authenticate,
     resumeHistory,
     getHistoryRecord,

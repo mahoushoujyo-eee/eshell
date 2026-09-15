@@ -462,11 +462,7 @@ async fn execute_remote_command(
     session_id: String,
     command: String,
 ) -> AppResult<CommandExecutionResult> {
-    tauri::async_runtime::spawn_blocking(move || {
-        server_ops::execute_command(&state, &session_id, &command)
-    })
-    .await
-    .map_err(|error| AppError::Runtime(error.to_string()))?
+    server_ops::execute_command(&state, &session_id, &command).await
 }
 
 fn validate_read_shell_command(command: &str) -> AppResult<String> {
@@ -811,8 +807,8 @@ mod tests {
             validate_read_shell_command("ps aux; free -m; df -h").expect("read-only ; chain");
         assert_eq!(semi_chain, "ps aux; free -m; df -h");
 
-        let or_chain = validate_read_shell_command("ls /tmp || echo 'not found'")
-            .expect("read-only || chain");
+        let or_chain =
+            validate_read_shell_command("ls /tmp || echo 'not found'").expect("read-only || chain");
         assert_eq!(or_chain, "ls /tmp || echo 'not found'");
     }
 

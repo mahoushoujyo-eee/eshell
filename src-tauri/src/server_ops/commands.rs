@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tauri::State;
 
-use crate::error::{to_command_error, AppError, AppResult};
+use crate::error::{to_command_error, AppError};
 use crate::models::{
     CancelShellConnectionInput, CloseShellInput, CommandExecutionResult, ExecuteCommandInput,
     FetchServerStatusInput, OpenShellInput, PtyResizeInput, PtyWriteInput, RunScriptInput,
@@ -22,8 +22,8 @@ pub fn list_shell_sessions(state: State<'_, Arc<AppState>>) -> Result<Vec<ShellS
 
 /// Opens a new shell session for a selected SSH profile.
 ///
-/// This command performs network IO and authentication, so we execute it
-/// on a blocking worker thread to keep the async runtime responsive.
+/// The underlying server_ops layer performs its own connection handshake and
+/// spawns the long-lived PTY worker, so this command simply awaits it.
 #[tauri::command]
 pub async fn open_shell_session(
     state: State<'_, Arc<AppState>>,
@@ -31,15 +31,14 @@ pub async fn open_shell_session(
     input: OpenShellInput,
 ) -> Result<ShellSession, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || {
-        super::open_shell_session(
-            app_state,
-            app,
-            &input.config_id,
-            input.request_id.as_deref(),
-        )
-    })
+    super::open_shell_session(
+        app_state,
+        app,
+        &input.config_id,
+        input.request_id.as_deref(),
+    )
     .await
+    .map_err(to_command_error)
 }
 
 /// Requests cancellation for a pending shell connection attempt.
@@ -85,8 +84,9 @@ pub async fn execute_shell_command(
     input: ExecuteCommandInput,
 ) -> Result<CommandExecutionResult, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::execute_command(&app_state, &input.session_id, &input.command))
+    super::execute_command(&app_state, &input.session_id, &input.command)
         .await
+        .map_err(to_command_error)
 }
 
 /// Browses one remote directory via SFTP.
@@ -97,7 +97,9 @@ pub async fn sftp_list_dir(
     input: SftpListInput,
 ) -> Result<SftpListResponse, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_list_dir(&app_state, Some(&app), input)).await
+    super::sftp_list_dir(&app_state, Some(&app), input)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Reads remote text file content for editor view.
@@ -108,7 +110,9 @@ pub async fn sftp_read_file(
     input: SftpReadInput,
 ) -> Result<SftpFileContent, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_read_file(&app_state, Some(&app), input)).await
+    super::sftp_read_file(&app_state, Some(&app), input)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Writes text editor content back to remote file through SFTP.
@@ -119,7 +123,9 @@ pub async fn sftp_write_file(
     input: SftpWriteInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_write_file(&app_state, Some(&app), input)).await
+    super::sftp_write_file(&app_state, Some(&app), input)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Creates an empty remote file through SFTP.
@@ -130,7 +136,9 @@ pub async fn sftp_create_file(
     input: SftpCreateInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_create_file(&app_state, Some(&app), input)).await
+    super::sftp_create_file(&app_state, Some(&app), input)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Creates one remote directory through SFTP.
@@ -141,7 +149,9 @@ pub async fn sftp_create_directory(
     input: SftpCreateInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_create_directory(&app_state, Some(&app), input)).await
+    super::sftp_create_directory(&app_state, Some(&app), input)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Uploads local file bytes (base64 payload) to a remote path via SFTP.
@@ -152,7 +162,9 @@ pub async fn sftp_upload_file(
     input: SftpUploadInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_upload_file(&app_state, Some(&app), input)).await
+    super::sftp_upload_file(&app_state, Some(&app), input)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Deletes one remote file or symlink via SFTP.
@@ -163,7 +175,9 @@ pub async fn sftp_delete_entry(
     input: SftpDeleteInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_delete_entry(&app_state, Some(&app), input)).await
+    super::sftp_delete_entry(&app_state, Some(&app), input)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Renames one remote file, symlink, or directory via SFTP.
@@ -174,10 +188,16 @@ pub async fn sftp_rename_entry(
     input: SftpRenameInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_rename_entry(&app_state, Some(&app), input)).await
+    super::sftp_rename_entry(&app_state, Some(&app), input)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Uploads local file bytes (base64 payload) and emits transfer progress events.
+///
+/// The transfer runs on a detached task so it keeps its own lifetime even if
+/// the frontend cancels the await; the command still waits for the task and
+/// reports a task failure as a command error.
 #[tauri::command]
 pub async fn sftp_upload_file_with_progress(
     state: State<'_, Arc<AppState>>,
@@ -185,7 +205,12 @@ pub async fn sftp_upload_file_with_progress(
     input: SftpUploadWithProgressInput,
 ) -> Result<SftpTransferResult, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_upload_file_with_progress(&app_state, &app, input)).await
+    tauri::async_runtime::spawn(async move {
+        super::sftp_upload_file_with_progress(&app_state, &app, input).await
+    })
+    .await
+    .map_err(|error| to_command_error(AppError::Runtime(error.to_string())))?
+    .map_err(to_command_error)
 }
 
 /// Streams a local file path to a remote path and emits transfer progress events.
@@ -196,7 +221,12 @@ pub async fn sftp_upload_local_file_with_progress(
     input: SftpUploadLocalWithProgressInput,
 ) -> Result<SftpTransferResult, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_upload_local_file_with_progress(&app_state, &app, input)).await
+    tauri::async_runtime::spawn(async move {
+        super::sftp_upload_local_file_with_progress(&app_state, &app, input).await
+    })
+    .await
+    .map_err(|error| to_command_error(AppError::Runtime(error.to_string())))?
+    .map_err(to_command_error)
 }
 
 /// Downloads remote file content via SFTP and returns base64 payload.
@@ -207,7 +237,9 @@ pub async fn sftp_download_file(
     input: SftpDownloadInput,
 ) -> Result<SftpDownloadPayload, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_download_file(&app_state, Some(&app), input)).await
+    super::sftp_download_file(&app_state, Some(&app), input)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Downloads one remote file directly to a local directory with progress events.
@@ -218,7 +250,12 @@ pub async fn sftp_download_file_to_local(
     input: SftpDownloadToLocalInput,
 ) -> Result<SftpTransferResult, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_download_file_to_local(&app_state, &app, input)).await
+    tauri::async_runtime::spawn(async move {
+        super::sftp_download_file_to_local(&app_state, &app, input).await
+    })
+    .await
+    .map_err(|error| to_command_error(AppError::Runtime(error.to_string())))?
+    .map_err(to_command_error)
 }
 
 /// Returns default local download directory for current OS.
@@ -244,7 +281,9 @@ pub async fn fetch_server_status(
     input: FetchServerStatusInput,
 ) -> Result<crate::models::ServerStatus, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::fetch_server_status(&app_state, Some(&app), input)).await
+    super::fetch_server_status(&app_state, Some(&app), input)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Returns cached metrics for instant UI render when switching tabs.
@@ -267,24 +306,28 @@ pub async fn run_script(
     input: RunScriptInput,
 ) -> Result<RunScriptResult, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || {
-        let script = app_state.storage.find_script(&input.script_id)?;
-        let command = if script.command.trim().is_empty() {
-            format!("bash {}", shell_quote(&script.path))
-        } else {
-            script.command.clone()
-        };
-        let execution = super::execute_command(&app_state, &input.session_id, &command)?;
-        Ok(RunScriptResult {
-            script_id: script.id,
-            script_name: script.name,
-            execution,
-        })
+    // Storage lookup is synchronous in-memory work; only the remote execution
+    // is async, so it is awaited directly instead of being wrapped.
+    let script = app_state
+        .storage
+        .find_script(&input.script_id)
+        .map_err(to_command_error)?;
+    let command = if script.command.trim().is_empty() {
+        format!("bash {}", shell_quote(&script.path))
+    } else {
+        script.command.clone()
+    };
+    let execution = super::execute_command(&app_state, &input.session_id, &command)
+        .await
+        .map_err(to_command_error)?;
+    Ok(RunScriptResult {
+        script_id: script.id,
+        script_name: script.name,
+        execution,
     })
-    .await
 }
 
-/// Delivers keyboard-interactive responses from the UI to the waiting SSH auth thread.
+/// Delivers keyboard-interactive responses from the UI to the waiting SSH auth task.
 #[tauri::command]
 pub fn ssh_ki_respond(
     state: State<'_, Arc<AppState>>,
@@ -295,15 +338,4 @@ pub fn ssh_ki_respond(
 
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-async fn run_blocking<T, F>(work: F) -> Result<T, String>
-where
-    T: Send + 'static,
-    F: FnOnce() -> AppResult<T> + Send + 'static,
-{
-    tauri::async_runtime::spawn_blocking(work)
-        .await
-        .map_err(|error| to_command_error(AppError::Runtime(error.to_string())))?
-        .map_err(to_command_error)
 }

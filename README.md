@@ -51,7 +51,7 @@ Backend:
 
 - Tauri 2
 - Rust
-- ssh2
+- russh / russh-sftp (async SSH, one connection per tab)
 - reqwest
 - serde / serde_json
 

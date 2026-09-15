@@ -114,6 +114,7 @@ pub fn run() {
             ops_agent::acp::commands::acp_agent_stop,
             ops_agent::acp::commands::acp_session_prompt,
             ops_agent::acp::commands::acp_session_cancel,
+            ops_agent::acp::commands::acp_session_new,
             ops_agent::acp::commands::acp_permission_respond,
             ops_agent::acp::commands::acp_session_set_mode,
             ops_agent::acp::commands::acp_session_set_config_option,
@@ -122,6 +123,9 @@ pub fn run() {
             ops_agent::acp::commands::acp_history_list,
             ops_agent::acp::commands::acp_history_get,
             ops_agent::acp::commands::acp_history_delete,
+            ops_agent::acp::projects::acp_project_list,
+            ops_agent::acp::projects::acp_project_create,
+            ops_agent::acp::projects::acp_project_delete,
             commands::ai::ai_ask
         ])
         .run(tauri::generate_context!())

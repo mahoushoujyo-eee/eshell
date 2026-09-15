@@ -66,7 +66,8 @@ pub fn run() {
 pub enum AppError {
     Io(std::io::Error),
     SerdeJson(serde_json::Error),
-    Ssh(ssh2::Error),
+    SshTransport(russh::Error),
+    Sftp(russh_sftp::client::error::Error),
     Reqwest(reqwest::Error),
     Base64(base64::DecodeError),
     NotFound(String),
@@ -117,9 +118,9 @@ pub struct AppState {
     pub ops_agent_runs: OpsAgentRunRegistry,       // 运行注册表（取消控制）
     sessions: RwLock<HashMap<String, ShellSession>>,        // 运行时会话
     status_cache: RwLock<HashMap<String, ServerStatus>>,    // 状态缓存
-    pty_channels: RwLock<HashMap<String, Sender<PtyCommand>>>, // PTY 控制通道
-    shell_connection_cancellations: RwLock<HashMap<String, bool>>, // SSH 连接取消标记
-    sftp_transfer_cancellations: RwLock<HashMap<String, bool>>, // 传输取消标记
+    pty_channels: RwLock<HashMap<String, UnboundedSender<PtyCommand>>>, // PTY 控制通道
+    shell_connection_cancellations: RwLock<HashMap<String, CancellationToken>>, // SSH 连接取消标记
+    sftp_transfer_cancellations: RwLock<HashMap<String, CancellationToken>>, // 传输取消标记
 }
 ```
 
@@ -128,16 +129,16 @@ pub struct AppState {
 - `mutate_session()` — 原子性更新（用于 `cd` 后更新当前目录）
 
 **PTY 控制**：
-- `put_pty_channel()` — 注册会话的 PTY 控制通道（mpsc::Sender）
+- `put_pty_channel()` — 注册会话的 PTY 控制通道（tokio mpsc::UnboundedSender）
 - `send_pty_command()` — 发送 Input / Resize / Close 命令
 - `remove_pty_channel()` — 关闭时清理
 
 **SSH 连接取消**：
 - `begin_shell_connection()` / `cancel_shell_connection()` / `is_shell_connection_cancelled()` — 通过 request id 标记待取消的连接尝试
-- 取消检查发生在 TCP 建连循环中；TCP 建立后 SSH handshake/auth 使用阻塞模式以兼容 `ssh2` 和不同服务器实现
+- TCP、握手、认证与 KI 等待通过 tokio select 响应 CancellationToken；不再轮询 bool 标记。
 
 **SFTP 传输取消**：
-- `begin_sftp_transfer()` / `cancel_sftp_transfer()` / `is_sftp_transfer_cancelled()` — 简单的 HashMap 标记机制
+- `begin_sftp_transfer()` / `cancel_sftp_transfer()` / `is_sftp_transfer_cancelled()` — 每项传输独立 CancellationToken，与 tab 关闭信号一起打断等待
 
 所有 HashMap 都用 `RwLock` 保护。由于 Tauri 命令可能在多线程执行，这是必要的同步手段。
 
@@ -166,54 +167,28 @@ pub struct AppState {
 
 ## 服务器操作层（server_ops）
 
-[`server_ops/service.rs`](src-tauri/src/server_ops/service.rs) 是 SSH/PTY/SFTP/状态采集的核心实现，基于 `ssh2` crate。
+实现拆分为 `transport/`、`service.rs`、`pty.rs`、`sftp.rs` 与 `channel.rs`。详见 [SSH 传输层](ssh_transport.md)。
 
 ### SSH 连接
 
-```rust
-fn connect(config: &SshConfig) -> AppResult<Session>
-```
+russh 在 tokio runtime 上建立 TCP/跳板流，验证 host key，再进行密码/私钥/KI 认证。每个标签页缓存一条连接，各功能使用独立 channel。按标签页的异步建连锁保证并发请求只握手一次；取消通过 CancellationToken 唤醒，不阻塞 runtime。
 
-- `connect_with_cancellation()` 可选接收 request id
-- `connect_tcp_with_cancellation()` 使用短超时 `TcpStream::connect_timeout` 循环建立 TCP，并在每轮检查取消标记
-- `Session::new()` 创建 SSH 会话
-- `session.handshake()` → `session.userauth_password()` 密码认证
-- 连接失败时返回 `AppError::Ssh`
-
-前端打开 SSH 会话时可传 `requestId`：
-- `open_shell_session` 开始连接并注册取消标记
-- 用户点击取消时调用 `cancel_open_shell_session`
-- 后端命中取消标记后返回 `"SSH connection cancelled by user"`
-- 取消被前端作为用户动作处理，不显示为普通连接失败
-
-注意：取消不强行中断已经进入 libssh2 handshake/auth 的阻塞调用，这是为了避免部分服务器在非阻塞握手下返回 `Session(-9)` socket timeout。
+`requestId`、`cancel_open_shell_session`、主机密钥 challenge 和 KI 事件协议保持不变。keepalive 由 russh Config 管理。
 
 ### 命令执行
 
-[`execute_command()`](src-tauri/src/server_ops/service.rs:128)：
-- 每个命令**新开一个 SSH Session**（通过 `connect()`）
-- 在远程执行 `cd <current_dir> && <command>`
-- 特殊处理 `cd` 命令：解析目标目录，执行 `cd ... && pwd`，成功后更新 `session.current_dir`
-- 返回 `CommandExecutionResult`（含 stdout/stderr/exit_code/duration_ms）
-
-**为什么每个命令都新建 SSH Session？** 为了隔离：不同标签页的命令不会互相干扰工作目录。
+- 每个命令在缓存连接上打开 exec channel，不锁住 PTY/SFTP。
+- 只有 channel-open 阶段发现死连接才重连重试一次；命令发送之后不重放。
+- 初始 cwd 为空，不额外执行 `pwd`。未知目录或 `~` 不增加 `cd` 前缀；独立 `cd` 成功后严格解析 `pwd` 更新目录。
+- 返回原 `CommandExecutionResult`，同时收集 stdout/stderr 并等待退出状态。
 
 ### PTY 交互式终端
 
-[`open_shell_session()`](src-tauri/src/server_ops/service.rs:41) → `start_pty_worker()`：
-
-1. 连接 SSH 后，开一个 `Channel`，请求 PTY（`request_pty`）
-2. 启动 Shell（`request_shell` / `exec`）
-3. **启动独立线程**作为 PTY Worker：
-   - 通过 `mpsc::channel` 接收前端的 `PtyCommand::Input` / `Resize` / `Close`
-   - 循环读取 SSH Channel 的输出，通过 Tauri 的 `app.emit("pty-output", ...)` 推送到前端
-   - 限流机制：`PTY_MAX_READ_CHUNKS_PER_TICK` 等常量防止单个会话占满 CPU
-
-前端 `xterm.js` 收到 `"pty-output"` 事件后写入终端。
+PTY worker 是 tokio task，使用 tokio mpsc 接收 Input/Resize/Close，输出通过原 `pty-output` 事件推送。输入窗口阻塞不妨碍读取/取消；输出批量发送并保留跨包 UTF-8。异常断连发送 `pty-closed`，前端继续使用原重连入口。
 
 ### SFTP 文件操作
 
-基于 SSH Session 的 SFTP 子系统：
+基于共享 russh 连接的独立 channel，使用 russh-sftp 异步子系统：
 
 | 函数 | 说明 |
 |------|------|
@@ -640,11 +615,11 @@ pub struct ProviderChatMessageResponse {
 pub async fn sftp_list_dir(state: State<'_, Arc<AppState>>, input: SftpListInput) 
     -> Result<SftpListResponse, String> {
     let app_state = Arc::clone(state.inner());
-    run_blocking(move || super::sftp_list_dir(&app_state, input)).await
+    super::sftp_list_dir(&app_state, None, input).await.map_err(to_command_error)
 }
 ```
 
-**阻塞操作的处理**：所有涉及网络 IO 的命令（SSH/SFTP/AI 请求）都包装在 `tauri::async_runtime::spawn_blocking()` 中，避免阻塞 Tauri 的异步运行时。
+**异步 IO**：SSH/SFTP/MCP/Ops Agent 调用直接 await，进度传输运行在 async task。私钥解密等阻塞工作单独放到 spawn_blocking。
 
 ---
 
@@ -671,7 +646,7 @@ pub async fn sftp_list_dir(state: State<'_, Arc<AppState>>, input: SftpListInput
     │       ↓
     ├── [tools/shell.rs] ShellTool::execute()
     │       ↓
-    │   [server_ops/service.rs] execute_command() → ssh2
+    │   [server_ops/service.rs] execute_command().await → russh channel
     │       ↓
     │   只读？直接执行 → Executed
     │   变更？创建 PendingAction → AwaitingApproval

@@ -12,11 +12,15 @@ import {
   ChevronRight,
   CircleDashed,
   CircleStop,
-  History,
+  Folder,
+  FolderKanban,
+  FolderPlus,
   KeyRound,
   ListTodo,
   Loader2,
+  MessageSquarePlus,
   Play,
+  Plus,
   RotateCcw,
   Send,
   ShieldQuestion,
@@ -478,6 +482,15 @@ function NoticeRow({ entry }) {
     case "start-failed":
       text = `${t("Failed to start agent")}: ${detail}`;
       break;
+    case "new-session-failed":
+      text = `${t("Failed to start a new session")}: ${detail}`;
+      break;
+    case "project-create-failed":
+      text = `${t("Failed to add project")}: ${detail}`;
+      break;
+    case "project-delete-failed":
+      text = `${t("Failed to remove project")}: ${detail}`;
+      break;
     case "turn-stopped":
       if (detail === "cancelled") {
         text = t("Turn cancelled");
@@ -632,10 +645,209 @@ function TranscriptEntry({ entry, onRespondPermission }) {
   return null;
 }
 
-// History browser: list of persisted sessions, with per-entry view/resume/delete.
-function AcpHistoryPanel({ history, phase, onView, onResume, onDelete, onClose }) {
+// Relative timestamps for the browser rows ("刚刚" / "11 分钟" / "3 天").
+function formatRelativeTime(iso, t) {
+  const then = Date.parse(iso || "");
+  if (Number.isNaN(then)) {
+    return "";
+  }
+  const minutes = Math.floor((Date.now() - then) / 60000);
+  if (minutes < 1) {
+    return t("just now");
+  }
+  if (minutes < 60) {
+    return t("{count} min", { count: minutes });
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return t("{count} h", { count: hours });
+  }
+  const days = Math.floor(hours / 24);
+  if (days < 30) {
+    return t("{count} d", { count: days });
+  }
+  return (iso || "").slice(0, 10);
+}
+
+// One session row inside a project (or the ungrouped section): title plus a
+// relative timestamp, with resume/delete revealed on hover like the mockup.
+function AcpSessionRow({ row, active, canResume, onView, onResume, onDelete }) {
+  const { t } = useI18n();
+  return (
+    <div
+      className={[
+        "group flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs",
+        active ? "bg-accent/10" : "hover:bg-surface/70",
+      ].join(" ")}
+    >
+      <button
+        type="button"
+        onClick={() => onView(row)}
+        title={t("View transcript")}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+      >
+        {active ? (
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+        ) : null}
+        <span className="min-w-0 flex-1 truncate text-text/88">{row.title || row.id}</span>
+        <span className="shrink-0 text-[10px] text-muted">
+          {formatRelativeTime(row.updatedAt, t)}
+        </span>
+      </button>
+      <button
+        type="button"
+        disabled={!canResume}
+        onClick={() => onResume(row)}
+        title={canResume ? t("Resume session") : t("Stop the current session first")}
+        className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-accent/10 hover:text-text group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
+      >
+        <Play className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onDelete(row)}
+        title={t("Delete")}
+        className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 focus:opacity-100"
+      >
+        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+// One collapsible project group: folder header + its sessions, with a
+// new-session shortcut and the folder path as the tooltip.
+function AcpProjectGroup({
+  project,
+  label,
+  pathTitle,
+  removable = true,
+  sessions,
+  activeSessionId,
+  canResume,
+  onView,
+  onResume,
+  onDelete,
+  onNewSession,
+  onDeleteProject,
+  busy,
+}) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(true);
+  const [showAll, setShowAll] = useState(false);
+  const VISIBLE = 3;
+  const visible = showAll ? sessions : sessions.slice(0, VISIBLE);
+  const hidden = sessions.length - visible.length;
+
+  return (
+    <div className="space-y-0.5">
+      <div className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-surface/70">
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          title={pathTitle}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          {expanded ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+          )}
+          <Folder className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">{label}</span>
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onNewSession(project)}
+          title={t("New session in this project")}
+          className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-accent/10 hover:text-text group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+        {removable ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onDeleteProject(project)}
+            title={t("Remove project")}
+            className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+      {expanded ? (
+        <div className="pl-4">
+          {sessions.length === 0 ? (
+            <p className="px-2 py-1 text-[11px] text-muted">{t("No sessions yet")}</p>
+          ) : (
+            visible.map((row) => (
+              <AcpSessionRow
+                key={row.id}
+                row={row}
+                active={row.id === activeSessionId}
+                canResume={canResume}
+                onView={onView}
+                onResume={onResume}
+                onDelete={onDelete}
+              />
+            ))
+          )}
+          {hidden > 0 || showAll ? (
+            <button
+              type="button"
+              onClick={() => setShowAll((prev) => !prev)}
+              className="px-2 py-1 text-[11px] text-accent hover:underline"
+            >
+              {showAll ? t("Show less") : t("Show more")}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Project browser: registered folders with their past sessions, plus a section
+// for sessions started without a project. Replaces the old flat history list.
+function AcpProjectBrowser({
+  projects,
+  history,
+  activeAgentId,
+  activeAgentName,
+  activeAgentCwd,
+  activeSessionId,
+  phase,
+  onView,
+  onResume,
+  onDelete,
+  onNewSession,
+  onAddProject,
+  onDeleteProject,
+  onClose,
+}) {
   const { t } = useI18n();
   const canResume = phase === "idle";
+  const busy = phase === "starting" || phase === "authenticating";
+  const knownProjectIds = useMemo(
+    () => new Set(projects.map((project) => project.id)),
+    [projects],
+  );
+  // Sessions are per-agent state: a codex session cannot be resumed by Claude
+  // Code, so the browser only ever shows the selected agent's own history.
+  const agentHistory = useMemo(
+    () => history.filter((row) => !activeAgentId || row.agentId === activeAgentId),
+    [history, activeAgentId],
+  );
+  // Everything without a project (legacy records, or sessions whose project was
+  // removed) lives in the pinned "Sessions" group, which runs in the agent's
+  // default working directory.
+  const ungrouped = agentHistory.filter(
+    (row) => !row.projectId || !knownProjectIds.has(row.projectId),
+  );
+  const defaultGroup = { id: null, name: t("Sessions"), path: null, virtual: true };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
@@ -647,61 +859,66 @@ function AcpHistoryPanel({ history, phase, onView, onResume, onDelete, onClose }
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           {t("Back")}
         </button>
-        <span className="text-sm font-semibold text-text">{t("Session history")}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">
+          {t("Projects")}
+        </span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void onAddProject()}
+          title={t("Add a local folder as a project")}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
+          {t("New project")}
+        </button>
       </div>
-      {history.length === 0 ? (
-        <div className="pt-8 text-center text-xs text-muted">{t("No saved sessions yet.")}</div>
-      ) : (
-        history.map((row) => (
-          <div
-            key={row.id}
-            className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface/50 px-3 py-2 text-xs"
-          >
-            <button
-              type="button"
-              onClick={() => onView(row)}
-              className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-              title={t("View transcript")}
-            >
-              <AcpAgentLogo
-                agent={{ id: row.agentId, name: row.agentName }}
-                className="h-7 w-7"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-text">{row.title || row.id}</span>
-                <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted">
-                  <span className="shrink-0">{row.agentName || row.agentId}</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="shrink-0">
-                    {(row.updatedAt || "").replace("T", " ").slice(0, 16)}
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span className="truncate">
-                    {t("{count} entries", { count: row.entryCount })}
-                  </span>
-                </span>
-              </span>
-            </button>
-            <button
-              type="button"
-              disabled={!canResume}
-              onClick={() => onResume(row)}
-              title={canResume ? t("Resume session") : t("Stop the current session first")}
-              className="shrink-0 rounded-md border border-border bg-surface p-1.5 text-text/88 hover:bg-accent/10 disabled:opacity-40"
-            >
-              <Play className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              onClick={() => onDelete(row)}
-              title={t("Delete")}
-              className="shrink-0 rounded-md border border-border bg-surface p-1.5 text-text/88 hover:bg-red-500/10 hover:text-red-500"
-            >
-              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-          </div>
-        ))
-      )}
+
+      {activeAgentName ? (
+        <p className="px-2 text-[10px] text-muted">
+          {t("{name} sessions", { name: activeAgentName })}
+        </p>
+      ) : null}
+
+      <AcpProjectGroup
+        project={defaultGroup}
+        label={defaultGroup.name}
+        pathTitle={activeAgentCwd || t("Default working directory")}
+        removable={false}
+        sessions={ungrouped}
+        activeSessionId={activeSessionId}
+        canResume={canResume}
+        busy={busy}
+        onView={onView}
+        onResume={onResume}
+        onDelete={onDelete}
+        onNewSession={onNewSession}
+        onDeleteProject={onDeleteProject}
+      />
+
+      {projects.map((project) => (
+        <AcpProjectGroup
+          key={project.id}
+          project={project}
+          label={project.name}
+          pathTitle={project.path}
+          sessions={agentHistory.filter((row) => row.projectId === project.id)}
+          activeSessionId={activeSessionId}
+          canResume={canResume}
+          busy={busy}
+          onView={onView}
+          onResume={onResume}
+          onDelete={onDelete}
+          onNewSession={onNewSession}
+          onDeleteProject={onDeleteProject}
+        />
+      ))}
+
+      {projects.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border/70 px-3 py-3 text-center text-[11px] leading-relaxed text-muted">
+          {t("No projects yet. Add a local folder to keep its sessions together.")}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -749,7 +966,7 @@ function AcpHistoryRecordView({ record, phase, onBack, onResume }) {
   );
 }
 
-export default function AcpAgentPanel({ acp, onClose }) {
+export default function AcpAgentPanel({ acp }) {
   const { t } = useI18n();
   const {
     agents,
@@ -765,11 +982,16 @@ export default function AcpAgentPanel({ acp, onClose }) {
     usage,
     turnActive,
     history,
+    projects,
+    addProject,
+    deleteProject,
+    startSession,
     shellContext,
     clearShellContext,
     start,
     stop,
     reclaimAndStart,
+    newSession,
     authenticate,
     resumeHistory,
     getHistoryRecord,
@@ -970,19 +1192,34 @@ export default function AcpAgentPanel({ acp, onClose }) {
               {usagePercent}%
             </span>
           ) : null}
+          {ready ? (
+            <button
+              type="button"
+              onClick={() => {
+                setViewingRecord(null);
+                setHistoryOpen(false);
+                void newSession();
+              }}
+              disabled={turnActive}
+              title={t("New session")}
+              className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text/88 hover:bg-accent/10 disabled:opacity-40"
+            >
+              <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => {
               setViewingRecord(null);
               setHistoryOpen((prev) => !prev);
             }}
-            title={t("Session history")}
+            title={t("Projects")}
             className={[
               "rounded-md border border-border bg-surface px-2 py-1 text-xs",
               historyOpen ? "text-accent" : "text-text/88 hover:bg-accent/10",
             ].join(" ")}
           >
-            <History className="h-3.5 w-3.5" aria-hidden="true" />
+            <FolderKanban className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
           {ready || orphanedSession ? (
             <button
@@ -999,14 +1236,6 @@ export default function AcpAgentPanel({ acp, onClose }) {
               <CircleStop className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            title={t("Close")}
-            className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text/88 hover:bg-accent/10"
-          >
-            <X className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
         </div>
       </header>
 
@@ -1024,12 +1253,24 @@ export default function AcpAgentPanel({ acp, onClose }) {
               onResume={handleResumeHistory}
             />
           ) : (
-            <AcpHistoryPanel
+            <AcpProjectBrowser
+              projects={projects}
               history={history}
+              activeAgentId={activeAgentId}
+              activeAgentName={activeAgent?.name ?? activeAgentId}
+              activeAgentCwd={activeAgent?.cwd ?? null}
+              activeSessionId={session?.id ?? null}
               phase={phase}
               onView={openHistoryRecord}
               onResume={handleResumeHistory}
               onDelete={(row) => void deleteHistoryRecord(row.id)}
+              onNewSession={(project) => {
+                setHistoryOpen(false);
+                setViewingRecord(null);
+                void startSession({ project });
+              }}
+              onAddProject={() => void addProject()}
+              onDeleteProject={(project) => void deleteProject(project.id)}
               onClose={() => setHistoryOpen(false)}
             />
           )

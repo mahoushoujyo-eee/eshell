@@ -7,8 +7,12 @@ pub enum AppError {
     Io(#[from] std::io::Error),
     #[error("JSON serialization error: {0}")]
     SerdeJson(#[from] serde_json::Error),
+    /// Failure reported by the russh SSH transport (connection, handshake, auth, channel).
     #[error("SSH error: {0}")]
-    Ssh(#[from] ssh2::Error),
+    SshTransport(#[from] russh::Error),
+    /// Failure reported by the SFTP subsystem.
+    #[error("SFTP error: {0}")]
+    Sftp(#[from] russh_sftp::client::error::Error),
     #[error("HTTP client error: {0}")]
     Reqwest(#[from] reqwest::Error),
     #[error("base64 decode error: {0}")]

@@ -118,16 +118,8 @@ async fn handle_http(
             .unwrap();
     }
 
-    // Tool calls run blocking SSH work; keep the connection task responsive.
-    let response = tokio::task::spawn_blocking(move || handle_rpc(&state, &message))
-        .await
-        .unwrap_or_else(|_| {
-            json!({
-                "jsonrpc": "2.0",
-                "id": Value::Null,
-                "error": {"code": -32603, "message": "internal error: worker panicked"}
-            })
-        });
+    // Tool calls await SSH/SFTP work directly on the connection task.
+    let response = handle_rpc(&state, &message).await;
 
     let payload = serde_json::to_vec(&response).unwrap_or_default();
     Response::builder()
@@ -145,9 +137,8 @@ fn plain_response(status: StatusCode, message: &str) -> Response<Full<Bytes>> {
         .unwrap()
 }
 
-/// Dispatches one JSON-RPC request. Sync so tools can call the blocking
-/// server_ops layer directly; the HTTP layer runs this on a blocking thread.
-pub(crate) fn handle_rpc(state: &Arc<AppState>, message: &Value) -> Value {
+/// Dispatches one JSON-RPC request, awaiting the async server_ops layer directly.
+pub(crate) async fn handle_rpc(state: &Arc<AppState>, message: &Value) -> Value {
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     let method = message
         .get("method")
@@ -159,7 +150,21 @@ pub(crate) fn handle_rpc(state: &Arc<AppState>, message: &Value) -> Value {
         "initialize" => Ok(initialize_result(&params)),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tool_definitions() })),
-        "tools/call" => call_tool(state, &params),
+        "tools/call" => call_tool(state, &params).await,
+        // eShell serves tools only, but a client probing the other primitive
+        // families must get a spec-shaped empty list rather than a method-not-
+        // found error — agents otherwise report the whole bridge as missing.
+        "resources/list" => Ok(json!({ "resources": [] })),
+        "resources/templates/list" => Ok(json!({ "resourceTemplates": [] })),
+        "prompts/list" => Ok(json!({ "prompts": [] })),
+        "resources/read" => Err((
+            -32602,
+            "eShell exposes MCP tools only; it has no resources to read".to_string(),
+        )),
+        "prompts/get" => Err((
+            -32602,
+            "eShell exposes MCP tools only; it has no prompts to serve".to_string(),
+        )),
         other => Err((-32601, format!("method not found: {other}"))),
     };
 
@@ -190,10 +195,14 @@ fn initialize_result(params: &Value) -> Value {
             "name": "eshell",
             "version": env!("CARGO_PKG_VERSION"),
         },
-        "instructions": "Tools for the servers the user manages in eShell. \
-            Call list_shell_sessions first: commands and file access run inside \
-            an existing session opened by the user (identified by sessionId) and \
-            execute on that remote server, in the session's current directory.",
+        "instructions": "This server exposes MCP tools only — it has no resources and \
+            no prompts, so empty resource/prompt lists are expected, not a failure. \
+            Tools for the servers the user manages in eShell: call read_agent_context \
+            once at session start (it returns the user's AGENTS.md instructions and the \
+            bundled eshell-config skill), and list_shell_sessions before any server work — \
+            commands and file access run inside an existing session opened by the user \
+            (identified by sessionId) and execute on that remote server, in the session's \
+            current directory.",
     })
 }
 
@@ -218,6 +227,15 @@ fn session_id_property() -> Value {
 
 fn tool_definitions() -> Vec<Value> {
     vec![
+        tool(
+            "read_agent_context",
+            "Read the user's agent context from eShell: the global AGENTS.md instructions \
+             users write for agents, plus the bundled eshell-config skill that documents \
+             eShell's config files and server-operation rules. Call this once at the \
+             start of a session before doing any work.",
+            json!({}),
+            &[],
+        ),
         tool(
             "list_ssh_profiles",
             "List the SSH server profiles configured in eShell (no credentials).",
@@ -280,20 +298,24 @@ fn tool_definitions() -> Vec<Value> {
     ]
 }
 
-fn call_tool(state: &Arc<AppState>, params: &Value) -> Result<Value, (i32, String)> {
+async fn call_tool(state: &Arc<AppState>, params: &Value) -> Result<Value, (i32, String)> {
     let Some(name) = params.get("name").and_then(Value::as_str) else {
         return Err((-32602, "tools/call requires params.name".to_string()));
     };
-    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let args = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
 
     let outcome: Result<Value, String> = match name {
+        "read_agent_context" => read_agent_context(state),
         "list_ssh_profiles" => Ok(list_ssh_profiles(state)),
         "list_shell_sessions" => Ok(list_shell_sessions(state)),
-        "execute_command" => execute_command(state, &args),
-        "read_remote_file" => read_remote_file(state, &args),
-        "write_remote_file" => write_remote_file(state, &args),
-        "list_remote_dir" => list_remote_dir(state, &args),
-        "get_server_status" => get_server_status(state, &args),
+        "execute_command" => execute_command(state, &args).await,
+        "read_remote_file" => read_remote_file(state, &args).await,
+        "write_remote_file" => write_remote_file(state, &args).await,
+        "list_remote_dir" => list_remote_dir(state, &args).await,
+        "get_server_status" => get_server_status(state, &args).await,
         other => return Err((-32602, format!("unknown tool `{other}`"))),
     };
 
@@ -317,7 +339,10 @@ fn to_bounded_text(value: &Value) -> String {
         return text;
     }
     let truncated: String = text.chars().take(MAX_TOOL_TEXT_CHARS).collect();
-    format!("{truncated}\n…[truncated {} chars]", text.chars().count() - MAX_TOOL_TEXT_CHARS)
+    format!(
+        "{truncated}\n…[truncated {} chars]",
+        text.chars().count() - MAX_TOOL_TEXT_CHARS
+    )
 }
 
 fn arg_str(args: &Value, key: &str) -> Result<String, String> {
@@ -326,6 +351,36 @@ fn arg_str(args: &Value, key: &str) -> Result<String, String> {
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
         .ok_or_else(|| format!("missing or empty argument `{key}`"))
+}
+
+/// Serves the agent-context tool: the global AGENTS.md plus the bundled
+/// eshell-config skill, so agents pick up the user's instructions without
+/// the app injecting them into prompts.
+fn read_agent_context(state: &Arc<AppState>) -> Result<Value, String> {
+    let global = state
+        .storage
+        .get_agent_context(None)
+        .map_err(|e| e.to_string())?;
+    let skill_path = state
+        .storage
+        .data_dir()
+        .join("agent")
+        .join("skills")
+        .join("eshell-config")
+        .join("SKILL.md");
+    let skill = std::fs::read_to_string(&skill_path)
+        .map_err(|e| format!("read {}: {e}", skill_path.display()))?;
+    Ok(json!({
+        "agentsMd": {
+            "path": global.path,
+            "exists": global.exists,
+            "content": global.content,
+        },
+        "eshellConfigSkill": {
+            "path": skill_path.to_string_lossy(),
+            "content": skill,
+        },
+    }))
 }
 
 fn list_ssh_profiles(state: &Arc<AppState>) -> Value {
@@ -363,10 +418,11 @@ fn list_shell_sessions(state: &Arc<AppState>) -> Value {
     json!({ "sessions": sessions })
 }
 
-fn execute_command(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
+async fn execute_command(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
     let session_id = arg_str(args, "sessionId")?;
     let command = arg_str(args, "command")?;
     let result = server_ops::execute_command(state, &session_id, &command)
+        .await
         .map_err(|e| e.to_string())?;
     Ok(json!({
         "stdout": result.stdout,
@@ -382,16 +438,18 @@ fn execute_command(state: &Arc<AppState>, args: &Value) -> Result<Value, String>
 // exists to emit keyboard-interactive 2FA prompts while (re)connecting, and a
 // headless HTTP tool call has no UI to prompt through — it fails with an error
 // instead, which is the right outcome for an agent-triggered call.
-fn read_remote_file(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
+async fn read_remote_file(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
     let input = SftpReadInput {
         session_id: arg_str(args, "sessionId")?,
         path: arg_str(args, "path")?,
     };
-    let file = server_ops::sftp_read_file(state, None, input).map_err(|e| e.to_string())?;
+    let file = server_ops::sftp_read_file(state, None, input)
+        .await
+        .map_err(|e| e.to_string())?;
     serde_json::to_value(file).map_err(|e| e.to_string())
 }
 
-fn write_remote_file(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
+async fn write_remote_file(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
     let input = SftpWriteInput {
         session_id: arg_str(args, "sessionId")?,
         path: arg_str(args, "path")?,
@@ -402,25 +460,31 @@ fn write_remote_file(state: &Arc<AppState>, args: &Value) -> Result<Value, Strin
             .ok_or("missing argument `content`")?,
     };
     let path = input.path.clone();
-    server_ops::sftp_write_file(state, None, input).map_err(|e| e.to_string())?;
+    server_ops::sftp_write_file(state, None, input)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(json!({ "written": path }))
 }
 
-fn list_remote_dir(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
+async fn list_remote_dir(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
     let input = SftpListInput {
         session_id: arg_str(args, "sessionId")?,
         path: arg_str(args, "path")?,
     };
-    let listing = server_ops::sftp_list_dir(state, None, input).map_err(|e| e.to_string())?;
+    let listing = server_ops::sftp_list_dir(state, None, input)
+        .await
+        .map_err(|e| e.to_string())?;
     serde_json::to_value(listing).map_err(|e| e.to_string())
 }
 
-fn get_server_status(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
+async fn get_server_status(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
     let input = FetchServerStatusInput {
         session_id: arg_str(args, "sessionId")?,
         selected_interface: None,
     };
-    let status = server_ops::fetch_server_status(state, None, input).map_err(|e| e.to_string())?;
+    let status = server_ops::fetch_server_status(state, None, input)
+        .await
+        .map_err(|e| e.to_string())?;
     serde_json::to_value(status).map_err(|e| e.to_string())
 }
 
@@ -440,26 +504,38 @@ mod tests {
         json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
     }
 
-    #[test]
-    fn initialize_echoes_supported_version_and_falls_back() {
+    #[tokio::test]
+    async fn initialize_echoes_supported_version_and_falls_back() {
         let state = test_state();
-        let response = handle_rpc(&state, &rpc("initialize", json!({"protocolVersion": "2025-06-18"})));
+        let response = handle_rpc(
+            &state,
+            &rpc("initialize", json!({"protocolVersion": "2025-06-18"})),
+        )
+        .await;
         assert_eq!(response["result"]["protocolVersion"], "2025-06-18");
         assert_eq!(response["result"]["serverInfo"]["name"], "eshell");
 
-        let response = handle_rpc(&state, &rpc("initialize", json!({"protocolVersion": "9999-01-01"})));
-        assert_eq!(response["result"]["protocolVersion"], FALLBACK_PROTOCOL_VERSION);
+        let response = handle_rpc(
+            &state,
+            &rpc("initialize", json!({"protocolVersion": "9999-01-01"})),
+        )
+        .await;
+        assert_eq!(
+            response["result"]["protocolVersion"],
+            FALLBACK_PROTOCOL_VERSION
+        );
     }
 
-    #[test]
-    fn tools_list_exposes_the_session_tools() {
+    #[tokio::test]
+    async fn tools_list_exposes_the_session_tools() {
         let state = test_state();
-        let response = handle_rpc(&state, &rpc("tools/list", json!({})));
+        let response = handle_rpc(&state, &rpc("tools/list", json!({}))).await;
         let tools = response["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools
             .iter()
             .map(|tool| tool["name"].as_str().unwrap())
             .collect();
+        assert!(names.contains(&"read_agent_context"));
         assert!(names.contains(&"execute_command"));
         assert!(names.contains(&"list_shell_sessions"));
         assert!(names.contains(&"read_remote_file"));
@@ -468,26 +544,72 @@ mod tests {
         }
     }
 
-    #[test]
-    fn unknown_method_and_unknown_tool_report_errors() {
+    #[tokio::test]
+    async fn read_agent_context_returns_global_md_and_skill() {
         let state = test_state();
-        let response = handle_rpc(&state, &rpc("bogus/method", json!({})));
+        state
+            .storage
+            .save_agent_context(None, "# my instructions")
+            .expect("save context");
+
+        let response = handle_rpc(
+            &state,
+            &rpc("tools/call", json!({"name": "read_agent_context", "arguments": {}})),
+        )
+        .await;
+        assert_eq!(response["result"]["isError"], false);
+        let text = response["result"]["content"][0]["text"].as_str().unwrap();
+        let payload: Value = serde_json::from_str(text).expect("json payload");
+        assert_eq!(payload["agentsMd"]["content"], "# my instructions");
+        assert_eq!(payload["agentsMd"]["exists"], true);
+        let skill = payload["eshellConfigSkill"]["content"].as_str().unwrap();
+        assert!(skill.contains("eshell-config"));
+    }
+
+    #[tokio::test]
+    async fn resource_and_prompt_probes_get_empty_lists_not_errors() {
+        let state = test_state();
+        for (method, key) in [
+            ("resources/list", "resources"),
+            ("resources/templates/list", "resourceTemplates"),
+            ("prompts/list", "prompts"),
+        ] {
+            let response = handle_rpc(&state, &rpc(method, json!({}))).await;
+            assert!(response.get("error").is_none(), "{method} must not error");
+            assert_eq!(response["result"][key], json!([]), "{method}");
+        }
+
+        // Actually reading gets a clear "tools only" message rather than -32601.
+        let response = handle_rpc(&state, &rpc("resources/read", json!({"uri": "x"}))).await;
+        assert_eq!(response["error"]["code"], -32602);
+        assert!(response["error"]["message"].as_str().unwrap().contains("tools only"));
+    }
+
+    #[tokio::test]
+    async fn unknown_method_and_unknown_tool_report_errors() {
+        let state = test_state();
+        let response = handle_rpc(&state, &rpc("bogus/method", json!({}))).await;
         assert_eq!(response["error"]["code"], -32601);
 
         let response = handle_rpc(
             &state,
             &rpc("tools/call", json!({"name": "bogus_tool", "arguments": {}})),
-        );
+        )
+        .await;
         assert_eq!(response["error"]["code"], -32602);
     }
 
-    #[test]
-    fn list_tools_work_on_empty_state_and_bad_session_errors_inside_result() {
+    #[tokio::test]
+    async fn list_tools_work_on_empty_state_and_bad_session_errors_inside_result() {
         let state = test_state();
         let response = handle_rpc(
             &state,
-            &rpc("tools/call", json!({"name": "list_shell_sessions", "arguments": {}})),
-        );
+            &rpc(
+                "tools/call",
+                json!({"name": "list_shell_sessions", "arguments": {}}),
+            ),
+        )
+        .await;
         assert_eq!(response["result"]["isError"], false);
 
         let response = handle_rpc(
@@ -496,7 +618,8 @@ mod tests {
                 "tools/call",
                 json!({"name": "execute_command", "arguments": {"sessionId": "nope", "command": "ls"}}),
             ),
-        );
+        )
+        .await;
         assert_eq!(response["result"]["isError"], true);
         let text = response["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("nope"));

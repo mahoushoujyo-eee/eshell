@@ -51,6 +51,13 @@ export const api = {
     invoke("sftp_upload_file_with_progress", {
       input: { sessionId, remotePath, contentBase64, transferId, localName },
     }),
+  // OS folder picker used when registering a project.
+  selectDirectory: (defaultPath) =>
+    open({
+      multiple: false,
+      directory: true,
+      defaultPath: defaultPath?.trim() ? defaultPath : undefined,
+    }),
   sftpSelectUploadFile: () =>
     open({
       multiple: false,
@@ -108,8 +115,8 @@ export const api = {
   listAgentContextFiles: () => invoke("list_agent_context_files"),
 
   acpAgentList: () => invoke("acp_agent_list"),
-  acpAgentStart: (agentId, resumeSessionId = null) =>
-    invoke("acp_agent_start", { input: { agentId, resumeSessionId } }),
+  acpAgentStart: (agentId, resumeSessionId = null, cwd = null) =>
+    invoke("acp_agent_start", { input: { agentId, resumeSessionId, cwd } }),
   acpAgentStop: (agentId) => invoke("acp_agent_stop", { input: { agentId } }),
   acpAgentAuthenticate: (agentId, methodId) =>
     invoke("acp_agent_authenticate", { input: { agentId, methodId } }),
@@ -117,6 +124,10 @@ export const api = {
     invoke("acp_session_prompt", { input: { agentId, sessionId, text, images } }),
   acpSessionCancel: (agentId, sessionId) =>
     invoke("acp_session_cancel", { input: { agentId, sessionId } }),
+  // Opens a fresh session on the already-running agent process, optionally in
+  // a different project directory.
+  acpSessionNew: (agentId, cwd = null) =>
+    invoke("acp_session_new", { input: { agentId, cwd } }),
   acpPermissionRespond: (agentId, requestId, optionId = null) =>
     invoke("acp_permission_respond", { input: { agentId, requestId, optionId } }),
   acpSessionSetMode: (agentId, sessionId, modeId) =>
@@ -127,6 +138,9 @@ export const api = {
     invoke("acp_session_set_config_option", {
       input: { agentId, sessionId, configId, value },
     }),
+  acpProjectList: () => invoke("acp_project_list"),
+  acpProjectCreate: (path) => invoke("acp_project_create", { input: { path } }),
+  acpProjectDelete: (id) => invoke("acp_project_delete", { input: { id } }),
   acpHistoryList: () => invoke("acp_history_list"),
   acpHistorySave: (record) => invoke("acp_history_save", { input: { record } }),
   acpHistoryGet: (id) => invoke("acp_history_get", { input: { id } }),

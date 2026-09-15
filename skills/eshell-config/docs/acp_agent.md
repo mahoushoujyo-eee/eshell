@@ -113,7 +113,7 @@ acp/
 }
 ```
 
-- `cwd`（可选）：会话工作目录（`session/new` 的 `cwd`），缺省为 eShell 进程当前目录。
+- `cwd`（可选）：会话工作目录（`session/new` 的 `cwd`），缺省为 eShell 进程当前目录。**从面板「项目」启动的会话用该项目的目录覆盖此值**（`acp_agent_start` / `acp_session_new` 的 `cwd` 参数）。
 - `mcpServers`（可选）：按 ACP 线格式透传给 agent 的 MCP server 列表（http/sse/stdio）。
 - Windows 下 npm 的 `.cmd` shim 需经 `cmd /c` 启动（默认配置已处理）；非 Windows 直接 `npx`。
 
@@ -129,14 +129,16 @@ acp/
 | `acp_permission_respond` | 回应一条权限请求（`optionId`，null 表示取消） |
 | `acp_session_set_mode` | 切换会话模式 |
 | `acp_agent_authenticate` | 按选定的 `methodId` 执行 agent 登录流（可能等待浏览器 OAuth），成功后创建会话并返回同 start 的结果 |
-| `acp_history_save` / `list` / `get` / `delete` | 本地历史会话存储（`.eshell-data/acp_sessions/`，每会话一个 JSON，transcript 原样存储、图片只留 mimeType） |
+| `acp_session_new` | 在**运行中的** agent 进程上再开一个会话（同连接再发 `session/new`，复用登录态与 spawn），可传 `cwd` 切到其它项目目录 —— 面板「新建会话」按钮与项目行 `+` |
+| `acp_project_list` / `create` / `delete` | 项目目录注册表（`.eshell-data/projects.json`）：每个项目 = 一个本地 cwd，会话历史按 `projectId` 归类；`create` 校验目录存在并对重复路径幂等，`delete` 只移除项目、保留其会话 |
+| `acp_history_save` / `list` / `get` / `delete` | 本地历史会话存储（`.eshell-data/acp_sessions/`，每会话一个 JSON，含 `projectId`/`cwd`，transcript 原样存储、图片只留 mimeType） |
 
 事件：`acp-agent-stream`（`agentId` / `sessionId` / `stage` + 按 stage 附带 `chunk` / `toolCall` / `plan` / `commands` / `currentModeId` / `usage` / `permission` / `permissionResolution` / `error`）。
 
 ### 4.4 前端
 
 - `src/hooks/useAcpAgent.js`：会话状态机（transcript 合并流式分段、按 `toolCallId` 原位更新工具卡片、权限卡片生命周期、计划/命令/用量/模式状态、`stopped` 复位）；每轮结束与会话停止时自动持久化 transcript；恢复会话时由 `session/load` 回放事件重建消息流。
-- `src/components/panels/AcpAgentPanel.jsx`：完整聊天面板 — Markdown 消息流、可折叠思考、工具调用卡片（diff/输出/位置/原始入参）、内联权限审批、计划卡片、模式下拉、斜杠命令补全、上下文用量徽标、历史会话（列表/只读查看/恢复/删除）、图片附件（选择/粘贴，按 agent 能力显示）、终端选中内容附加（终端「Add To Agent」浮层 → composer chip → 随消息发送）。
+- `src/components/panels/AcpAgentPanel.jsx`：完整聊天面板 — Markdown 消息流、可折叠思考、工具调用卡片（diff/输出/位置/原始入参）、内联权限审批、计划卡片、模式下拉、斜杠命令补全、上下文用量徽标、项目/会话浏览器：置顶的「会话」组存放无项目的会话（用 agent 配置的默认 cwd），其下按项目分组；**会话按 agent 隔离**（只显示当前选中 agent 的历史，codex/claude 的会话不可互恢复）；新建项目走系统文件夹选择器，项目行 `+` 在该目录新建会话、图片附件（选择/粘贴，按 agent 能力显示）、终端选中内容附加（终端「Add To Agent」浮层 → composer chip → 随消息发送）。
 - 挂载位置：`AppAiDock`（右侧可拖宽 dock，标题栏 AI 按钮开关，Esc 关闭），**取代原 AiAssistantPanel**；标题栏繁忙指示与 ACP turn 状态联动。原 AI 配置弹窗入口移至左侧工具栏「配置」区。
 - `src/lib/tauri-api.js` 提供全部 `acp*` API 封装；复用现有 Tailwind token 与 i18n。
 - 前端组件结构与状态契约见仓库内「ACP 面板前端指南」（不在本分发包内）。
@@ -147,6 +149,7 @@ Tauri 后端启动时在 `127.0.0.1` 随机端口起一个 **MCP streamable-HTTP
 
 | 工具 | 说明 |
 | --- | --- |
+| `read_agent_context` | 读取 `.eshell-data/agent/` 下的用户上下文：全局 `AGENTS.md` 与打包的 eshell-config skill 全文。工具描述本身引导 agent 在会话开始时先调用它，作为提示词注入的替代路径 |
 | `list_ssh_profiles` | 列出已配置的 SSH 服务器（不含凭据） |
 | `list_shell_sessions` | 列出当前打开的 webshell 会话（id / 服务器 / 工作目录） |
 | `execute_command` | 在指定会话的服务器上执行非交互命令（沿用会话 cwd，`cd` 会更新它），返回 stdout/stderr/exitCode |

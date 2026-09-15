@@ -9,7 +9,6 @@ import {
   NotebookPen,
   Server,
   Settings,
-  Settings2,
 } from "lucide-react";
 import {
   panelVisibilityMarker,
@@ -19,6 +18,9 @@ import {
   ToolbarSection,
 } from "./top-toolbar/TopToolbarPrimitives";
 import { useI18n } from "../../lib/i18n";
+// Brand mark cropped from `docs/assets/Shell.png` (cube + `$`), text removed so
+// it can sit next to the wordmark without repeating "Shell".
+import eshellMark from "../../assets/eshell-mark.png";
 
 export default function TopToolbar({
   showSftpPanel,
@@ -77,7 +79,14 @@ export default function TopToolbar({
             }
           >
             <div className="inline-flex items-center gap-2 text-sm text-muted">
-              <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
+              {/* Transparent-background mark, no wrapper of its own so it sits
+                  directly on whatever the rail's background happens to be. */}
+              <img
+                src={eshellMark}
+                alt=""
+                className={collapsed ? "h-6 w-6 shrink-0" : "h-[18px] w-[18px] shrink-0"}
+                draggable={false}
+              />
               {!collapsed ? <span className="brand-wordmark">eShell</span> : null}
             </div>
           </div>

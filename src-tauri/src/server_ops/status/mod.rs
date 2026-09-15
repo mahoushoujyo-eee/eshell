@@ -26,7 +26,7 @@ use crate::models::{
 /// A probe never fails the poll: output it cannot make sense of leaves the
 /// draft untouched, so one unavailable tool (no `nvidia-smi`, a `top` variant
 /// that prints something unexpected) still yields every other metric.
-pub trait MetricProbe {
+pub trait MetricProbe: Send + Sync {
     /// Stable name, used when reporting which probe misbehaved.
     fn id(&self) -> &'static str;
 

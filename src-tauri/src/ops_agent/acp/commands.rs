@@ -168,12 +168,34 @@ pub struct AcpAgentIdInput {
 
 /// Input for `acp_agent_start`. `resume_session_id` asks for a `session/load`
 /// resume; agents without that capability fall back to a fresh session.
+/// `cwd` overrides the agent config's directory for this session (it is how a
+/// project's folder reaches `session/new`).
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcpAgentStartInput {
     pub agent_id: String,
     #[serde(default)]
     pub resume_session_id: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+}
+
+/// Input for `acp_session_new`: opens another session, optionally in a
+/// different project directory, on the already-running agent process.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSessionNewInput {
+    pub agent_id: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+}
+
+/// Turns an optional raw path from the frontend into a session cwd, ignoring
+/// blank strings so an empty project field falls back to the agent config.
+fn session_cwd_override(cwd: Option<String>) -> Option<std::path::PathBuf> {
+    cwd.map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
 }
 
 /// One prompt image attachment (base64 payload, e.g. from the composer).
@@ -264,6 +286,10 @@ pub struct AcpAgentListEntry {
     pub command: String,
     pub args: Vec<String>,
     pub running: bool,
+    /// Session directory this agent resolves to when no project is chosen:
+    /// its `cwd` setting, or the app process's current directory. Surfaced so
+    /// the panel can show where "no project" sessions actually run.
+    pub cwd: String,
 }
 
 fn find_config<'a>(
@@ -314,10 +340,11 @@ pub async fn acp_agent_list(
         };
         entries.push(AcpAgentListEntry {
             running,
-            id: config.id,
-            name: config.name,
-            command: config.command,
-            args: config.args,
+            id: config.id.clone(),
+            name: config.name.clone(),
+            command: config.command.clone(),
+            args: config.args.clone(),
+            cwd: config.session_cwd().to_string_lossy().to_string(),
         });
     }
     Ok(entries)
@@ -364,6 +391,9 @@ pub async fn acp_agent_start(
     runner
         .start(
             config.to_acp_agent(),
+            session_cwd_override(input.cwd.clone()).unwrap_or_else(|| config.session_cwd()),
+            // The agent's own setting, so a later "no particular folder"
+            // session (the panel's "Sessions" group) lands there.
             config.session_cwd(),
             mcp_servers,
             input.resume_session_id,
@@ -415,6 +445,19 @@ pub async fn acp_session_cancel(
     let runner = get_runner(&state, &input.agent_id)?;
     runner.resolve_pending_permissions_cancelled();
     runner.cancel(&input.session_id).await
+}
+
+/// Opens a fresh session on the running agent process without restarting it
+/// (login state and the spawn are reused). `cwd` switches the session to a
+/// different project folder. The previous session's history has already been
+/// persisted by the frontend before this is called.
+#[tauri::command]
+pub async fn acp_session_new(
+    state: tauri::State<'_, Arc<crate::state::AppState>>,
+    input: AcpSessionNewInput,
+) -> Result<AcpStartInfo, String> {
+    let runner = get_runner(&state, &input.agent_id)?;
+    runner.new_session(session_cwd_override(input.cwd)).await
 }
 
 /// Resolves one pending permission request with the user's decision.
@@ -496,6 +539,13 @@ pub struct AcpHistoryRecord {
     pub created_at: String,
     #[serde(default)]
     pub updated_at: String,
+    /// Project this session ran in; `None` for sessions started without one
+    /// (and for records written before projects existed).
+    #[serde(default)]
+    pub project_id: Option<String>,
+    /// Session working directory, so a resume reopens in the same folder.
+    #[serde(default)]
+    pub cwd: Option<String>,
     #[serde(default)]
     pub transcript: serde_json::Value,
 }
@@ -511,6 +561,8 @@ pub struct AcpHistoryMeta {
     pub created_at: String,
     pub updated_at: String,
     pub entry_count: usize,
+    pub project_id: Option<String>,
+    pub cwd: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -596,6 +648,8 @@ pub async fn acp_history_list(
             title: record.title,
             created_at: record.created_at,
             updated_at: record.updated_at,
+            project_id: record.project_id,
+            cwd: record.cwd,
         });
     }
     rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
