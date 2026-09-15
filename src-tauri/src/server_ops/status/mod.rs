@@ -41,13 +41,17 @@ pub trait MetricProbe {
 /// Every probe that a normal status poll runs, in execution order.
 ///
 /// This list is the only place a new metric has to be registered.
+///
+/// The process probe runs last because it is the only slow one: it watches the
+/// host for half a second to measure CPU. A poll that is going to fail on an
+/// earlier probe should fail before paying for that sample.
 pub fn default_probes() -> Vec<Box<dyn MetricProbe>> {
     vec![
         Box::new(cpu::CpuMemoryProbe),
         Box::new(network::NetworkProbe),
-        Box::new(process::ProcessProbe),
         Box::new(disk::DiskProbe),
         Box::new(gpu::GpuProbe),
+        Box::new(process::ProcessProbe),
     ]
 }
 

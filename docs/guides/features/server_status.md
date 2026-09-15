@@ -41,7 +41,8 @@ Request input:
 Important field semantics:
 - `memory.usedMb` and `memory.totalMb` are returned in megabytes and rendered as `GB` in the summary UI
 - `memory.usedPercent` is still available for progress-bar rendering
-- `topProcesses[].memoryMb` is parsed from `ps` RSS output and converted from `KB` to `MB`
+- `topProcesses[].memoryMb` is the resident set (`RES`/`RSS`) converted from `KB` to `MB`, falling back to virtual size (`VSZ`) on busybox hosts, which report no resident size
+- `topProcesses[].cpuPercent` is an instantaneous sample, not a lifetime average: the backend runs two `top` frames half a second apart and reads only the second one
 - `disks[].usedPercent` remains a string as parsed from `df -hP`
 
 ## 4. Process and Disk Views
@@ -49,7 +50,8 @@ Important field semantics:
 `Processes` view:
 - optimized for quick triage
 - shows `PID`, `CPU %`, `Memory (MB)`, and command
-- sorted from backend shell output by CPU usage
+- capped at the five busiest processes, sorted by CPU usage
+- the `top` / `ps` processes the poll itself starts are dropped: they live only as long as the sample, so they always report near-100% CPU
 
 `Disks` view:
 - optimized for mount-point readability
@@ -66,11 +68,12 @@ Main frontend files:
 
 Backend parsing files:
 - `src-tauri/src/server_ops/service.rs`
-- `src-tauri/src/server_ops/status_parser.rs`
-- `src-tauri/src/models.rs`
+- `src-tauri/src/server_ops/status/` (one module per metric)
+- `src-tauri/src/models/status.rs`
 
 ## 6. Troubleshooting Notes
 
 - If network traffic appears empty, verify the selected NIC is correct for the remote host.
 - If process memory looks unexpectedly small, remember it now reflects RSS in `MB`, not percent-of-system-memory.
+- If the process list is empty, the host's `top` is probably rejecting the sampling command. Run `top -b -n2 -d0.5 -w512` there: busybox accepts neither `-w` nor a fractional `-d`, which is why the backend retries with plain `top -b -n2 -d1`.
 - If the panel shows a warning banner but keeps updating afterward, that is the expected transient-retry path.
