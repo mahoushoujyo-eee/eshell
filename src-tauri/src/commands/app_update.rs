@@ -1,10 +1,11 @@
-//! Version reporting and release lookup for the Settings → Version tab.
+//! Fallback release lookup for the Settings → Version tab.
 //!
-//! This checks GitHub Releases directly rather than going through
-//! `tauri-plugin-updater`: the project ships no updater signing key and its CI
-//! produces no `latest.json`/`.sig` artifacts, so a signature-verified in-app
-//! install is not available. What is available is telling the user a newer
-//! version exists and handing them the installer for their platform.
+//! The primary channel is `tauri-plugin-updater` (signature-verified, driven
+//! by the `latest.json` the release CI publishes next to the signed
+//! installers). This checks GitHub Releases directly so release notes and a
+//! platform installer link stay available even when that channel is not —
+//! installers old enough to predate the plugin, a missing manifest, or any
+//! network failure.
 
 use serde::Serialize;
 

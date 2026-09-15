@@ -100,19 +100,21 @@ jobs:
           base_url="$REPO_URL/releases/download/$TAG"
           platforms="{}"
 
+          # Installers land in bundle subdirectories (nsis/, msi/, macos/,
+          # appimage/), so resolve each candidate by name wherever it sits;
+          # the release asset itself is uploaded flat.
           add() {
-            local platform="$1" file="$2"
-            [ -n "$file" ] || return 0
-            [ -f "release-artifacts/$file" ] || return 0
+            local platform="$1" name="$2" path
+            [ -n "$name" ] || return 0
+            path="$(find release-artifacts -name "$name" -type f | sort | head -1)"
+            [ -n "$path" ] || return 0
             # A .sig next to the installer proves it was signed with the updater key.
-            [ -f "release-artifacts/$file.sig" ] || return 0
+            [ -f "$path.sig" ] || return 0
             platforms=$(jq -n --arg platform "$platform" --argjson platforms "$platforms" \
-              --arg url "$base_url/$file" --rawfile signature "release-artifacts/$file.sig" \
+              --arg url "$base_url/$name" --rawfile signature "$path.sig" \
               '$platforms + {($platform): {url: $url, signature: $signature}}')
           }
 
-          # Installers land in bundle subdirectories (nsis/, msi/, macos/,
-          # appimage/), so glob recursively and pass plain file names.
           # NSIS is the preferred Windows update channel; fall back to the msi.
           for file in $(find release-artifacts -name "*-setup.exe" | sort | head -1); do add windows-x86_64 "${file##*/}"; done
           if ! jq -e 'has("windows-x86_64")' >/dev/null 2>&1 <<<"$platforms"; then
