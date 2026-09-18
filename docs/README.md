@@ -33,6 +33,7 @@ Root project introductions:
 ## Document Index
 
 - [Backend Architecture](guides/architecture/backend_architecture.md) — Complete implementation guide for the Rust backend (state, SSH/PTY/SFTP, Ops Agent, ReAct loop, approvals, providers)
+- [SSH Transport](guides/architecture/ssh_transport.md) — russh transport layout, lifecycle and cancellation boundaries, timeouts, and the manual test checklist
 - [Project Description](specs/project_description.md) — Product scope, runtime state, and feature models
 - [OpenAPI-style RPC Spec](specs/openapi.yaml) — Tauri invoke command contracts
 - [Project Dev Guide](guides/PROJECT_DEV_GUIDE.md) — Engineering workflow, testing baseline, and documentation checklist
@@ -41,7 +42,7 @@ Root project introductions:
 - [Ops Agent Guide](guides/features/ops_agent.md) — Ops Agent request flow, approvals, streaming, attachments, and cancellation
 - [ACP Agent Guide](guides/features/acp_agent.md) — Agent Client Protocol integration: protocol support matrix, auth flow, session history/resume, images, MCP bridge tools, multi-agent config
 - [ACP Panel Frontend Guide](guides/features/acp_panel_frontend.md) — UI handoff doc for the ACP chat panel: component map, state contract, interaction inventory, and UI backlog
-- [Webshell Session Guide](guides/features/webshell_session.md) — PTY keepalive-based disconnect detection, the reconnect overlay, and session recovery flow
+- [Webshell Session Guide](guides/features/webshell_session.md) — PTY keepalive-based disconnect detection, in-place session recovery, and terminal clipboard shortcuts
 - [eshell-config Skill](../skills/eshell-config/SKILL.md) — Agent-facing reference for editing `.eshell-data/*.json` (SSH/ACP schemas, wire formats, server-operation norms, non-hot-reload restart rule)
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes

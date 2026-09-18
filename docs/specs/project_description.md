@@ -10,13 +10,13 @@ The project focuses on one integrated workflow:
 - inspect runtime state
 - perform file operations
 - run commands/scripts
-- use Ops Agent for guided actions and approvals
+- drive an external coding agent (ACP) or the built-in Ops Agent for guided actions and approvals
 
 ## Core Modules
 
 - `src-tauri/src/server_ops`: shell, PTY, SFTP, status collection
-- `src-tauri/src/storage`: persistent data (ssh/scripts/ai profiles)
-- `src-tauri/src/ops_agent`: chat runtime, tool orchestration, approvals
+- `src-tauri/src/storage`: persistent data (ssh/scripts/ai profiles/agent context)
+- `src-tauri/src/ops_agent`: ACP client and the self-hosted chat runtime, tool orchestration, approvals
 - `src/hooks/useWorkbench.js`: frontend workspace state entry
 - `src/hooks/workbench/*`: split workbench logic (operations/effects/session/errors)
 
@@ -31,9 +31,13 @@ Implemented:
 - local download directory configuration
 - transfer queue with progress updates
 - upload/download cancel support
-- status monitoring panel with disk / process view switching
+- status monitoring panel with disk / process / GPU view switching
+- in-place PTY recovery: a dead terminal is rebuilt on the same session id, so the tab, its working directory and its status cache survive
+- terminal clipboard shortcuts (Ctrl+Shift+C / Ctrl+Shift+V)
 - script management and execution
-- Ops Agent chat and pending-action approval
+- ACP agent panel: spawn external coding agents, per-project sessions, transcript history and resume, permission prompts
+- MCP bridge exposing eShell tools to ACP agents
+- Ops Agent chat and pending-action approval (backend runtime; its chat panel is superseded by the ACP panel)
 - Ops Agent image upload, detached attachment persistence, and image preview
 - Ops Agent manual and automatic conversation compaction
 - Ops Agent run cancellation and post-approval resume flow
@@ -52,16 +56,22 @@ Persistent data root:
 
 Important files:
 - `ssh_configs.json`
+- `known_hosts.json`
 - `scripts.json`
 - `ai_profiles.json`
+- `acp_agents.json`
+- `acp_sessions/*.json`
+- `projects.json`
+- `agent/AGENTS.md`, `agent/<serverId>.md`, `agent/skills/`
 - `ops_agent_conversation_list.json`
 - `ops_agent_conversations/*.json`
 - `ops_agent_attachments/*`
 - `ops_agent_debug.log`
+- `server_ops_debug.log`
 
 Runtime-only state examples:
 - active shell sessions
-- PTY channels
+- PTY channels, tagged with a generation so a superseded worker cannot tear down its replacement
 - shell connection cancellation flags
 - transfer cancellation flags
 - status cache

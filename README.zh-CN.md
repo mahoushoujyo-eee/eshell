@@ -4,38 +4,35 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.4.0** 是一个基于 **Tauri 2、React 19、Rust** 的桌面运维工作台。
+**eShell v1.5.4** 是一个基于 **Tauri 2、React 19、Rust** 的桌面运维工作台。
 
-它把 SSH 会话、PTY 终端、SFTP 文件操作、服务器状态监控、脚本执行，以及 AI 辅助运维的 Ops Agent 集成在一个本地优先的桌面应用里。
+它把 SSH 会话、PTY 终端、SFTP 文件操作、服务器状态监控、脚本执行，以及 ACP 编码 agent 面板集成在一个本地优先的桌面应用里。
 
 [English README](README.md)
 
 ## 能做什么
 
 - 管理多个 SSH 配置，并在不同会话之间快速切换。
-- 使用基于 `xterm.js` 的交互式 PTY 终端，支持尺寸同步和自定义壁纸。
+- 使用基于 `xterm.js` 的交互式 PTY 终端，支持尺寸同步、自定义壁纸和 Ctrl+Shift+C/V 复制粘贴。
+- 终端断连后原地恢复：重连按钮在同一个 session 上重建 PTY，标签页、工作目录和状态缓存都保留。
 - 通过 SFTP 浏览、预览、编辑、上传、下载和删除远程文件。
-- 查看远程服务器 CPU、内存、网络流量、进程和磁盘状态。
+- 查看远程服务器 CPU、内存、网络流量、进程、磁盘和 NVIDIA 显卡状态。
 - 保存常用脚本，并在当前会话中执行。
-- 使用 Ops Agent 进行 AI 辅助运维：读取上下文、规划命令、请求审批并在审批后自动恢复。
+- 通过 Agent Client Protocol 驱动外部编码 agent（Codex、Claude Code、Gemini CLI 等），支持按项目隔离会话和权限审批。
 - 配置多个 AI Provider Profile，支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 兼容协议。
 - 支持英文和简体中文 UI，并持久化语言偏好。
 
-## Ops Agent 重点
+## ACP Agent 面板
 
-Ops Agent 是项目的核心 AI 子系统，代码位于 `src-tauri/src/ops_agent/`。
+主 AI 入口是 ACP 面板，它把外部编码 agent 作为子进程，通过 stdio 上的 JSON-RPC 驱动。
 
-- runtime 网关会判断本轮请求走 `direct_reply`、`lite` 还是 `pro`。
-- `direct_reply` 用于问候、API 测试、普通解释等简单问题，不进入 planner 或 ReAct 流程。
-- `lite` 使用轻量 ReAct 循环，适合简单工具辅助任务。
-- `pro` 使用 planner、executor、reviewer、validator 和最终回答的多 Agent 流程。
-- 有风险的 shell 操作会生成待审批动作，不会静默执行。
-- 用户批准或拒绝后，系统可以自动恢复被中断的执行流程。
-- 长对话使用非破坏式上下文压缩：
-  - 用户可见聊天历史不变
-  - 私有摘要保存在 `.eshell-data/ops_agent_context_summaries/`
-  - 多次压缩会基于旧摘要和新增原文滚动更新，不从完整可见历史反复全量压缩
-- 图片附件单独存储，并在模型请求时重新注入为多模态输入。
+- agent 在 `.eshell-data/acp_agents.json` 中声明，面板列出并按需启动。
+- 会话按**项目**（记录在 `.eshell-data/projects.json` 的本地目录）分组，切换项目不会重启 agent 进程。
+- 会话记录持久化在 `.eshell-data/acp_sessions/`，可恢复。
+- agent 的权限请求以审批卡片呈现；`session/cancel` 同时会取消挂起的请求。
+- 面板暴露 MCP bridge，agent 可以调用 eShell 自身的工具。
+
+自研的 Ops Agent 运行时（`src-tauri/src/ops_agent/`）仍保留在后端，但其聊天面板已由 ACP 面板取代。运行时本身见 [Ops Agent 指南](docs/guides/features/ops_agent.md)。
 
 ## 技术栈
 
@@ -79,9 +76,9 @@ src/
 src-tauri/src/
   commands/        # Tauri 命令入口
   server_ops/      # SSH、PTY、SFTP、状态采集
-  ops_agent/       # runtime 网关、Agent、Provider、工具、审批、压缩
-  storage/         # SSH / 脚本 / AI profiles / AGENTS.md 上下文持久化
-  models.rs
+  ops_agent/       # ACP 客户端、自研 agent 运行时、Provider、工具、审批
+  storage/         # SSH / 脚本 / AI profiles / agent 上下文持久化
+  models/          # 按领域拆分的模型模块
   state.rs
 
 docs/
@@ -166,30 +163,41 @@ cargo test
 ```text
 .eshell-data/
   ssh_configs.json
+  known_hosts.json
   scripts.json
   ai_profiles.json
-  AGENTS.md
-  server_agents/
+  acp_agents.json
+  acp_sessions/
+  projects.json
+  agent/
+    AGENTS.md
+    <serverId>.md
+    skills/
   ops_agent_conversation_list.json
   ops_agent_conversations/
-  ops_agent_context_summaries/
   ops_agent_attachments/
   ops_agent_runs/
   ops_agent_debug.log
+  server_ops_debug.log
 ```
 
 持久化说明：
 
 - `ai_profiles.json` 保存 AI profiles、当前激活 profile、审批模式和 agent 模式。
-- `ops_agent_conversations/` 保存完整的用户可见聊天历史。
-- `ops_agent_context_summaries/` 保存模型私有上下文摘要，不会替换聊天记录。
-- `ops_agent_attachments/` 保存分离的图片附件；conversation JSON 只保存 `attachmentIds`。
-- `AGENTS.md` 和 `server_agents/` 保存用户维护的上下文，会在模型请求时注入。
+- `acp_agents.json` 声明面板可启动的 ACP agent；`acp_sessions/` 每个会话一个记录文件。
+- `projects.json` 保存 ACP 项目到本地目录的映射。
+- `agent/AGENTS.md` 是全局 agent 上下文文件，`agent/<serverId>.md` 是按服务器拆分的上下文，`agent/skills/` 存放 `eshell-config` 等内置 skill。
+- `ops_agent_conversations/` 保存自研 Ops Agent 的聊天历史；`ops_agent_attachments/` 保存分离的图片附件（conversation JSON 只保存 `attachmentIds`）。
+- `server_ops_debug.log` 记录服务端操作事件（`pty.worker.started`、`status.probe.failed` 等），会话异常时先看这里。
 
 ## 文档入口
 
 - [文档总览](docs/README.md)
 - [后端架构](docs/guides/architecture/backend_architecture.md)
+- [SSH 传输层](docs/guides/architecture/ssh_transport.md)
+- [Webshell 会话](docs/guides/features/webshell_session.md)
+- [ACP Agent 指南](docs/guides/features/acp_agent.md)
+- [ACP 面板前端](docs/guides/features/acp_panel_frontend.md)
 - [Ops Agent 指南](docs/guides/features/ops_agent.md)
 - [Ops Agent 分层架构](docs/guides/architecture/ops_agent_layered_architecture.md)
 - [项目开发指南](docs/guides/PROJECT_DEV_GUIDE.md)
@@ -198,4 +206,4 @@ cargo test
 - [服务器状态指南](docs/guides/features/server_status.md)
 - [SFTP 传输指南](docs/guides/features/sftp_transfer.md)
 - [未发布变更](docs/releases/unreleased.md)
-- [1.4.0 发布说明](docs/releases/v1.4.0.md)
+- [1.5.4 发布说明](docs/releases/v1.5.4.md)

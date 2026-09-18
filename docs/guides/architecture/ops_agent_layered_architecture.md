@@ -70,10 +70,8 @@ Responsibilities:
 
 Main entry points:
 
-- `src/components/panels/ai-assistant/*`
-- `src/components/sidebar/AiConfigModal.jsx`
+- `src/components/sidebar/AgentConfigModal.jsx`
 - `src/hooks/workbench/operations.js`
-- `src/hooks/workbench/aiProfiles.js`
 - `src/lib/tauri-api.js`
 
 ### Application

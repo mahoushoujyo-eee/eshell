@@ -86,7 +86,7 @@ pub enum AppError {
 
 ## 核心数据模型
 
-[`models.rs`](src-tauri/src/models.rs) 集中定义了前后端共享的全部 DTO：
+[`models/`](src-tauri/src/models) 按领域拆分定义了前后端共享的全部 DTO（`ssh.rs`、`shell.rs`、`sftp.rs`、`status.rs`、`script.rs`、`ai.rs`、`ai_import.rs`、`common.rs`）：
 
 | 结构 | 用途 |
 |------|------|
@@ -118,7 +118,7 @@ pub struct AppState {
     pub ops_agent_runs: OpsAgentRunRegistry,       // 运行注册表（取消控制）
     sessions: RwLock<HashMap<String, ShellSession>>,        // 运行时会话
     status_cache: RwLock<HashMap<String, ServerStatus>>,    // 状态缓存
-    pty_channels: RwLock<HashMap<String, UnboundedSender<PtyCommand>>>, // PTY 控制通道
+    pty_channels: RwLock<HashMap<String, (u64, UnboundedSender<PtyCommand>)>>, // PTY 控制通道 + 代次
     shell_connection_cancellations: RwLock<HashMap<String, CancellationToken>>, // SSH 连接取消标记
     sftp_transfer_cancellations: RwLock<HashMap<String, CancellationToken>>, // 传输取消标记
 }
@@ -129,9 +129,13 @@ pub struct AppState {
 - `mutate_session()` — 原子性更新（用于 `cd` 后更新当前目录）
 
 **PTY 控制**：
-- `put_pty_channel()` — 注册会话的 PTY 控制通道（tokio mpsc::UnboundedSender）
+- `put_pty_channel()` — 注册会话的 PTY 控制通道（tokio mpsc::UnboundedSender），返回本次注册的代次
 - `send_pty_command()` — 发送 Input / Resize / Close 命令
 - `remove_pty_channel()` — 关闭时清理
+- `is_current_pty_generation()` / `remove_pty_channel_if_current()` — 代次校验；标签页可在旧 worker 退出前被重开，旧 worker 不得注销继任者的通道
+
+**会话恢复**：
+- `reopen_shell_pty()` — 在已有 session id 上重建 PTY channel，复用标签页传输层，不新建会话
 
 **SSH 连接取消**：
 - `begin_shell_connection()` / `cancel_shell_connection()` / `is_shell_connection_cancelled()` — 通过 request id 标记待取消的连接尝试
@@ -185,6 +189,8 @@ russh 在 tokio runtime 上建立 TCP/跳板流，验证 host key，再进行密
 ### PTY 交互式终端
 
 PTY worker 是 tokio task，使用 tokio mpsc 接收 Input/Resize/Close，输出通过原 `pty-output` 事件推送。输入窗口阻塞不妨碍读取/取消；输出批量发送并保留跨包 UTF-8。异常断连发送 `pty-closed`，前端继续使用原重连入口。
+
+worker 退出时按代次判定自己是否仍代表该标签页：被取代的 worker 不触碰会话记录，仍是当前代的 worker 在传输断开时保留记录（供 `reopen_shell_pty` 恢复）、在正常退出时删除记录。`reopen_shell_pty` 在同一 session id 上重建 channel，因此恢复不会产生孤儿标签页。
 
 ### SFTP 文件操作
 

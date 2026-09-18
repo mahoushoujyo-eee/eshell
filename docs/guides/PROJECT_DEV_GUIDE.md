@@ -37,7 +37,6 @@ When changing user-visible frontend copy:
 - `workbench/effects.js`
 - `workbench/session.js`
 - `workbench/errors.js`
-- `workbench/aiProfiles.js`
 
 Rule:
 - New behavior should be added to the correct split module, not merged back into a large monolith.

@@ -57,10 +57,8 @@ Profile and config persistence:
 Important code paths:
 
 - `src-tauri/src/storage/ai_profiles.rs`
-- `src-tauri/src/models.rs`
-- `src/hooks/workbench/aiProfiles.js`
-- `src/components/sidebar/AiConfigModal.jsx`
-- `src/components/panels/ai-assistant/AiComposer.jsx`
+- `src-tauri/src/models/ai.rs`
+- `src/components/sidebar/AgentConfigModal.jsx`
 
 ## 3. Provider and Profile Configuration
 

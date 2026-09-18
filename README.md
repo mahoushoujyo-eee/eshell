@@ -4,38 +4,35 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.4.0** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
+**eShell v1.5.4** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
 
-It combines SSH sessions, PTY terminals, SFTP file operations, server status monitoring, reusable scripts, and an Ops Agent for AI-assisted operations in one local-first application.
+It combines SSH sessions, PTY terminals, SFTP file operations, server status monitoring, reusable scripts, and an ACP coding agent panel in one local-first application.
 
 [中文说明](README.zh-CN.md)
 
 ## What It Does
 
 - Manage multiple SSH profiles and switch active sessions quickly.
-- Use an interactive `xterm.js` PTY terminal with resize sync and custom wallpaper.
+- Use an interactive `xterm.js` PTY terminal with resize sync, custom wallpaper, and Ctrl+Shift+C/V clipboard shortcuts.
+- Recover a dead terminal in place: the reconnect button rebuilds the PTY on the same session, keeping the tab, its working directory and its status cache.
 - Browse, preview, edit, upload, download, and delete files through SFTP.
-- Monitor remote server CPU, memory, network traffic, processes, and disks.
+- Monitor remote server CPU, memory, network traffic, processes, disks, and NVIDIA GPUs.
 - Save reusable scripts and run them against the active session.
-- Chat with an Ops Agent that can inspect context, propose commands, request approval, and resume after approvals.
+- Drive external coding agents (Codex, Claude Code, Gemini CLI, …) over the Agent Client Protocol, with per-project sessions and permission prompts.
 - Configure multiple AI provider profiles for OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages compatible APIs.
 - Use English or Simplified Chinese UI with persisted locale preference.
 
-## Ops Agent Highlights
+## ACP Agent Panel
 
-The Ops Agent is the main AI subsystem under `src-tauri/src/ops_agent/`.
+The main AI entry point is the ACP panel, which drives an external coding agent as a child process over JSON-RPC on stdio.
 
-- Runtime gateway chooses `direct_reply`, `lite`, or `pro`.
-- `direct_reply` answers simple chat/API smoke-test messages without planner or ReAct overhead.
-- `lite` runs a compact ReAct loop for simple tool-assisted work.
-- `pro` runs planner, executor, reviewer, validator, and final-answer stages.
-- Risky shell actions create pending approvals instead of executing silently.
-- Approval resolution can resume the interrupted run automatically.
-- Long conversations use non-destructive model-context compaction:
-  - visible chat history stays unchanged
-  - private summaries are stored under `.eshell-data/ops_agent_context_summaries/`
-  - repeated compaction rolls the prior summary forward with newer raw messages
-- Image attachments are stored separately and rehydrated into multimodal model requests.
+- Agents are declared in `.eshell-data/acp_agents.json`; the panel lists them and starts one on demand.
+- Sessions are grouped by **project** (a local folder recorded in `.eshell-data/projects.json`), so switching projects does not restart the agent process.
+- Transcripts are persisted app-side under `.eshell-data/acp_sessions/` and can be resumed.
+- Permission requests from the agent surface as approval cards; `session/cancel` also cancels any pending request.
+- The panel exposes the MCP bridge, so an agent can call eShell's own tools.
+
+The self-hosted Ops Agent runtime (`src-tauri/src/ops_agent/`) remains in the backend, but its chat panel has been replaced by the ACP panel. See [Ops Agent Guide](docs/guides/features/ops_agent.md) for the runtime itself.
 
 ## Tech Stack
 
@@ -79,9 +76,9 @@ src/
 src-tauri/src/
   commands/        # Tauri command entry points
   server_ops/      # SSH, PTY, SFTP, status collection
-  ops_agent/       # runtime gateway, agents, providers, tools, approvals, compaction
-  storage/         # persisted SSH / scripts / AI profiles / AGENTS.md context
-  models.rs
+  ops_agent/       # ACP client, self-hosted agent runtime, providers, tools, approvals
+  storage/         # persisted SSH / scripts / AI profiles / agent context
+  models/          # per-domain model modules
   state.rs
 
 docs/
@@ -166,30 +163,41 @@ Typical contents:
 ```text
 .eshell-data/
   ssh_configs.json
+  known_hosts.json
   scripts.json
   ai_profiles.json
-  AGENTS.md
-  server_agents/
+  acp_agents.json
+  acp_sessions/
+  projects.json
+  agent/
+    AGENTS.md
+    <serverId>.md
+    skills/
   ops_agent_conversation_list.json
   ops_agent_conversations/
-  ops_agent_context_summaries/
   ops_agent_attachments/
   ops_agent_runs/
   ops_agent_debug.log
+  server_ops_debug.log
 ```
 
 Persistence notes:
 
 - `ai_profiles.json` is the source of truth for AI profiles, active profile, approval mode, and agent mode.
-- `ops_agent_conversations/` keeps the full visible chat history.
-- `ops_agent_context_summaries/` stores private model-context summaries and does not replace visible messages.
-- `ops_agent_attachments/` stores detached image payloads; conversation JSON stores only `attachmentIds`.
-- `AGENTS.md` and `server_agents/` provide user-maintained context injected into model requests.
+- `acp_agents.json` declares the ACP agents the panel can spawn; `acp_sessions/` holds one transcript per session.
+- `projects.json` maps ACP projects to local folders.
+- `agent/AGENTS.md` is the global agent context file, `agent/<serverId>.md` the per-server one, and `agent/skills/` holds bundled skills such as `eshell-config`.
+- `ops_agent_conversations/` keeps the self-hosted Ops Agent chat history; `ops_agent_attachments/` stores detached image payloads (conversation JSON keeps only `attachmentIds`).
+- `server_ops_debug.log` records server-operation events (`pty.worker.started`, `status.probe.failed`, …) and is the first place to look when a session misbehaves.
 
 ## Documentation
 
 - [Docs Overview](docs/README.md)
 - [Backend Architecture](docs/guides/architecture/backend_architecture.md)
+- [SSH Transport](docs/guides/architecture/ssh_transport.md)
+- [Webshell Session](docs/guides/features/webshell_session.md)
+- [ACP Agent Guide](docs/guides/features/acp_agent.md)
+- [ACP Panel Frontend](docs/guides/features/acp_panel_frontend.md)
 - [Ops Agent Guide](docs/guides/features/ops_agent.md)
 - [Ops Agent Layered Architecture](docs/guides/architecture/ops_agent_layered_architecture.md)
 - [Project Dev Guide](docs/guides/PROJECT_DEV_GUIDE.md)
@@ -198,4 +206,4 @@ Persistence notes:
 - [Server Status Guide](docs/guides/features/server_status.md)
 - [SFTP Transfer Guide](docs/guides/features/sftp_transfer.md)
 - [Unreleased Notes](docs/releases/unreleased.md)
-- [Release Notes 1.4.0](docs/releases/v1.4.0.md)
+- [Release Notes 1.5.4](docs/releases/v1.5.4.md)
