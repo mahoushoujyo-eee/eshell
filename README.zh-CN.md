@@ -4,7 +4,7 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.5.4** 是一个基于 **Tauri 2、React 19、Rust** 的桌面运维工作台。
+**eShell v1.5.5** 是一个基于 **Tauri 2、React 19、Rust** 的桌面运维工作台。
 
 它把 SSH 会话、PTY 终端、SFTP 文件操作、服务器状态监控、脚本执行，以及 ACP 编码 agent 面板集成在一个本地优先的桌面应用里。
 
@@ -206,4 +206,4 @@ cargo test
 - [服务器状态指南](docs/guides/features/server_status.md)
 - [SFTP 传输指南](docs/guides/features/sftp_transfer.md)
 - [未发布变更](docs/releases/unreleased.md)
-- [1.5.4 发布说明](docs/releases/v1.5.4.md)
+- [1.5.5 发布说明](docs/releases/v1.5.5.md)
