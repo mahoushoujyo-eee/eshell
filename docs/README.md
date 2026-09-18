@@ -45,6 +45,7 @@ Root project introductions:
 - [eshell-config Skill](../skills/eshell-config/SKILL.md) — Agent-facing reference for editing `.eshell-data/*.json` (SSH/ACP schemas, wire formats, server-operation norms, non-hot-reload restart rule)
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
+- [Release Notes 1.5.4](releases/v1.5.4.md) — in-place PTY recovery, no orphan tabs, terminal clipboard shortcuts
 - [Release Notes 1.5.3](releases/v1.5.3.md) — russh SSH transport rewrite, ACP project sessions, MCP agent context
 - [Release Notes 1.5.1](releases/v1.5.1.md) — Agent Config (AGENTS.md file mapping) and the bundled eshell-config skill
 - [Release Notes 1.5.0](releases/v1.5.0.md) — ACP agent panel, MCP bridge, SSH 2FA/jump host, SFTP and webshell reliability
