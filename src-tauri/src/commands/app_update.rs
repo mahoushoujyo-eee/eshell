@@ -1,18 +1,25 @@
-//! Fallback release lookup for the Settings → Version tab.
+//! Release lookup for the Settings → Version tab.
 //!
-//! The primary channel is `tauri-plugin-updater` (signature-verified, driven
-//! by the `latest.json` the release CI publishes next to the signed
-//! installers). This checks GitHub Releases directly so release notes and a
-//! platform installer link stay available even when that channel is not —
-//! installers old enough to predate the plugin, a missing manifest, or any
-//! network failure.
+//! Reads the same `latest.json` the updater plugin installs from, so the tab
+//! and the in-app installer can never disagree about what the newest release
+//! is. The manifest is a plain release asset, which is what makes it usable
+//! here: the GitHub REST API this used to call allows 60 unauthenticated
+//! requests per hour *per IP*, so a shared office egress exhausted it and every
+//! check failed with `403 rate limit exceeded`.
+
+use std::collections::HashMap;
 
 use serde::Serialize;
 
-/// Release feed for the published builds.
-const RELEASES_API: &str = "https://api.github.com/repos/mahoushoujyo-eee/eshell/releases/latest";
+/// The updater manifest, published next to the signed installers by the release
+/// CI. Must stay in step with the `updater.endpoints` entry in `tauri.conf.json`.
+const LATEST_JSON_URL: &str =
+    "https://github.com/mahoushoujyo-eee/eshell/releases/latest/download/latest.json";
 
-/// GitHub rejects API requests without one.
+/// Where a human can read the release this manifest describes.
+const RELEASE_PAGE: &str = "https://github.com/mahoushoujyo-eee/eshell/releases/tag";
+
+/// GitHub rejects requests without one.
 const USER_AGENT: &str = concat!("eshell/", env!("CARGO_PKG_VERSION"));
 
 const REQUEST_TIMEOUT_SECS: u64 = 15;
@@ -23,7 +30,6 @@ const REQUEST_TIMEOUT_SECS: u64 = 15;
 pub struct ReleaseAsset {
     pub name: String,
     pub download_url: String,
-    pub size: u64,
 }
 
 /// What the Version tab renders.
@@ -56,8 +62,7 @@ pub async fn check_app_update() -> Result<ReleaseCheck, String> {
         .user_agent(USER_AGENT)
         .build()
         .map_err(|err| format!("could not start the update check: {err}"))?
-        .get(RELEASES_API)
-        .header("Accept", "application/vnd.github+json")
+        .get(LATEST_JSON_URL)
         .send()
         .await
         .map_err(|err| format!("could not reach the release feed: {err}"))?;
@@ -69,41 +74,84 @@ pub async fn check_app_update() -> Result<ReleaseCheck, String> {
         ));
     }
 
-    let release: GithubRelease = response
+    let manifest: UpdaterManifest = response
         .json()
         .await
         .map_err(|err| format!("could not read the release feed: {err}"))?;
 
-    let latest = normalize_version(&release.tag_name);
+    let latest = normalize_version(&manifest.version);
     let update_available = is_newer(&latest, &current);
 
     Ok(ReleaseCheck {
         current_version: current,
-        latest_version: Some(latest),
+        latest_version: Some(latest.clone()),
         update_available,
-        release_url: Some(release.html_url),
-        release_notes: release.body.filter(|body| !body.trim().is_empty()),
-        published_at: release.published_at,
-        asset: pick_platform_asset(&release.assets),
+        // Derived rather than fetched: the manifest carries no page URL, and
+        // asking the API for it is what made this command rate-limitable.
+        release_url: Some(format!("{RELEASE_PAGE}/v{latest}")),
+        // The manifest has no release notes. The Version tab hides the section
+        // when this is absent.
+        release_notes: None,
+        published_at: manifest.pub_date,
+        asset: manifest.platforms.get(&platform_key()).map(|entry| ReleaseAsset {
+            name: file_name_of(&entry.url),
+            download_url: entry.url.clone(),
+        }),
     })
 }
 
+/// The updater manifest the release CI writes.
 #[derive(serde::Deserialize)]
-struct GithubRelease {
-    tag_name: String,
-    html_url: String,
-    body: Option<String>,
-    published_at: Option<String>,
+struct UpdaterManifest {
+    version: String,
     #[serde(default)]
-    assets: Vec<GithubAsset>,
+    pub_date: Option<String>,
+    #[serde(default)]
+    platforms: HashMap<String, UpdaterPlatform>,
 }
 
 #[derive(serde::Deserialize)]
-struct GithubAsset {
-    name: String,
-    browser_download_url: String,
-    #[serde(default)]
-    size: u64,
+struct UpdaterPlatform {
+    url: String,
+}
+
+/// The manifest's key for the running platform.
+///
+/// Tauri names macOS `darwin`, so this cannot be `std::env::consts::OS` alone.
+/// An unrecognised pair yields a key no release publishes, which leaves `asset`
+/// empty rather than picking a wrong installer.
+fn platform_key() -> String {
+    let os = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        return String::new();
+    };
+
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        return String::new();
+    };
+
+    format!("{os}-{arch}")
+}
+
+/// Last path segment of a download URL, used as the installer's display name.
+fn file_name_of(url: &str) -> String {
+    url.split(['?', '#'])
+        .next()
+        .unwrap_or(url)
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(url)
+        .to_string()
 }
 
 /// Strips the `v` release tags carry so it can be compared with the crate version.
@@ -138,36 +186,6 @@ fn is_newer(candidate: &str, current: &str) -> bool {
         }
     }
     false
-}
-
-/// Picks the installer for the running platform.
-///
-/// Extensions are matched in preference order, so a Windows release that ships
-/// both an `.msi` and an NSIS `-setup.exe` yields the msi.
-fn pick_platform_asset(assets: &[GithubAsset]) -> Option<ReleaseAsset> {
-    let preferred: &[&str] = if cfg!(target_os = "windows") {
-        &[".msi", "-setup.exe"]
-    } else if cfg!(target_os = "macos") {
-        &[".dmg", ".app.tar.gz"]
-    } else {
-        &[".AppImage", ".deb", ".rpm"]
-    };
-
-    preferred.iter().find_map(|suffix| {
-        assets
-            .iter()
-            .find(|asset| {
-                asset
-                    .name
-                    .to_ascii_lowercase()
-                    .ends_with(&suffix.to_ascii_lowercase())
-            })
-            .map(|asset| ReleaseAsset {
-                name: asset.name.clone(),
-                download_url: asset.browser_download_url.clone(),
-                size: asset.size,
-            })
-    })
 }
 
 #[cfg(test)]
@@ -208,38 +226,61 @@ mod tests {
         assert!(is_newer("1.6.0-rc.1", "1.5.1"));
     }
 
-    fn asset(name: &str) -> GithubAsset {
-        GithubAsset {
-            name: name.to_string(),
-            browser_download_url: format!("https://example.invalid/{name}"),
-            size: 42,
+    /// The manifest the release CI actually writes, trimmed to two platforms.
+    const MANIFEST: &str = r#"{
+        "version": "1.5.4",
+        "pub_date": "2026-09-18T06:16:32Z",
+        "platforms": {
+            "windows-x86_64": {
+                "url": "https://github.com/o/r/releases/download/v1.5.4/eshell_1.5.4_x64-setup.exe",
+                "signature": "sig"
+            },
+            "darwin-aarch64": {
+                "url": "https://github.com/o/r/releases/download/v1.5.4/eshell.app.tar.gz",
+                "signature": "sig"
+            }
+        }
+    }"#;
+
+    #[test]
+    fn reads_the_updater_manifest() {
+        let manifest: UpdaterManifest = serde_json::from_str(MANIFEST).expect("parse manifest");
+        assert_eq!(manifest.version, "1.5.4");
+        assert_eq!(manifest.pub_date.as_deref(), Some("2026-09-18T06:16:32Z"));
+        assert_eq!(manifest.platforms.len(), 2);
+    }
+
+    /// A manifest with no `platforms` must still parse: the version check is
+    /// the part that matters, and a malformed platform map should not turn a
+    /// successful check into an error.
+    #[test]
+    fn a_manifest_without_platforms_still_parses() {
+        let manifest: UpdaterManifest =
+            serde_json::from_str(r#"{"version": "1.5.4"}"#).expect("parse manifest");
+        assert_eq!(manifest.version, "1.5.4");
+        assert!(manifest.platforms.is_empty());
+        assert!(manifest.pub_date.is_none());
+    }
+
+    #[test]
+    fn platform_key_names_macos_darwin() {
+        let key = platform_key();
+        if cfg!(target_os = "macos") {
+            assert!(key.starts_with("darwin-"), "{key}");
+        } else if cfg!(target_os = "windows") {
+            assert!(key.starts_with("windows-"), "{key}");
+        } else if cfg!(target_os = "linux") {
+            assert!(key.starts_with("linux-"), "{key}");
         }
     }
 
     #[test]
-    fn pick_platform_asset_prefers_the_native_installer() {
-        let assets = vec![
-            asset("eshell_1.5.2_amd64.deb"),
-            asset("eshell_1.5.2_x64-setup.exe"),
-            asset("eshell_1.5.2_x64_en-US.msi"),
-            asset("eshell_1.5.2_aarch64.dmg"),
-            asset("eshell_1.5.2_amd64.AppImage"),
-        ];
-
-        let picked = pick_platform_asset(&assets).expect("an installer for this platform");
-        if cfg!(target_os = "windows") {
-            // msi wins over the NSIS setup when a release ships both.
-            assert!(picked.name.ends_with(".msi"), "{}", picked.name);
-        } else if cfg!(target_os = "macos") {
-            assert!(picked.name.ends_with(".dmg"), "{}", picked.name);
-        } else {
-            assert!(picked.name.ends_with(".AppImage"), "{}", picked.name);
-        }
-    }
-
-    #[test]
-    fn pick_platform_asset_returns_nothing_when_the_release_has_no_match() {
-        let assets = vec![asset("eshell-sources.tar.bz2"), asset("checksums.txt")];
-        assert!(pick_platform_asset(&assets).is_none());
+    fn file_name_of_reads_the_last_path_segment() {
+        assert_eq!(
+            file_name_of("https://github.com/o/r/releases/download/v1.5.4/eshell_1.5.4_x64-setup.exe"),
+            "eshell_1.5.4_x64-setup.exe"
+        );
+        assert_eq!(file_name_of("https://example.invalid/a/b/"), "b");
+        assert_eq!(file_name_of("https://example.invalid/a/b?token=1"), "b");
     }
 }
