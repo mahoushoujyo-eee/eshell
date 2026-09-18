@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use tokio::sync::mpsc::UnboundedSender;
@@ -73,7 +74,13 @@ pub struct AppState {
     /// shared by every tab.
     ssh_connect_locks: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
     status_cache: RwLock<HashMap<String, ServerStatus>>,
-    pty_channels: RwLock<HashMap<String, UnboundedSender<PtyCommand>>>,
+    /// PTY control channel per shell tab, tagged with the generation of the
+    /// worker that registered it. A tab can outlive several PTY workers (see
+    /// [`AppState::reopen_pty_channel`]), and a worker that is being replaced
+    /// must not unregister its successor's channel on the way out.
+    pty_channels: RwLock<HashMap<String, (u64, UnboundedSender<PtyCommand>)>>,
+    /// Source of [`AppState::pty_channels`] generations. Monotonic, never reset.
+    pty_generations: AtomicU64,
     /// Cancellation token per shell tab. Created by `put_session`, never reset by
     /// later updates, and cancelled by `remove_session`.
     shell_session_tokens: RwLock<HashMap<String, CancellationToken>>,
@@ -107,6 +114,7 @@ impl AppState {
             ssh_connect_locks: Mutex::new(HashMap::new()),
             status_cache: RwLock::new(HashMap::new()),
             pty_channels: RwLock::new(HashMap::new()),
+            pty_generations: AtomicU64::new(0),
             shell_session_tokens: RwLock::new(HashMap::new()),
             shell_connection_cancellations: RwLock::new(HashMap::new()),
             sftp_transfer_cancellations: RwLock::new(HashMap::new()),
@@ -428,6 +436,12 @@ impl AppState {
 
     /// Registers or replaces PTY control channel for one shell session.
     ///
+    /// Returns the generation the caller's worker was registered under, which it
+    /// must pass back to [`AppState::remove_pty_channel_if_current`] when it
+    /// exits. A tab can outlive its PTY worker — `reopen_shell_pty` replaces a
+    /// dead channel without touching the session — so an outgoing worker that
+    /// unregistered unconditionally would tear down its own replacement.
+    ///
     /// The sender is a tokio unbounded sender, whose `send` is synchronous, so the
     /// Tauri command layer can forward frontend keystrokes without an executor
     /// turn (and without blocking on a full channel).
@@ -436,22 +450,24 @@ impl AppState {
     /// worker seeded concurrently with `remove_session` cannot leave a channel
     /// behind for a tab that is gone. When the tab is already closed the sender is
     /// dropped (after a close hint) so the worker's receiver ends and it exits.
-    pub fn put_pty_channel(&self, session_id: String, sender: UnboundedSender<PtyCommand>) {
+    pub fn put_pty_channel(&self, session_id: String, sender: UnboundedSender<PtyCommand>) -> u64 {
+        let generation = self.pty_generations.fetch_add(1, Ordering::Relaxed);
         let sessions_guard = self.sessions.read().expect("session lock poisoned");
         if !sessions_guard.contains_key(session_id.as_str()) {
             drop(sessions_guard);
             let _ = sender.send(PtyCommand::Close);
-            return;
+            return generation;
         }
 
-        if let Some(previous) = self
+        if let Some((_, previous)) = self
             .pty_channels
             .write()
             .expect("pty channel lock poisoned")
-            .insert(session_id, sender)
+            .insert(session_id, (generation, sender))
         {
             let _ = previous.send(PtyCommand::Close);
         }
+        generation
     }
 
     /// Sends PTY control message to one shell session worker.
@@ -461,7 +477,7 @@ impl AppState {
             .read()
             .expect("pty channel lock poisoned")
             .get(session_id)
-            .cloned()
+            .map(|(_, sender)| sender.clone())
             .ok_or_else(|| AppError::NotFound(format!("pty session {session_id}")))?;
         sender
             .send(command)
@@ -470,12 +486,42 @@ impl AppState {
 
     /// Unregisters PTY channel and asks worker to stop.
     pub fn remove_pty_channel(&self, session_id: &str) {
-        if let Some(sender) = self
+        if let Some((_, sender)) = self
             .pty_channels
             .write()
             .expect("pty channel lock poisoned")
             .remove(session_id)
         {
+            let _ = sender.send(PtyCommand::Close);
+        }
+    }
+
+    /// Whether `generation` is still the live PTY worker for this tab.
+    ///
+    /// A worker that has been superseded — the tab was reopened while it was
+    /// still winding down — must not tear down the tab on its way out.
+    pub fn is_current_pty_generation(&self, session_id: &str, generation: u64) -> bool {
+        self.pty_channels
+            .read()
+            .expect("pty channel lock poisoned")
+            .get(session_id)
+            .is_some_and(|(current, _)| *current == generation)
+    }
+
+    /// Unregisters the PTY channel only if it still belongs to `generation`.
+    ///
+    /// A worker calls this on exit. If the channel has already been replaced —
+    /// the tab was reopened while this worker was still winding down — the
+    /// replacement is left alone, because it is the live one.
+    pub fn remove_pty_channel_if_current(&self, session_id: &str, generation: u64) {
+        let mut guard = self.pty_channels.write().expect("pty channel lock poisoned");
+        let is_current = guard
+            .get(session_id)
+            .is_some_and(|(current, _)| *current == generation);
+        if !is_current {
+            return;
+        }
+        if let Some((_, sender)) = guard.remove(session_id) {
             let _ = sender.send(PtyCommand::Close);
         }
     }
@@ -1248,6 +1294,45 @@ mod tests {
         assert!(matches!(
             replacement_rx.recv().await,
             Some(PtyCommand::Close)
+        ));
+    }
+
+    /// A tab can be reopened while its previous worker is still winding down.
+    /// That outgoing worker must not unregister the channel its replacement just
+    /// registered, or the reopened PTY would be dead on arrival.
+    #[tokio::test]
+    async fn a_replaced_pty_worker_does_not_unregister_its_successor() {
+        let state = temp_state("pty-generation");
+        state.put_session(shell_session("session-1"));
+
+        let (first, mut first_rx) = tokio::sync::mpsc::unbounded_channel();
+        let first_generation = state.put_pty_channel("session-1".to_string(), first);
+
+        // The reopen: a second worker takes over the same tab.
+        let (second, mut second_rx) = tokio::sync::mpsc::unbounded_channel();
+        let second_generation = state.put_pty_channel("session-1".to_string(), second);
+        assert_ne!(first_generation, second_generation);
+        assert!(matches!(first_rx.recv().await, Some(PtyCommand::Close)));
+
+        // The outgoing worker exits and tries to clean up after itself.
+        state.remove_pty_channel_if_current("session-1", first_generation);
+
+        // The replacement is still the live channel: input reaches it, and it was
+        // never told to stop.
+        state
+            .send_pty_command("session-1", PtyCommand::Input("ls\n".to_string()))
+            .expect("the replacement channel must survive the old worker's exit");
+        assert!(matches!(
+            second_rx.recv().await,
+            Some(PtyCommand::Input(input)) if input == "ls\n"
+        ));
+
+        // The current worker's own cleanup does unregister it.
+        state.remove_pty_channel_if_current("session-1", second_generation);
+        assert!(matches!(second_rx.recv().await, Some(PtyCommand::Close)));
+        assert!(matches!(
+            state.send_pty_command("session-1", PtyCommand::Close),
+            Err(AppError::NotFound(_))
         ));
     }
 

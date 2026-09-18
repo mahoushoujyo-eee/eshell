@@ -91,6 +91,63 @@ async fn open_shell_session_inner(
     Ok(session)
 }
 
+/// Reopens the interactive PTY channel of an existing tab.
+///
+/// A tab outlives its PTY worker: the worker exits on EOF, a read failure or a
+/// dropped transport, and `pty.rs` deliberately keeps the session record so the
+/// tab can be recovered without losing its identity, working directory and
+/// status cache. This rebuilds the channel against that same record — and the
+/// tab's SSH connection, which `cached_ssh_session` re-establishes on demand —
+/// rather than opening a second session, so a recovery never leaves an orphan
+/// tab behind for `list_shell_sessions` to resurrect.
+pub async fn reopen_shell_pty(
+    state: Arc<AppState>,
+    app: AppHandle,
+    session_id: &str,
+) -> AppResult<ShellSession> {
+    state.get_session(session_id)?;
+    let (ssh, channel) = open_pty_channel(&state, Some(&app), session_id).await?;
+    // Re-check after the handshake: the tab may have been closed while we waited,
+    // and `put_pty_channel` would then reject the worker and leak the channel.
+    let session = state.get_session(session_id)?;
+    pty::start_worker(Arc::clone(&state), app, session.id.clone(), ssh, channel);
+    Ok(session)
+}
+
+/// Opens a PTY channel on the tab's transport, rebuilding a dead one once.
+///
+/// Mirrors `run_session_command`: the whole reason a reopen is being asked for
+/// is that the previous transport failed, so a cached connection that is closed
+/// or that refuses the channel is evicted and replaced before giving up.
+async fn open_pty_channel(
+    state: &Arc<AppState>,
+    app: Option<&AppHandle>,
+    session_id: &str,
+) -> AppResult<(SharedSshSession, pty::PtyChannel)> {
+    for attempt in 1..=2 {
+        let shared = cached_ssh_session(state, app, session_id).await?;
+        match pty::open_channel(&shared).await {
+            Ok(channel) => return Ok((shared, channel)),
+            Err(err) => {
+                if !is_stale_connection_error(&err) && !shared.is_closed() {
+                    return Err(err);
+                }
+                let evicted = state.evict_ssh_session(session_id, &shared);
+                append_server_ops_debug_log(
+                    state,
+                    "ssh.pty_reopen.stale",
+                    session_id,
+                    format!("attempt={attempt} evicted={evicted} error={err}"),
+                );
+                if attempt == 2 {
+                    return Err(err);
+                }
+            }
+        }
+    }
+    unreachable!("both PTY channel attempts return or execute")
+}
+
 /// Closes and removes a shell session from runtime registry.
 pub fn close_shell_session(state: &AppState, session_id: &str) -> AppResult<()> {
     match state.remove_session(session_id) {

@@ -8,6 +8,7 @@ import { getTerminalWallpaperStyle, normalizeWallpaperSelection } from "../../co
 import { useI18n } from "../../lib/i18n";
 import { normalizeShellContextContent } from "../../lib/ops-agent-shell-context";
 import { recordTerminalResize, recordXtermWrite, recordPtyChunk } from "../../lib/terminal-perf-debug";
+import { copyTextToClipboard, readTextFromClipboard } from "../../utils/clipboard";
 import XtermSelectionAction from "./xterm/XtermSelectionAction";
 
 const transparentTerminalBackground = "rgba(0, 0, 0, 0)";
@@ -47,7 +48,7 @@ function XtermDisconnectOverlay({ reason, onReconnect }) {
       setError(typeof err === "string" ? err : err?.message || String(err));
       setBusy(false);
     }
-    // On success the session id changes and this overlay unmounts.
+    // On success the session's disconnected flag clears and this overlay unmounts.
   };
 
   return (
@@ -214,18 +215,57 @@ export default function XtermConsole({
         });
 
       term.attachCustomKeyEventHandler((event) => {
+        if (event.type !== "keydown") {
+          return true;
+        }
+
         const isSaveShortcut =
-          event.type === "keydown" &&
           (event.key === "s" || event.key === "S") &&
           (event.ctrlKey || event.metaKey) &&
           !event.altKey;
+        if (isSaveShortcut) {
+          event.preventDefault();
+          event.stopPropagation();
+          return false;
+        }
 
-        if (!isSaveShortcut) {
+        // Ctrl+Shift+C/V are the terminal's own clipboard shortcuts. xterm binds
+        // neither: it only listens for the DOM `copy`/`paste` events, which a
+        // WebView does not raise for its hidden textarea, so without this the
+        // keys reach the shell as ^C / ^V instead of the clipboard.
+        const isClipboardShortcut =
+          event.ctrlKey &&
+          event.shiftKey &&
+          !event.altKey &&
+          (event.key === "c" || event.key === "C" || event.key === "v" || event.key === "V");
+        if (!isClipboardShortcut) {
           return true;
+        }
+
+        if (event.key === "c" || event.key === "C") {
+          const selection = term.getSelection();
+          // With nothing selected, fall through so the shell still sees ^C.
+          if (!selection) {
+            return true;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          void copyTextToClipboard(selection);
+          return false;
         }
 
         event.preventDefault();
         event.stopPropagation();
+        void readTextFromClipboard().then((text) => {
+          // The read is async, so the tab may have been closed while it was in
+          // flight; pasting into a disposed terminal throws.
+          if (!text || terminalsRef.current.get(sessionId)?.term !== term) {
+            return;
+          }
+          // `term.paste` applies bracketed-paste framing, which a raw
+          // `onData` write would skip.
+          term.paste(text);
+        });
         return false;
       });
       term.open(host);

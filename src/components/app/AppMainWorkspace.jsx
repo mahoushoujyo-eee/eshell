@@ -30,7 +30,7 @@ export default function AppMainWorkspace({
     sessions,
     wallpaper,
     closeSession,
-    reconnectSession,
+    reopenSessionPty,
     disconnectedSessions,
     sendCommandDraft,
     sendPtyInput,
@@ -79,7 +79,7 @@ export default function AppMainWorkspace({
       activeSessionId={activeSessionId}
       onSelectSession={setActiveSessionId}
       onCloseSession={closeSession}
-      onReconnectSession={reconnectSession}
+      onReconnectSession={reopenSessionPty}
       disconnectedSessions={disconnectedSessions}
       activeSession={activeSession}
       onPtyInput={sendPtyInput}

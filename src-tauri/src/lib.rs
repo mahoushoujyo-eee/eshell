@@ -57,6 +57,7 @@ pub fn run() {
             server_ops::commands::list_shell_sessions,
             server_ops::commands::open_shell_session,
             server_ops::commands::cancel_open_shell_session,
+            server_ops::commands::reopen_shell_pty,
             server_ops::commands::close_shell_session,
             server_ops::commands::pty_write_input,
             server_ops::commands::pty_resize,

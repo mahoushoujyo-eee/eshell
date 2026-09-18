@@ -1,3 +1,19 @@
+/// Reads the clipboard, returning an empty string when it is unavailable.
+///
+/// `navigator.clipboard` needs a secure context and can reject when the document
+/// is not focused or the user denied the permission, so callers must treat an
+/// empty result as "nothing to paste" rather than as an error.
+export const readTextFromClipboard = async () => {
+  if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
+    return "";
+  }
+  try {
+    return await navigator.clipboard.readText();
+  } catch {
+    return "";
+  }
+};
+
 export const copyTextToClipboard = async (value) => {
   const text = String(value || "");
   if (!text) {

@@ -78,16 +78,17 @@ pub(super) fn start_worker(
     channel: PtyChannel,
 ) {
     let (tx, rx) = mpsc::unbounded_channel();
-    state.put_pty_channel(session_id.clone(), tx);
+    let generation = state.put_pty_channel(session_id.clone(), tx);
     append_server_ops_debug_log(
         &state,
         "pty.worker.started",
         &session_id,
         "keepalive_sec=20 cols=120 rows=36",
     );
-    tauri::async_runtime::spawn(run_worker(state, app, session_id, ssh, channel, rx));
+    tauri::async_runtime::spawn(run_worker(state, app, session_id, ssh, channel, rx, generation));
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_worker(
     state: Arc<AppState>,
     app: AppHandle,
@@ -95,6 +96,7 @@ async fn run_worker(
     ssh: SharedSshSession,
     pty: PtyChannel,
     mut rx: mpsc::UnboundedReceiver<PtyCommand>,
+    generation: u64,
 ) {
     let Ok(tab_cancel) = state.shell_session_token(&session_id) else {
         return;
@@ -178,13 +180,20 @@ async fn run_worker(
         "session_removed=true",
     );
     let close_reason = close_reason.filter(|_| !tab_cancel.is_cancelled());
-    if ssh.is_closed() && !tab_cancel.is_cancelled() {
-        // A concurrent exec may already be replacing this dead transport. Keep
-        // the tab identity until explicit close/reconnect; never kill its replacement.
-        state.remove_pty_channel(&session_id);
-        state.evict_ssh_session(&session_id, &ssh);
-    } else {
-        let _ = state.remove_session(&session_id);
+    // A worker that has been superseded by a reopen must not touch the tab at
+    // all: the channel and the connection now belong to its replacement, and
+    // removing the session would delete the tab the user just revived.
+    let is_current = state.is_current_pty_generation(&session_id, generation);
+    if is_current {
+        if ssh.is_closed() && !tab_cancel.is_cancelled() {
+            // The transport died but the tab did not: keep the session record so
+            // the user can reopen the PTY on it. Both removals are identity-checked
+            // for the same reason as above.
+            state.remove_pty_channel_if_current(&session_id, generation);
+            state.evict_ssh_session(&session_id, &ssh);
+        } else {
+            let _ = state.remove_session(&session_id);
+        }
     }
     if let Some(reason) = close_reason {
         let _ = app.emit("pty-closed", PtyClosedEvent { session_id, reason });

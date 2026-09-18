@@ -81,7 +81,6 @@ export function useWorkbench() {
   const reconnectingSessionsRef = useRef(new Map());
   const closingSessionsRef = useRef(new Set());
   const kiPromptDismissRef = useRef(null);
-  const sessionAliasRef = useRef(new Map());
   const statusRequestTokenRef = useRef(new Map());
   const ptyInputSenderRef = useRef(null);
   const onErrorRef = useRef(() => {});
@@ -203,7 +202,7 @@ export function useWorkbench() {
     connectServer,
     cancelConnectServer,
     closeSession,
-    reconnectSession,
+    reopenSessionPty,
     markSessionDisconnected,
     sendCommandDraft,
     requestSftpDir,
@@ -261,7 +260,6 @@ export function useWorkbench() {
     setError,
     reconnectingSessionsRef,
     closingSessionsRef,
-    sessionAliasRef,
     statusRequestTokenRef,
     ptyInputSenderRef,
     onErrorRef,
@@ -355,7 +353,7 @@ export function useWorkbench() {
     connectServer,
     cancelConnectServer,
     closeSession,
-    reconnectSession,
+    reopenSessionPty,
     disconnectedSessions,
     sendCommandDraft,
     sendPtyInput,

@@ -48,6 +48,13 @@ pub struct CloseShellInput {
     pub session_id: String,
 }
 
+/// Reopens the PTY channel of an existing session, keeping its id.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReopenShellPtyInput {
+    pub session_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CancelShellConnectionInput {

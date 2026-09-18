@@ -14,6 +14,8 @@ export const api = {
     invoke("open_shell_session", { input: { configId, requestId } }),
   cancelOpenShellSession: (requestId) =>
     invoke("cancel_open_shell_session", { input: { requestId } }),
+  reopenShellPty: (sessionId) =>
+    invoke("reopen_shell_pty", { input: { sessionId } }),
   closeShellSession: (sessionId) =>
     invoke("close_shell_session", { input: { sessionId } }),
   ptyWriteInput: (sessionId, data) =>

@@ -8,7 +8,8 @@ import { copyTextToClipboard } from "../../utils/clipboard";
 import { joinPath, normalizeRemotePath, renameRemoteEntryPath } from "../../utils/path";
 import {
   STATUS_FETCH_WARNING_PREFIX,
-  isSessionLostError,
+  isPtyLostError,
+  isSessionGoneError,
   toErrorMessage,
 } from "./errors";
 import { shellQuote } from "./session";
@@ -132,7 +133,6 @@ export function useWorkbenchOperations({
   setError,
   reconnectingSessionsRef,
   closingSessionsRef,
-  sessionAliasRef,
   statusRequestTokenRef,
   ptyInputSenderRef,
   onErrorRef,
@@ -173,25 +173,14 @@ export function useWorkbenchOperations({
     });
   }, []);
 
-  const resolveSessionAlias = useCallback((sessionId) => {
-    if (!sessionId) {
-      return null;
-    }
-    return sessionAliasRef.current.get(sessionId) || sessionId;
-  }, []);
+  // A session id is now stable for the lifetime of its tab: recovering a dead
+  // PTY reopens the channel under the same id instead of replacing the session,
+  // so there is no old-to-new id mapping to resolve any more.
+  const resolveSessionAlias = useCallback((sessionId) => sessionId || null, []);
 
   const isSessionClosing = useCallback(
-    (sessionId) => {
-      if (!sessionId) {
-        return false;
-      }
-      const resolvedSessionId = sessionAliasRef.current.get(sessionId) || sessionId;
-      return (
-        closingSessionsRef.current.has(sessionId) ||
-        closingSessionsRef.current.has(resolvedSessionId)
-      );
-    },
-    [closingSessionsRef, sessionAliasRef],
+    (sessionId) => Boolean(sessionId) && closingSessionsRef.current.has(sessionId),
+    [closingSessionsRef],
   );
 
   const clearSessionArtifacts = useCallback((sessionId) => {
@@ -199,19 +188,7 @@ export function useWorkbenchOperations({
       return;
     }
 
-    const aliasKeys = [];
     const relatedSessionIds = new Set([sessionId]);
-    sessionAliasRef.current.forEach((value, key) => {
-      if (key === sessionId || value === sessionId) {
-        aliasKeys.push(key);
-        if (typeof key === "string" && key) {
-          relatedSessionIds.add(key);
-        }
-        if (typeof value === "string" && value) {
-          relatedSessionIds.add(value);
-        }
-      }
-    });
 
     const inputSender = ptyInputSenderRef.current;
     if (inputSender) {
@@ -219,10 +196,6 @@ export function useWorkbenchOperations({
         inputSender.clearSession(id);
       });
     }
-
-    aliasKeys.forEach((key) => {
-      sessionAliasRef.current.delete(key);
-    });
 
     reconnectingSessionsRef.current.delete(sessionId);
     statusRequestTokenRef.current.delete(sessionId);
@@ -291,7 +264,7 @@ export function useWorkbenchOperations({
   );
 
   // Marks one session as non-interactive after its PTY died; the terminal
-  // shows a reconnect overlay until `reconnectSession` replaces it.
+  // shows a reconnect overlay until `reopenSessionPty` revives the same tab.
   const markSessionDisconnected = useCallback(
     (sessionId, reason = "") => {
       if (!sessionId || isSessionClosing(sessionId)) {
@@ -316,108 +289,64 @@ export function useWorkbenchOperations({
     [appendLog, isSessionClosing, setDisconnectedSessions],
   );
 
-  const reconnectSession = useCallback(
+  // Rebuilds a tab's PTY channel in place. The session id is preserved, so the
+  // tab, its working directory, its SFTP path and its status cache all survive;
+  // nothing is opened and nothing is orphaned.
+  const reopenSessionPty = useCallback(
     async (sessionId) => {
-      const originSessionId = resolveSessionAlias(sessionId);
-      if (!originSessionId) {
+      const targetSessionId = resolveSessionAlias(sessionId);
+      if (!targetSessionId) {
         throw new Error(tRef.current("No shell session selected"));
       }
-      if (isSessionClosing(originSessionId)) {
+      if (isSessionClosing(targetSessionId)) {
         throw new Error(tRef.current("Shell session is closing"));
       }
 
-      const existing = reconnectingSessionsRef.current.get(originSessionId);
+      const existing = reconnectingSessionsRef.current.get(targetSessionId);
       if (existing) {
         return existing;
       }
 
       const task = (async () => {
-        const staleSession = sessions.find((item) => item.id === originSessionId);
-        if (!staleSession?.configId) {
-          throw new Error(
-            tRef.current("Shell session lost and cannot auto-reconnect: {sessionId}", {
-              sessionId: originSessionId,
-            }),
-          );
-        }
-
-        const reopened = await api.openShellSession(staleSession.configId);
-        if (isSessionClosing(originSessionId)) {
-          try {
-            await api.closeShellSession(reopened.id);
-          } catch (_err) {
-            // The close path is already removing this session from the UI; avoid
-            // surfacing cleanup errors from a reconnect that lost the race.
-          }
+        const session = await api.reopenShellPty(targetSessionId);
+        if (isSessionClosing(targetSessionId)) {
           throw new Error(tRef.current("Shell session is closing"));
         }
-        sessionAliasRef.current.set(originSessionId, reopened.id);
 
-        const restoreDir = normalizeRemotePath(staleSession.currentDir || reopened.currentDir || "/");
+        // The PTY is a fresh shell, so the tracked directory has to be restored
+        // by hand. The session record itself is untouched.
+        const restoreDir = normalizeRemotePath(session.currentDir || "/");
         if (restoreDir && restoreDir !== "/") {
           try {
-            await api.ptyWriteInput(reopened.id, `cd ${shellQuote(restoreDir)}\n`);
+            await api.ptyWriteInput(targetSessionId, `cd ${shellQuote(restoreDir)}\n`);
           } catch (_err) {
-            // Ignore restore-dir failures and keep the recovered session usable.
+            // A failed cd leaves the tab usable at the login directory.
           }
         }
 
-        setSessions((prev) => {
-          const next = prev.filter((item) => item.id !== originSessionId && item.id !== reopened.id);
-          return [...next, reopened];
-        });
-        setActiveSessionId((prev) => (prev === originSessionId ? reopened.id : prev));
-
-        setSftpPath((prev) => {
-          const rememberedPath =
-            prev[originSessionId] || staleSession.currentDir || reopened.currentDir || "/";
-          const next = {
-            ...prev,
-            [reopened.id]: normalizeRemotePath(rememberedPath),
-          };
-          delete next[originSessionId];
-          return next;
-        });
-        setStatusBySession((prev) => {
-          if (!(originSessionId in prev)) {
-            return prev;
-          }
-          const next = { ...prev, [reopened.id]: prev[originSessionId] };
-          delete next[originSessionId];
-          return next;
-        });
-        setNicBySession((prev) => {
-          if (!(originSessionId in prev)) {
-            return prev;
-          }
-          const next = { ...prev, [reopened.id]: prev[originSessionId] };
-          delete next[originSessionId];
-          return next;
-        });
-        setLogs((prev) => {
-          if (!(originSessionId in prev)) {
-            return prev;
-          }
-          const next = { ...prev, [reopened.id]: prev[originSessionId] };
-          delete next[originSessionId];
-          return next;
-        });
-
-        appendLog(reopened.id, "SYSTEM", tRef.current("Session disconnected. Auto-reconnected."));
-        clearDisconnectedFlags(originSessionId, reopened.id);
-        return reopened;
+        setSessions((prev) =>
+          prev.map((item) => (item.id === targetSessionId ? { ...item, ...session } : item)),
+        );
+        clearDisconnectedFlags(targetSessionId);
+        appendLog(targetSessionId, "SYSTEM", tRef.current("Session reconnected."));
+        return session;
       })();
 
-      reconnectingSessionsRef.current.set(originSessionId, task);
+      reconnectingSessionsRef.current.set(targetSessionId, task);
       try {
         return await task;
       } finally {
-        reconnectingSessionsRef.current.delete(originSessionId);
+        reconnectingSessionsRef.current.delete(targetSessionId);
       }
     },
-    [appendLog, clearDisconnectedFlags, isSessionClosing, resolveSessionAlias, sessions],
+    [appendLog, clearDisconnectedFlags, isSessionClosing, resolveSessionAlias],
   );
 
+  // Runs one operation against a tab, rebuilding its PTY once if the worker died.
+  //
+  // Only a dead PTY is recovered. A removed tab (`isSessionGoneError`) is
+  // surfaced instead: reopening against it cannot succeed, and retrying it is
+  // what used to spawn a fresh session on every poll.
   const runWithSessionReconnect = useCallback(
     async (sessionId, action) => {
       const resolvedSessionId = resolveSessionAlias(sessionId);
@@ -431,17 +360,17 @@ export function useWorkbenchOperations({
       try {
         return await action(resolvedSessionId);
       } catch (err) {
-        if (!isSessionLostError(err)) {
+        if (!isPtyLostError(err)) {
           throw err;
         }
         if (isSessionClosing(resolvedSessionId)) {
           throw err;
         }
-        const reopened = await reconnectSession(resolvedSessionId);
-        return action(reopened.id);
+        await reopenSessionPty(resolvedSessionId);
+        return action(resolvedSessionId);
       }
     },
-    [isSessionClosing, reconnectSession, resolveSessionAlias],
+    [isSessionClosing, reopenSessionPty, resolveSessionAlias],
   );
 
   useEffect(() => {
@@ -714,7 +643,9 @@ export function useWorkbenchOperations({
           setActiveSessionId(filteredRows[0].id);
         }
       } catch (err) {
-        if (!isSessionLostError(err)) {
+        // Closing a tab that is already gone is the expected outcome, not a
+        // failure worth surfacing.
+        if (!isSessionGoneError(err)) {
           onError(err);
         }
       } finally {
@@ -1468,7 +1399,7 @@ export function useWorkbenchOperations({
     appendLog,
     resolveSessionAlias,
     runWithSessionReconnect,
-    reconnectSession,
+    reopenSessionPty,
     markSessionDisconnected,
     bootstrap,
     saveSsh,

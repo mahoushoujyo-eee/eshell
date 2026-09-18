@@ -8,7 +8,8 @@ use crate::models::{
     FetchServerStatusInput, OpenShellInput, PtyResizeInput, PtyWriteInput, RunScriptInput,
     RunScriptResult, SftpCancelTransferInput, SftpCreateInput, SftpDeleteInput, SftpDownloadInput,
     SftpDownloadPayload, SftpDownloadToLocalInput, SftpFileContent, SftpListInput,
-    SftpListResponse, SftpReadInput, SftpRenameInput, SftpTransferResult, SftpUploadInput,
+    ReopenShellPtyInput, SftpListResponse, SftpReadInput, SftpRenameInput, SftpTransferResult,
+    SftpUploadInput,
     SftpUploadLocalWithProgressInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession,
     SshKiRespondInput,
 };
@@ -48,6 +49,22 @@ pub fn cancel_open_shell_session(
     input: CancelShellConnectionInput,
 ) -> Result<bool, String> {
     Ok(state.cancel_shell_connection(&input.request_id))
+}
+
+/// Reopens the PTY channel of an existing shell session after its worker died.
+///
+/// The session id is preserved, so the tab, its working directory and its status
+/// cache all survive the recovery.
+#[tauri::command]
+pub async fn reopen_shell_pty(
+    state: State<'_, Arc<AppState>>,
+    app: tauri::AppHandle,
+    input: ReopenShellPtyInput,
+) -> Result<ShellSession, String> {
+    let app_state = Arc::clone(state.inner());
+    super::reopen_shell_pty(app_state, app, &input.session_id)
+        .await
+        .map_err(to_command_error)
 }
 
 /// Closes one shell session and drops the corresponding status cache.
