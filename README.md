@@ -33,7 +33,7 @@ The main AI entry point is the ACP panel, which drives an external coding agent 
 - Permission requests from the agent surface as approval cards; `session/cancel` also cancels any pending request.
 - The panel exposes the MCP bridge, so an agent can call eShell's own tools.
 
-The self-hosted Ops Agent runtime (`src-tauri/src/ops_agent/`) remains in the backend, but its chat panel has been replaced by the ACP panel. See [Ops Agent Guide](docs/guides/features/ops_agent.md) for the runtime itself.
+All agent work is delegated to external ACP agents; the former self-hosted Ops Agent runtime was removed from the backend.
 
 ## Tech Stack
 
@@ -105,13 +105,16 @@ src/
     i18n.js
 
 src-tauri/src/
-  commands/        # Tauri command entry points
-  server_ops/      # SSH, PTY, shared command transport
-  plugins/         # native built-in registry, SFTP, server monitoring,
-                   #   external discovery/install, plugin:// protocol
-  ops_agent/       # ACP client, self-hosted agent runtime, providers, tools, approvals
-  storage/         # persisted SSH / scripts / AI profiles / agent context
-  models/          # per-domain model modules
+  domain/          # per-domain model / service / command layers
+    ssh/           # SSH transport, PTY workers, session commands
+    sftp/          # SFTP operations and transfer cancellation
+    config/        # persisted SSH configs / known hosts / reload bridge
+    scripts/       # saved script definitions and execution
+    ai/            # AI provider profiles, import, agent context
+    monitor/       # server metric probes and status cache
+    extensions/    # builtin + external plugin runtime, plugin:// protocol
+    ops_agent/     # ACP client: external agent spawn, sessions, history
+  common/          # error types, time, debug logging
   state.rs
 
 examples/          # ready-to-load external plugins (hello, docker)
@@ -209,11 +212,6 @@ Typical contents:
     AGENTS.md
     <serverId>.md
     skills/
-  ops_agent_conversation_list.json
-  ops_agent_conversations/
-  ops_agent_attachments/
-  ops_agent_runs/
-  ops_agent_debug.log
   server_ops_debug.log
 ```
 
@@ -223,7 +221,6 @@ Persistence notes:
 - `acp_agents.json` declares the ACP agents the panel can spawn; `acp_sessions/` holds one transcript per session.
 - `projects.json` maps ACP projects to local folders.
 - `agent/AGENTS.md` is the global agent context file, `agent/<serverId>.md` the per-server one, and `agent/skills/` holds the bundled `eshell-config` and `eshell-plugin-dev` skills.
-- `ops_agent_conversations/` keeps the self-hosted Ops Agent chat history; `ops_agent_attachments/` stores detached image payloads (conversation JSON keeps only `attachmentIds`).
 - `server_ops_debug.log` records server-operation events (`pty.worker.started`, `status.probe.failed`, …) and is the first place to look when a session misbehaves.
 
 ## Documentation
@@ -234,8 +231,6 @@ Persistence notes:
 - [Webshell Session](docs/guides/features/webshell_session.md)
 - [ACP Agent Guide](docs/guides/features/acp_agent.md)
 - [ACP Panel Frontend](docs/guides/features/acp_panel_frontend.md)
-- [Ops Agent Guide](docs/guides/features/ops_agent.md)
-- [Ops Agent Layered Architecture](docs/guides/architecture/ops_agent_layered_architecture.md)
 - [Project Dev Guide](docs/guides/PROJECT_DEV_GUIDE.md)
 - [Project Description](docs/specs/project_description.md)
 - [OpenAPI-style RPC Spec](docs/specs/openapi.yaml)

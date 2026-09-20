@@ -33,7 +33,7 @@
 - agent 的权限请求以审批卡片呈现；`session/cancel` 同时会取消挂起的请求。
 - 面板暴露 MCP bridge，agent 可以调用 eShell 自身的工具。
 
-自研的 Ops Agent 运行时（`src-tauri/src/ops_agent/`）仍保留在后端，但其聊天面板已由 ACP 面板取代。运行时本身见 [Ops Agent 指南](docs/guides/features/ops_agent.md)。
+所有 Agent 工作均委托给外部 ACP Agent；原自研 Ops Agent 运行时已从后端移除。
 
 ## 技术栈
 
@@ -101,13 +101,17 @@ src/
     i18n.js
 
 src-tauri/src/
-  commands/        # Tauri 命令入口
-  server_ops/      # SSH、PTY、共享命令传输
-  plugins/         # 原生内置插件注册表、SFTP、状态监控、
-                   #   外部插件发现/安装、plugin:// 协议
-  ops_agent/       # ACP 客户端、自研 agent 运行时、Provider、工具、审批
-  storage/         # SSH / 脚本 / AI profiles / agent 上下文持久化
-  models/          # 按领域拆分的模型模块
+  domain/          # 按领域拆分的 model / service / command 层
+    ssh/           # SSH 传输、PTY 工作线程、会话命令
+    sftp/          # SFTP 操作与传输取消
+    config/        # SSH 配置 / known hosts 持久化、reload 桥
+    scripts/       # 脚本定义与执行
+    ai/            # AI Provider 配置、导入、agent 上下文
+    monitor/       # 服务器指标探测与状态缓存
+    extensions/    # 内置 + 外部插件运行时、plugin:// 协议
+    ops_agent/     # ACP 客户端：外部 Agent 拉起、会话、历史
+  common/          # 错误类型、时间、调试日志
+  state.rs
   state.rs
 
 examples/          # 可直接加载的外部插件示例（hello、docker）
@@ -205,11 +209,6 @@ cargo test
     AGENTS.md
     <serverId>.md
     skills/
-  ops_agent_conversation_list.json
-  ops_agent_conversations/
-  ops_agent_attachments/
-  ops_agent_runs/
-  ops_agent_debug.log
   server_ops_debug.log
 ```
 
@@ -219,7 +218,6 @@ cargo test
 - `acp_agents.json` 声明面板可启动的 ACP agent；`acp_sessions/` 每个会话一个记录文件。
 - `projects.json` 保存 ACP 项目到本地目录的映射。
 - `agent/AGENTS.md` 是全局 agent 上下文文件，`agent/<serverId>.md` 是按服务器拆分的上下文，`agent/skills/` 存放 `eshell-config` 和 `eshell-plugin-dev` 两个内置 skill。
-- `ops_agent_conversations/` 保存自研 Ops Agent 的聊天历史；`ops_agent_attachments/` 保存分离的图片附件（conversation JSON 只保存 `attachmentIds`）。
 - `server_ops_debug.log` 记录服务端操作事件（`pty.worker.started`、`status.probe.failed` 等），会话异常时先看这里。
 
 ## 文档入口
@@ -230,8 +228,6 @@ cargo test
 - [Webshell 会话](docs/guides/features/webshell_session.md)
 - [ACP Agent 指南](docs/guides/features/acp_agent.md)
 - [ACP 面板前端](docs/guides/features/acp_panel_frontend.md)
-- [Ops Agent 指南](docs/guides/features/ops_agent.md)
-- [Ops Agent 分层架构](docs/guides/architecture/ops_agent_layered_architecture.md)
 - [项目开发指南](docs/guides/PROJECT_DEV_GUIDE.md)
 - [项目说明](docs/specs/project_description.md)
 - [OpenAPI 风格 RPC 规格](docs/specs/openapi.yaml)
