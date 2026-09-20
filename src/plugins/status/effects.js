@@ -12,7 +12,7 @@ import { useEffect, useRef } from "react";
  * byte-identical.
  *
  * First refresh fires immediately; the gap between polls follows the
- * configured `statusRefreshInterval`, clamped to >= 1000ms with a 5000ms
+ * configured `statusRefreshInterval`, clamped to >= 3000ms with a 5000ms
  * fallback.
  *
  * The gap is measured from the *end* of one poll to the start of the next, not
@@ -60,7 +60,7 @@ export function useStatusEffects(ctx, statusOps) {
     const currentNic = ctx.currentNic;
 
     const interval =
-      typeof ctx.statusRefreshInterval === "number" && ctx.statusRefreshInterval >= 1000
+      typeof ctx.statusRefreshInterval === "number" && ctx.statusRefreshInterval >= 3000
         ? ctx.statusRefreshInterval
         : 5000;
 

@@ -1,5 +1,3 @@
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -12,6 +10,7 @@ use super::channel::OwnedChannel;
 use super::pty;
 use super::transport::{self, is_stale_connection_error};
 use crate::common::error::{AppError, AppResult};
+use crate::common::logging::append_server_ops_debug_log;
 use crate::common::time::now_rfc3339;
 use crate::domain::sftp::service::normalize_remote_path;
 use crate::domain::ssh::consts::*;
@@ -391,24 +390,6 @@ impl CommandOutput {
     }
 }
 
-pub fn append_server_ops_debug_log(
-    state: &AppState,
-    event: &str,
-    session_id: &str,
-    detail: impl AsRef<str>,
-) {
-    let path = state.storage.data_dir().join("server_ops_debug.log");
-    let line = format!(
-        "{} [{}] session_id={} {}\n",
-        now_rfc3339(),
-        event,
-        session_id,
-        detail.as_ref()
-    );
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = file.write_all(line.as_bytes());
-    }
-}
 
 /// Only a standalone cd updates the tab's tracked working directory.
 pub(crate) fn parse_cd_target(command: &str) -> Option<Option<String>> {

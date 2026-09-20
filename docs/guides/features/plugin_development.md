@@ -9,12 +9,19 @@
 
 ## 1. 安装和运行示例
 
-仓库提供两个可以直接加载的示例，都不需要安装 npm 依赖或再次打包：
+仓库提供三个可以直接加载的示例，都不需要安装 npm 依赖或再次打包：
 
 - `examples/hello-plugin/` — 最小示例：相对模块导入、宿主 React、独立 controller、
   会话查询、命名空间存储。
-- `examples/docker-plugin/` — 完整示例：异步会话命令、错误分类、纯逻辑模块 + 单元
-  测试、插件自带图标。
+- `examples/docker-plugin/` — 完整示例：容器 / 镜像 / 数据卷 / 网络 / Compose /
+  事件 / `system df`，`docker run`、`exec`、日志跟随；命令构造与解析全部是可单测的
+  纯模块，插件自带图标与 en / zh-CN 词条。
+- `examples/k8s-plugin/` — 完整示例：任意 context 与命名空间下的任意资源类型
+  （含 CRD），日志容器选择、scale、rollout、drain、`kubectl top`、`apply -f -`；
+  列表直接解析 `kubectl get -o wide` 的表格输出。
+
+两个完整示例都按目录分层（`cli/` `parse/` `controller/` `panel/` `ui/`），单个文件
+都控制在数百行以内，可以作为「稍大一点的插件怎么组织」的参考。
 
 ### 从设置面板安装（推荐）
 

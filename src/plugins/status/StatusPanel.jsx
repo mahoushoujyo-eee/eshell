@@ -266,7 +266,7 @@ function GpusView({ rows = [], formatMemoryGb }) {
   );
 }
 
-const INTERVAL_OPTIONS = [  { label: "1s", value: 1000 },
+const INTERVAL_OPTIONS = [
   { label: "3s", value: 3000 },
   { label: "5s", value: 5000 },
   { label: "10s", value: 10000 },

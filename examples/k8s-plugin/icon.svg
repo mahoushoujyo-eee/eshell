@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- The heptagonal helm the Kubernetes mark is built from, with the hub and
+       three spokes. Stroked in currentColor so it inherits the rail button's
+       active/idle colour instead of hardcoding one. -->
+  <path d="M12 2.6l7.6 3.7 1.9 8.2-5.2 6.5H7.7l-5.2-6.5 1.9-8.2Z" />
+  <circle cx="12" cy="12" r="2.6" />
+  <path d="M12 9.4V5.1" />
+  <path d="M14.5 13.6l3.3 2.6" />
+  <path d="M9.5 13.6l-3.3 2.6" />
+</svg>

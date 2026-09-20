@@ -46,17 +46,17 @@ describe("useStatusEffects polling gate", () => {
     vi.useRealTimers();
   });
 
-  it("clamps sub-second intervals to 5000ms", async () => {
+  it("clamps sub-3s intervals to 5000ms", async () => {
     vi.useFakeTimers();
     const refreshStatus = vi.fn(async () => {});
     const utils = await renderHook(() =>
-      useStatusEffects(makeCtx({ statusRefreshInterval: 100 }), { refreshStatus }),
+      useStatusEffects(makeCtx({ statusRefreshInterval: 1000 }), { refreshStatus }),
     );
     await vi.advanceTimersByTimeAsync(0);
     expect(refreshStatus).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(refreshStatus).toHaveBeenCalledTimes(1); // 1000 < 5000: not yet
-    await vi.advanceTimersByTimeAsync(4000);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(refreshStatus).toHaveBeenCalledTimes(1); // 3000 < 5000: not yet
+    await vi.advanceTimersByTimeAsync(2000);
     expect(refreshStatus).toHaveBeenCalledTimes(2);
     await utils.unmount();
     vi.useRealTimers();
@@ -82,8 +82,8 @@ describe("useStatusEffects polling gate", () => {
     await vi.advanceTimersByTimeAsync(10000);
 
     expect(maxInFlight).toBe(1);
-    // 3s per poll plus the 1s gap: two polls finish and a third starts, where a
-    // 1s fixed cadence would have fired ten times.
+    // A sub-3s interval clamps to 5s, so the 3s poll leaves a 2s gap: two polls
+    // finish and a third starts, where a fixed cadence would have fired ten times.
     expect(refreshStatus.mock.calls.length).toBeLessThanOrEqual(3);
     await utils.unmount();
     vi.useRealTimers();

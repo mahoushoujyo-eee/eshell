@@ -23,6 +23,10 @@ pub(crate) const MAX_SESSION_LAST_OUTPUT_CHARS: usize = 16_000;
 pub(crate) const PTY_MAX_COMMANDS_PER_TICK: usize = 64;
 pub(crate) const PTY_OUTPUT_INTERVAL: Duration = Duration::from_millis(8);
 pub(crate) const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
+/// Bounds the whole PTY setup handshake: `request_pty`, its success reply, `request_shell` and
+/// its reply. A server that accepts the channel but never answers would otherwise park the tab
+/// forever, since neither request carries a deadline of its own.
+pub(crate) const PTY_SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 // --- Session command execution (`service::session`) ---
 

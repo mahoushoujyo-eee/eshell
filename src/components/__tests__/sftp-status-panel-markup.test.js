@@ -145,7 +145,7 @@ describe("StatusPanel static markup (pre-migration baseline)", () => {
     const markup = renderStatic(createElement(StatusPanel, makeStatusProps()));
     expect(markup).toContain("Server Status");
     expect(markup).toContain("No status data");
-    expect(markup).toContain("1s");
+    expect(markup).toContain("3s");
     expect(markup).toContain("10s");
     expect(markup).toContain('title="Refresh every 5s">5s');
     // 5s is the active interval: accent background, white text.

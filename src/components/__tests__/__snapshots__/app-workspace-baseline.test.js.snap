@@ -108,7 +108,6 @@ exports[`AppMainWorkspace bottom panel layout (pre-migration baseline) > nests t
                     div .flex.items-center.gap-2
                       div .inline-flex.rounded.border.border-border
                         button .px-1.5.py-0.5.text-[10px].font-medium.transition-colors.first:rounded-l.last:rounded-r.text-muted.hover:bg-accent-soft/70
-                        button .px-1.5.py-0.5.text-[10px].font-medium.transition-colors.first:rounded-l.last:rounded-r.text-muted.hover:bg-accent-soft/70
                         button .px-1.5.py-0.5.text-[10px].font-medium.transition-colors.first:rounded-l.last:rounded-r.bg-accent.text-white
                         button .px-1.5.py-0.5.text-[10px].font-medium.transition-colors.first:rounded-l.last:rounded-r.text-muted.hover:bg-accent-soft/70
                   div .flex.flex-1.items-center.justify-center.text-muted

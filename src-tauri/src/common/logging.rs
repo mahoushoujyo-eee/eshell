@@ -1,10 +1,9 @@
 //! Append-only debug logs under the storage root.
 //!
-//! Two logs exist today:
-//! - `server_ops_debug.log`: SSH channel/PTY/SFTP diagnostics (this module).
-//! - `ops_agent_debug.log`: agent chat diagnostics, appended by
-//!   `domain::ops_agent::infrastructure::logging`, which keeps its own richer
-//!   record shape.
+//! `server_ops_debug.log` holds SSH channel/PTY/SFTP and monitor diagnostics.
+//! Every appender writes one line through [`append_server_ops_debug_log`];
+//! the file is a debugging aid, so writes are best-effort and never fail the
+//! operation that logged.
 
 use std::fs::OpenOptions;
 use std::io::Write;

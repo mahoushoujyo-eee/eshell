@@ -64,10 +64,18 @@ directory and it is copied to `<storage-root>/extensions/<manifest id>/` and bec
 live immediately. The same tab enables/disables each extension and removes external
 ones. Built-in extensions can only be toggled — their code ships with the app.
 
-Two ready-to-load examples ship in the repo: [`examples/hello-plugin/`](examples/hello-plugin/)
-(minimal) and [`examples/docker-plugin/`](examples/docker-plugin/) (a controller,
-async session commands, a plugin-supplied icon, and unit-tested pure logic). You can
-also install by hand: close eShell, copy the whole directory to
+Three ready-to-load examples ship in the repo:
+
+- [`examples/hello-plugin/`](examples/hello-plugin/) — minimal: a manifest, a
+  controller, a panel, a relative import.
+- [`examples/docker-plugin/`](examples/docker-plugin/) — a Docker client for the
+  active session's host: containers, images, volumes, networks, Compose, events
+  and `docker system df`, with `docker run` / `exec` / logs.
+- [`examples/k8s-plugin/`](examples/k8s-plugin/) — a kubectl client: any resource
+  type in any namespace or context, logs with a container picker, scale, rollout,
+  drain, `kubectl top`, and `apply -f -`.
+
+You can also install by hand: close eShell, copy the whole directory to
 `<storage-root>/extensions/<id>/`, and restart. In a typical desktop dev run, that
 root is `src-tauri/.eshell-data`.
 
@@ -117,7 +125,7 @@ src-tauri/src/
   common/          # error types, time, debug logging
   state.rs
 
-examples/          # ready-to-load external plugins (hello, docker)
+examples/          # ready-to-load external plugins (hello, docker, k8s)
 skills/            # agent-facing references seeded into .eshell-data/agent/skills/
 
 docs/

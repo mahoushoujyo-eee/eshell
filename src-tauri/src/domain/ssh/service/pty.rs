@@ -1,7 +1,6 @@
 //! Async PTY pumping. A blocked input window never stops output or tab closure.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use russh::ChannelMsg;
 use tauri::{AppHandle, Emitter};
@@ -27,7 +26,7 @@ pub(crate) async fn open_channel(ssh: &SharedSshSession) -> AppResult<PtyChannel
     let mut initial_output = Vec::new();
     tokio::select! {
         _ = cancel.cancelled() => return Err(AppError::SshTransport(russh::Error::Disconnect)),
-        result = tokio::time::timeout(Duration::from_secs(30), async {
+        result = tokio::time::timeout(PTY_SETUP_TIMEOUT, async {
             channel.write.request_pty(true, "xterm-256color", DEFAULT_PTY_COLS, DEFAULT_PTY_ROWS, 0, 0, &[]).await?;
             wait_request_success(&mut channel, &mut initial_output).await?;
             channel.write.request_shell(true).await?;

@@ -62,11 +62,19 @@ SFTP 和状态监控仍是默认启用的内置插件，原有界面与命令契
 `<存储根>/extensions/<清单 id>/` 并立即生效。同一个页面可以启用/禁用每个扩展，
 以及移除外部插件；内置扩展只能禁用，它们的代码随应用发布。
 
-仓库自带两个可直接加载的示例：[`examples/hello-plugin/`](examples/hello-plugin/)
-（最小示例）和 [`examples/docker-plugin/`](examples/docker-plugin/)（含 controller、
-异步会话命令、插件自带图标，以及带单元测试的纯逻辑模块）。也可以手动安装：关闭
-eShell，把整个目录复制到 `<存储根>/extensions/<id>/`，然后重启。常规桌面开发运行的
-存储根通常为 `src-tauri/.eshell-data`。
+仓库自带三个可直接加载的示例：
+
+- [`examples/hello-plugin/`](examples/hello-plugin/) —— 最小示例：清单、controller、
+  面板、相对导入。
+- [`examples/docker-plugin/`](examples/docker-plugin/) —— 面向当前会话主机的 Docker
+  客户端：容器、镜像、数据卷、网络、Compose、事件与 `docker system df`，并支持
+  `docker run` / `exec` / 日志。
+- [`examples/k8s-plugin/`](examples/k8s-plugin/) —— kubectl 客户端：任意 context 与
+  命名空间下的任意资源类型，带容器选择的日志、副本数调整、滚动发布、节点驱逐、
+  `kubectl top` 以及 `apply -f -`。
+
+也可以手动安装：关闭 eShell，把整个目录复制到 `<存储根>/extensions/<id>/`，然后重启。
+常规桌面开发运行的存储根通常为 `src-tauri/.eshell-data`。
 
 安装、移除、启停都是热生效的，**但修改插件代码不是**——改源码仍需重启桌面进程，
 没有文件热重载。
@@ -114,7 +122,7 @@ src-tauri/src/
   state.rs
   state.rs
 
-examples/          # 可直接加载的外部插件示例（hello、docker）
+examples/          # 可直接加载的外部插件示例（hello、docker、k8s）
 skills/            # 面向 agent 的参考文档，首启 seed 到 .eshell-data/agent/skills/
 
 docs/
