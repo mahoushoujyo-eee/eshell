@@ -1,10 +1,41 @@
-//! SFTP plugin: transfer cancellation state and the operation surface.
+//! SFTP plugin: transfer cancellation state, the operations and the command surface.
 //!
-//! The operation implementations live in [`ops`]; this module owns the
-//! plugin's runtime state (the per-transfer cancellation registry that
-//! previously lived on `AppState`) and the active-guard plumbing.
+//! This module owns the plugin's runtime state (the per-transfer cancellation
+//! registry that previously lived on `AppState`) and the active-guard plumbing,
+//! and it holds the Tauri command and MCP adapters.
+//!
+//! The operations themselves live in the sibling modules below. Every high-level
+//! operation opens its own SFTP *session channel* on the single physical
+//! `Connection` cached for the shell tab: the connection is never locked or held
+//! for the duration of a transfer, so a slow upload can never block a directory
+//! listing (or the status poll) on the same tab.
+//!
+//! Cancellation is token based. A per-transfer `CancellationToken` comes from the
+//! plugin state, and the tab-scoped token from `AppState::shell_session_token`
+//! fires when the shell session is closed. Network waits race both tokens with
+//! `tokio::select!`, so cancellation is observed while a request is in flight
+//! rather than only at the next loop iteration. Every terminal path closes its
+//! remote file handles before the channel shuts down.
+//!
+//! # Layout
+//!
+//! - [`session`] — acquiring the subsystem channel and racing cancellation.
+//! - [`files`] — the directory/read/write/create/delete/rename operations.
+//! - [`upload`], [`download`] — the two with-progress transfers.
+//! - [`remote`] — the low-level remote file-handle helpers those share.
+//! - [`progress`] — transfer events, the progress throttle and the transfer guard.
+//! - [`paths`] — pure path/OS helpers with no session involved.
+//!
+//! The operation modules are `pub(crate)` because the extension broker calls the
+//! operations directly, bypassing the Tauri command layer.
 
-pub(crate) mod ops;
+pub(crate) mod download;
+pub(crate) mod files;
+pub(crate) mod paths;
+pub(crate) mod progress;
+pub(crate) mod remote;
+pub(crate) mod session;
+pub(crate) mod upload;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -190,7 +221,7 @@ pub async fn sftp_list_dir(
     input: crate::domain::sftp::model::SftpListInput,
 ) -> Result<crate::domain::sftp::model::SftpListResponse, String> {
     let app_state = Arc::clone(state.inner());
-    ops::sftp_list_dir(&app_state, Some(&app), input)
+    files::sftp_list_dir(&app_state, Some(&app), input)
         .await
         .map_err(crate::common::error::to_command_error)
 }
@@ -203,7 +234,7 @@ pub async fn sftp_read_file(
     input: crate::domain::sftp::model::SftpReadInput,
 ) -> Result<crate::domain::sftp::model::SftpFileContent, String> {
     let app_state = Arc::clone(state.inner());
-    ops::sftp_read_file(&app_state, Some(&app), input)
+    files::sftp_read_file(&app_state, Some(&app), input)
         .await
         .map_err(crate::common::error::to_command_error)
 }
@@ -216,7 +247,7 @@ pub async fn sftp_write_file(
     input: crate::domain::sftp::model::SftpWriteInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    ops::sftp_write_file(&app_state, Some(&app), input)
+    files::sftp_write_file(&app_state, Some(&app), input)
         .await
         .map_err(crate::common::error::to_command_error)
 }
@@ -229,7 +260,7 @@ pub async fn sftp_create_file(
     input: crate::domain::sftp::model::SftpCreateInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    ops::sftp_create_file(&app_state, Some(&app), input)
+    files::sftp_create_file(&app_state, Some(&app), input)
         .await
         .map_err(crate::common::error::to_command_error)
 }
@@ -242,7 +273,7 @@ pub async fn sftp_create_directory(
     input: crate::domain::sftp::model::SftpCreateInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    ops::sftp_create_directory(&app_state, Some(&app), input)
+    files::sftp_create_directory(&app_state, Some(&app), input)
         .await
         .map_err(crate::common::error::to_command_error)
 }
@@ -255,7 +286,7 @@ pub async fn sftp_upload_file(
     input: crate::domain::sftp::model::SftpUploadInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    ops::sftp_upload_file(&app_state, Some(&app), input)
+    files::sftp_upload_file(&app_state, Some(&app), input)
         .await
         .map_err(crate::common::error::to_command_error)
 }
@@ -268,7 +299,7 @@ pub async fn sftp_delete_entry(
     input: crate::domain::sftp::model::SftpDeleteInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    ops::sftp_delete_entry(&app_state, Some(&app), input)
+    files::sftp_delete_entry(&app_state, Some(&app), input)
         .await
         .map_err(crate::common::error::to_command_error)
 }
@@ -281,7 +312,7 @@ pub async fn sftp_rename_entry(
     input: crate::domain::sftp::model::SftpRenameInput,
 ) -> Result<(), String> {
     let app_state = Arc::clone(state.inner());
-    ops::sftp_rename_entry(&app_state, Some(&app), input)
+    files::sftp_rename_entry(&app_state, Some(&app), input)
         .await
         .map_err(crate::common::error::to_command_error)
 }
@@ -295,7 +326,7 @@ pub async fn sftp_upload_file_with_progress(
 ) -> Result<crate::domain::sftp::model::SftpTransferResult, String> {
     let app_state = Arc::clone(state.inner());
     tauri::async_runtime::spawn(async move {
-        ops::sftp_upload_file_with_progress(&app_state, &app, input).await
+        upload::sftp_upload_file_with_progress(&app_state, &app, input).await
     })
     .await
     .map_err(|error| {
@@ -315,7 +346,7 @@ pub async fn sftp_upload_local_file_with_progress(
 ) -> Result<crate::domain::sftp::model::SftpTransferResult, String> {
     let app_state = Arc::clone(state.inner());
     tauri::async_runtime::spawn(async move {
-        ops::sftp_upload_local_file_with_progress(&app_state, &app, input).await
+        upload::sftp_upload_local_file_with_progress(&app_state, &app, input).await
     })
     .await
     .map_err(|error| {
@@ -334,7 +365,7 @@ pub async fn sftp_download_file(
     input: crate::domain::sftp::model::SftpDownloadInput,
 ) -> Result<crate::domain::sftp::model::SftpDownloadPayload, String> {
     let app_state = Arc::clone(state.inner());
-    ops::sftp_download_file(&app_state, Some(&app), input)
+    files::sftp_download_file(&app_state, Some(&app), input)
         .await
         .map_err(crate::common::error::to_command_error)
 }
@@ -348,7 +379,7 @@ pub async fn sftp_download_file_to_local(
 ) -> Result<crate::domain::sftp::model::SftpTransferResult, String> {
     let app_state = Arc::clone(state.inner());
     tauri::async_runtime::spawn(async move {
-        ops::sftp_download_file_to_local(&app_state, &app, input).await
+        download::sftp_download_file_to_local(&app_state, &app, input).await
     })
     .await
     .map_err(|error| {
@@ -362,7 +393,7 @@ pub async fn sftp_download_file_to_local(
 /// Returns default local download directory for current OS.
 #[tauri::command]
 pub fn sftp_default_download_dir() -> Result<String, String> {
-    Ok(ops::default_download_dir())
+    Ok(paths::default_download_dir())
 }
 
 /// Requests cancellation for a running transfer task.
@@ -395,7 +426,7 @@ pub(crate) fn mcp_read_remote_file(state: &Arc<AppState>, args: Value) -> McpToo
             session_id: crate::domain::extensions::service::mcp_tools::arg_str(&args, "sessionId")?,
             path: crate::domain::extensions::service::mcp_tools::arg_str(&args, "path")?,
         };
-        let file = ops::sftp_read_file(&state, None, input)
+        let file = files::sftp_read_file(&state, None, input)
             .await
             .map_err(|e| e.to_string())?;
         serde_json::to_value(file).map_err(|e| e.to_string())
@@ -415,7 +446,7 @@ pub(crate) fn mcp_write_remote_file(state: &Arc<AppState>, args: Value) -> McpTo
                 .ok_or("missing argument `content`")?,
         };
         let path = input.path.clone();
-        ops::sftp_write_file(&state, None, input)
+        files::sftp_write_file(&state, None, input)
             .await
             .map_err(|e| e.to_string())?;
         Ok(serde_json::json!({ "written": path }))
@@ -429,7 +460,7 @@ pub(crate) fn mcp_list_remote_dir(state: &Arc<AppState>, args: Value) -> McpTool
             session_id: crate::domain::extensions::service::mcp_tools::arg_str(&args, "sessionId")?,
             path: crate::domain::extensions::service::mcp_tools::arg_str(&args, "path")?,
         };
-        let listing = ops::sftp_list_dir(&state, None, input)
+        let listing = files::sftp_list_dir(&state, None, input)
             .await
             .map_err(|e| e.to_string())?;
         serde_json::to_value(listing).map_err(|e| e.to_string())
@@ -438,4 +469,22 @@ pub(crate) fn mcp_list_remote_dir(state: &Arc<AppState>, args: Value) -> McpTool
 
 /// Re-exported for the SSH session service, which sanitizes remote `pwd`
 /// output through the same normalizer (see `sanitize_cwd`).
-pub use ops::normalize_remote_path;
+pub use paths::normalize_remote_path;
+
+// Re-exported for `domain/sftp/tests.rs`, which reaches the pure helpers and the
+// cancellation messages through `service::*` rather than the submodule they live in.
+#[cfg(test)]
+pub(crate) use crate::domain::sftp::consts::{
+    SFTP_OPERATION_CANCELLED_MESSAGE, SFTP_TRANSFER_CANCELLED_MESSAGE,
+};
+#[cfg(test)]
+pub(crate) use paths::{
+    atomic_write_temp_path_with_suffix, entry_type_from_file_type, extract_remote_file_name,
+    join_remote_path, normalize_local_dir, renamed_remote_path,
+};
+#[cfg(test)]
+pub(crate) use progress::{compute_transfer_percent, TransferProgressThrottle};
+#[cfg(test)]
+pub(crate) use remote::{finish_atomic_write_with_fallback, inspect_local_upload_source};
+#[cfg(test)]
+pub(crate) use session::race_cancel;

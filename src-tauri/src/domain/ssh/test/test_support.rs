@@ -194,7 +194,6 @@ impl russh::server::Handler for TestServerHandler {
     }
 }
 
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::ssh::model::{SshAuthType, SshConfig, TrustSshHostKeyInput};
@@ -282,7 +281,7 @@ mod tests {
         // `AppError::Runtime` renders as `runtime error: <message>`, so match the marker as a
         // substring rather than at the start.
         let payload = error
-            .split_once(crate::domain::ssh::service::transport::SSH_HOST_KEY_TRUST_REQUIRED_PREFIX)
+            .split_once(crate::domain::ssh::consts::SSH_HOST_KEY_TRUST_REQUIRED_PREFIX)
             .map(|(_, payload)| payload)
             .expect("must carry the trust prefix");
         let challenge: crate::domain::ssh::model::SshHostKeyTrustChallenge =

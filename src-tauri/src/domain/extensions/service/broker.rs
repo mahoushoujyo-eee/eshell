@@ -34,7 +34,10 @@ use crate::domain::sftp::model::{
 };
 use crate::domain::monitor::model::FetchServerStatusInput;
 use crate::domain::ssh::model::session_model::{CloseShellInput, ExecuteCommandInput, OpenShellInput};
-use crate::domain::sftp::service::ops as sftp_ops;
+use crate::domain::sftp::service::{
+    self as sftp_service, download as sftp_download, files as sftp_files, paths as sftp_paths,
+    upload as sftp_upload,
+};
 use crate::state::AppState;
 
 /// `invoke_extension_api` input.
@@ -177,55 +180,55 @@ async fn dispatch(
         // ---- SFTP ---------------------------------------------------------
         "sftp_list_dir" => {
             let input: SftpListInput = parse_args(command, &args)?;
-            to_value(sftp_ops::sftp_list_dir(state, Some(app), input).await?)?
+            to_value(sftp_files::sftp_list_dir(state, Some(app), input).await?)?
         }
         "sftp_read_file" => {
             let input: SftpReadInput = parse_args(command, &args)?;
-            to_value(sftp_ops::sftp_read_file(state, Some(app), input).await?)?
+            to_value(sftp_files::sftp_read_file(state, Some(app), input).await?)?
         }
         "sftp_write_file" => {
             let input: SftpWriteInput = parse_args(command, &args)?;
-            to_value(sftp_ops::sftp_write_file(state, Some(app), input).await?)?
+            to_value(sftp_files::sftp_write_file(state, Some(app), input).await?)?
         }
         "sftp_create_file" => {
             let input: SftpCreateInput = parse_args(command, &args)?;
-            to_value(sftp_ops::sftp_create_file(state, Some(app), input).await?)?
+            to_value(sftp_files::sftp_create_file(state, Some(app), input).await?)?
         }
         "sftp_create_directory" => {
             let input: SftpCreateInput = parse_args(command, &args)?;
-            to_value(sftp_ops::sftp_create_directory(state, Some(app), input).await?)?
+            to_value(sftp_files::sftp_create_directory(state, Some(app), input).await?)?
         }
         "sftp_delete_entry" => {
             let input: SftpDeleteInput = parse_args(command, &args)?;
-            to_value(sftp_ops::sftp_delete_entry(state, Some(app), input).await?)?
+            to_value(sftp_files::sftp_delete_entry(state, Some(app), input).await?)?
         }
         "sftp_rename_entry" => {
             let input: SftpRenameInput = parse_args(command, &args)?;
-            to_value(sftp_ops::sftp_rename_entry(state, Some(app), input).await?)?
+            to_value(sftp_files::sftp_rename_entry(state, Some(app), input).await?)?
         }
         "sftp_download_file" => {
             let input: SftpDownloadInput = parse_args(command, &args)?;
-            to_value(sftp_ops::sftp_download_file(state, Some(app), input).await?)?
+            to_value(sftp_files::sftp_download_file(state, Some(app), input).await?)?
         }
         "sftp_download_file_to_local" => {
             let input: SftpDownloadToLocalInput = parse_args(command, &args)?;
             to_value(
-                sftp_ops::sftp_download_file_to_local(state, app, input).await?,
+                sftp_download::sftp_download_file_to_local(state, app, input).await?,
             )?
         }
         "sftp_upload_local_file_with_progress" => {
             let input: SftpUploadLocalWithProgressInput = parse_args(command, &args)?;
             to_value(
-                sftp_ops::sftp_upload_local_file_with_progress(state, app, input).await?,
+                sftp_upload::sftp_upload_local_file_with_progress(state, app, input).await?,
             )?
         }
         "sftp_cancel_transfer" => {
             let input: SftpCancelTransferInput = parse_args(command, &args)?;
-            to_value(sftp_ops::cancel_transfer(state, &input.transfer_id))?
+            to_value(sftp_service::cancel_transfer(state, &input.transfer_id))?
         }
         "sftp_default_download_dir" => {
             let _args: NoArgs = parse_args(command, &args)?;
-            to_value(sftp_ops::default_download_dir())?
+            to_value(sftp_paths::default_download_dir())?
         }
 
         // ---- status -------------------------------------------------------

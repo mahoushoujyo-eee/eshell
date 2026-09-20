@@ -1,7 +1,7 @@
 //! Tests for the SFTP domain, moved out of the business files.
 //!
-//! `ops_tests` covers the private helpers of `service/ops.rs` (path
-//! normalization, the atomic-write fallback, cancellation races and the
+//! `ops_tests` covers the private helpers of the `service/` operation modules
+//! (path normalization, the atomic-write fallback, cancellation races and the
 //! progress throttle); `plugin_state_tests` covers the plugin state and
 //! active-guard plumbing of `service/mod.rs`.
 
@@ -15,7 +15,7 @@ mod ops_tests {
 
     use crate::common::error::AppError;
     use crate::domain::sftp::model::SftpEntryType;
-    use crate::domain::sftp::service::ops::*;
+    use crate::domain::sftp::service::*;
 
     #[test]
     fn transfer_progress_throttle_skips_events_until_interval_elapsed() {
@@ -285,8 +285,11 @@ mod ops_tests {
 mod plugin_state_tests {
     use std::sync::Arc;
 
-    use crate::domain::sftp::service::ops;
-    use crate::domain::sftp::service::{is_active, require_active, EXTENSION_ID};
+    use crate::domain::sftp::service::files::sftp_list_dir;
+    use crate::domain::sftp::service::{
+        is_active, require_active, EXTENSION_ID, SFTP_OPERATION_CANCELLED_MESSAGE,
+        SFTP_TRANSFER_CANCELLED_MESSAGE,
+    };
     use crate::state::AppState;
 
     fn temp_state() -> Arc<AppState> {
@@ -325,11 +328,11 @@ mod plugin_state_tests {
     #[test]
     fn cancellation_error_strings_are_preserved() {
         assert_eq!(
-            ops::SFTP_TRANSFER_CANCELLED_MESSAGE,
+            SFTP_TRANSFER_CANCELLED_MESSAGE,
             "transfer cancelled by user"
         );
         assert_eq!(
-            ops::SFTP_OPERATION_CANCELLED_MESSAGE,
+            SFTP_OPERATION_CANCELLED_MESSAGE,
             "SFTP operation cancelled by user"
         );
     }
@@ -418,7 +421,7 @@ mod plugin_state_tests {
             .set_enabled(EXTENSION_ID, false)
             .expect("disable");
 
-        let error = ops::sftp_list_dir(
+        let error = sftp_list_dir(
             &state,
             None,
             crate::domain::sftp::model::SftpListInput {

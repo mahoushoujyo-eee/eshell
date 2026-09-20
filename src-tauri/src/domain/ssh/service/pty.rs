@@ -16,12 +16,12 @@ use crate::domain::ssh::consts::*;
 use crate::domain::ssh::model::session_model::{PtyClosedEvent, PtyOutputEvent};
 use crate::state::{AppState, PtyCommand, SharedSshSession};
 
-pub(super) struct PtyChannel {
+pub(crate) struct PtyChannel {
     channel: OwnedChannel,
     initial_output: Vec<u8>,
 }
 
-pub(super) async fn open_channel(ssh: &SharedSshSession) -> AppResult<PtyChannel> {
+pub(crate) async fn open_channel(ssh: &SharedSshSession) -> AppResult<PtyChannel> {
     let mut channel = OwnedChannel::new(ssh.channel_open_session().await?);
     let cancel = ssh.cancellation_token();
     let mut initial_output = Vec::new();

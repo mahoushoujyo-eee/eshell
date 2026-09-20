@@ -11,9 +11,7 @@ use tokio_util::sync::CancellationToken;
 use crate::common::error::{AppError, AppResult};
 use crate::common::time::now_rfc3339;
 use crate::domain::ssh::model::{SshAuthType, SshConfig, TrustSshHostKeyInput};
-use crate::domain::ssh::service::test_support::{
-    TestSshServer, TEST_SSH_PASSWORD, TEST_SSH_USERNAME,
-};
+use crate::domain::ssh::test::test_support::{TestSshServer, TEST_SSH_PASSWORD, TEST_SSH_USERNAME};
 use crate::domain::ssh::service::transport;
 use crate::domain::ssh::service::transport::Connection;
 use crate::domain::ssh::model::session_model::ShellSession;

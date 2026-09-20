@@ -10,21 +10,23 @@ use agent_client_protocol::schema::v1::{
 };
 
 use crate::domain::agent::model::{
-    find_config, load_agent_configs, lookup_runner, session_cwd_override, AcpAgentListEntry, AcpAgentStartInput, AcpAuthenticateInput, AcpHistoryMeta, AcpHistoryRecord, AcpHistoryIdInput, AcpAgentIdInput,
-    AcpSessionCancelInput, AcpSessionNewInput, AcpSessionPromptInput, AcpSessionSetConfigOptionInput,
-    AcpSessionSetModeInput, AcpPermissionRespondInput,
+    config_option_value, history_dir, history_file_name, AcpPromptImage, AcpPromptResult,
+    AcpStartInfo, TauriEventSink,
 };
-use crate::domain::agent::service::acp_client::{
-    AcpPromptImage, AcpPromptResult, AcpSessionRunner, AcpStartInfo, TauriEventSink,
+use crate::domain::agent::model::{
+    find_config, load_agent_configs, lookup_runner, session_cwd_override, AcpAgentIdInput,
+    AcpAgentListEntry, AcpAgentStartInput, AcpAuthenticateInput, AcpHistoryIdInput, AcpHistoryMeta,
+    AcpHistoryRecord, AcpPermissionRespondInput, AcpSessionCancelInput, AcpSessionNewInput,
+    AcpSessionPromptInput, AcpSessionSetConfigOptionInput, AcpSessionSetModeInput,
 };
-use crate::domain::agent::model::{config_option_value, history_dir, history_file_name};
+use crate::domain::agent::service::acp_client::AcpSessionRunner;
 
 #[tauri::command]
 pub async fn acp_agent_list(
     state: tauri::State<'_, Arc<crate::state::AppState>>,
 ) -> Result<Vec<AcpAgentListEntry>, String> {
-    let configs =
-        load_agent_configs(&state.storage.data_dir()).map_err(crate::common::error::to_command_error)?;
+    let configs = load_agent_configs(&state.storage.data_dir())
+        .map_err(crate::common::error::to_command_error)?;
     let runners: HashMap<String, Arc<AcpSessionRunner>> = {
         let read = state.acp_agents.runners.read().unwrap();
         read.iter()
@@ -58,8 +60,8 @@ pub async fn acp_agent_start(
     app: tauri::AppHandle,
     input: AcpAgentStartInput,
 ) -> Result<AcpStartInfo, String> {
-    let configs =
-        load_agent_configs(&state.storage.data_dir()).map_err(crate::common::error::to_command_error)?;
+    let configs = load_agent_configs(&state.storage.data_dir())
+        .map_err(crate::common::error::to_command_error)?;
     let config = find_config(&configs, &input.agent_id)
         .map_err(crate::common::error::to_command_error)?
         .clone();
@@ -204,7 +206,6 @@ pub async fn acp_agent_authenticate(
     runner.authenticate(&input.method_id).await
 }
 
-
 fn get_runner(
     state: &tauri::State<'_, Arc<crate::state::AppState>>,
     agent_id: &str,
@@ -235,7 +236,6 @@ pub async fn acp_history_save(
     let serialized = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     std::fs::write(&path, serialized).map_err(|e| format!("write {}: {e}", path.display()))
 }
-
 
 #[tauri::command]
 pub async fn acp_history_list(

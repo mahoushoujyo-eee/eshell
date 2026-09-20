@@ -14,11 +14,12 @@ use russh::{
 use russh_sftp::protocol::{self as sftp, StatusCode};
 use tokio::{net::TcpListener, sync::Notify, time::timeout};
 
-use super::{pty, session as service, test_support, transport};
-use crate::domain::sftp::service::ops::{sftp_read_file, sftp_write_file};
+use crate::domain::sftp::service::files::{sftp_read_file, sftp_write_file};
 use crate::domain::sftp::model::*;
 use crate::domain::ssh::model::*;
 use crate::domain::ssh::model::session_model::*;
+use crate::domain::ssh::service::{pty, session as service, transport};
+use crate::domain::ssh::test::test_support;
 use crate::common::time::now_rfc3339;
 use crate::state::AppState;
 

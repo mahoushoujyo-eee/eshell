@@ -7,9 +7,8 @@
 use thiserror::Error;
 
 use crate::common::error::AppError;
+use crate::domain::ssh::consts::SSH_HOST_KEY_TRUST_REQUIRED_PREFIX;
 use crate::domain::ssh::model::SshHostKeyTrustChallenge;
-
-use crate::domain::ssh::service::transport::SSH_HOST_KEY_TRUST_REQUIRED_PREFIX;
 
 /// Error produced inside the russh client handler.
 ///

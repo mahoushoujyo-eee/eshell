@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use crate::domain::ssh::model::{SshHostKeyTrustChallenge, SshHostKeyTrustReason};
 use crate::state::AppState;
 
-use super::error::TransportError;
+use crate::domain::ssh::error::TransportError;
 
 /// One handler instance per connection attempt, holding a weak reference to the shared app state
 /// used to resolve `known_hosts`, plus the connection token cancelled when the session ends.

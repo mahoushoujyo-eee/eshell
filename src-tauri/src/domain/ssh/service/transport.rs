@@ -10,7 +10,6 @@
 //! reconnect; eviction is the cache holder's decision, based on [`Connection::is_closed`] and
 //! [`is_stale_connection_error`].
 
-
 use std::future::Future;
 use std::io;
 use std::path::Path;
@@ -32,14 +31,12 @@ use uuid::Uuid;
 
 use crate::common::error::{AppError, AppResult};
 use crate::domain::ssh::consts::*;
+use crate::domain::ssh::error::TransportError;
 use crate::domain::ssh::model::{SshAuthType, SshConfig, SshKiPromptEvent, SshKiPromptItem};
+use crate::domain::ssh::service::handler::ConnectionHandler;
 use crate::state::AppState;
 
-use crate::domain::ssh::service::error::TransportError;
-use crate::domain::ssh::service::handler::ConnectionHandler;
-
-pub use crate::domain::ssh::service::error::is_stale_connection_error;
-pub use crate::domain::ssh::consts::{SSH_HOST_KEY_TRUST_REQUIRED_PREFIX, SSH_KI_PROMPT_EVENT};
+pub use crate::domain::ssh::error::is_stale_connection_error;
 
 static CONNECTION_GENERATION: AtomicU64 = AtomicU64::new(0);
 
@@ -759,9 +756,9 @@ fn map_key_auth_error(config: &SshConfig, error: AppError) -> AppError {
 fn transport_error_to_app(error: TransportError, endpoint: &str) -> AppError {
     match error {
         TransportError::HostKeyTrustRequired(challenge) => {
-            crate::domain::ssh::service::error::host_key_trust_required(challenge)
+            crate::domain::ssh::error::host_key_trust_required(challenge)
         }
-        TransportError::Russh(error) => crate::domain::ssh::service::error::map_russh_connect_error(error, endpoint),
+        TransportError::Russh(error) => crate::domain::ssh::error::map_russh_connect_error(error, endpoint),
     }
 }
 

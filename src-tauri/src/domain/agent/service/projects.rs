@@ -1,6 +1,3 @@
-//! Project registry service: local working directories ACP sessions run in,
-//! persisted as `.eshell-data/projects.json`.
-
 //! Project registry: local working directories ACP sessions run in.
 //!
 //! Stored as `.eshell-data/projects.json`. Each project maps one display name
@@ -14,36 +11,14 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::common::error::{AppError, AppResult};
-
 use crate::domain::agent::consts::PROJECTS_FILE;
+use crate::domain::agent::model::{AcpProject, AcpProjectCreateInput, AcpProjectIdInput};
 
-/// One local project root an ACP session can run in.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AcpProject {
-    pub id: String,
-    pub name: String,
-    pub path: String,
-    #[serde(default)]
-    pub created_at: String,
-}
-
+/// On-disk envelope for `projects.json`; the rows themselves are [`AcpProject`].
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ProjectsFile {
     #[serde(default)]
     projects: Vec<AcpProject>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AcpProjectCreateInput {
-    pub path: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AcpProjectIdInput {
-    pub id: String,
 }
 
 pub(crate) fn projects_path(data_dir: &Path) -> std::path::PathBuf {
