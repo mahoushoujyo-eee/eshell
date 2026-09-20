@@ -1,5 +1,12 @@
 # Unreleased Changes
 
-Last updated: 2026-09-18
+Last updated: 2026-09-20
 
-_Nothing yet — everything through 1.5.5 shipped in [v1.5.5](v1.5.5.md)._
+Nothing yet. Everything through 1.6.0 shipped in [v1.6.0](v1.6.0.md).
+
+## How To Use This File
+
+Record notable user-facing changes on the current branch here as they land, then
+move them into `v<next>.md` when cutting a release. The release workflow reads
+`docs/releases/<tag>.md` for the GitHub release body, so a tag without that file
+fails the build.

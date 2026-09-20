@@ -84,6 +84,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # The release body comes from a file in the repo, so the job needs the
+      # checkout it otherwise would not ask for.
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download bundled artifacts
         uses: actions/download-artifact@v4
         with:
@@ -133,10 +138,25 @@ jobs:
             > release-artifacts/latest.json
           cat release-artifacts/latest.json
 
+      # The release body is the hand-written notes at
+      # docs/releases/<tag>.md, NOT the GitHub-generated commit/PR list: a
+      # changelog of bare links tells a user nothing about what changed.
+      # This step fails the job when the file is missing, so a release can
+      # never ship with an empty body.
+      - name: Check release notes exist
+        run: |
+          notes="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::missing release notes at $notes — write them before tagging"
+            exit 1
+          fi
+          echo "Release notes: $notes"
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: docs/releases/${{ github.ref_name }}.md
+          generate_release_notes: false
           fail_on_unmatched_files: false
           files: |
             release-artifacts/**/*.msi
