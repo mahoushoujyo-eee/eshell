@@ -135,7 +135,8 @@ eShell 内置 MCP bridge（loopback + 每运行随机 Bearer token），只暴�
 
 | 工具 | 参数 | 返回 |
 | --- | --- | --- |
-| `read_agent_context` | 无 | `{agentsMd:{path,exists,content}, eshellConfigSkill:{path,content}}` —— 用户的 AGENTS.md 与本 skill 全文，**会话开始时先调它** |
+| `read_agent_context` | 无 | `{agentsMd:{path,exists,content}, eshellConfigSkill:{path,content}, eshellPluginDevSkill:{path,content}}` —— 用户的 AGENTS.md 与两个内置 skill 全文，**会话开始时先调它** |
+| `reload_config` | `file?` | 每个文件一条 `{file,path,changed,missing,error}`；**改完配置文件后调它**，见 §4 |
 | `list_ssh_profiles` | 无 | `{profiles:[{id,name,host,port,username}]}` |
 | `list_shell_sessions` | 无 | `{sessions:[{sessionId,profile,configId,currentDir,updatedAt}]}` |
 | `execute_command` | `sessionId`, `command` | `{stdout,stderr,exitCode,currentDir,durationMs}` |
@@ -155,12 +156,47 @@ eShell 内置 MCP bridge（loopback + 每运行随机 Bearer token），只暴�
 
 ## 4. 生效规则与错误处理
 
-- **生效规则（核心）**：所有配置在读取点（连接建立 / agent start / 会话创建）一次性读入，**没有运行中热加载**。改完必须重启才能生效：
-  - `acp_agents.json` → 重启应用，或停止并重新启动该 agent；
-  - `ssh_configs.json` → 重启应用，或重新打开对应 shell 会话；
-  - `known_hosts.json` → 常由 `trust_ssh_host_key` 自动维护，勿手改。
-  完成修改后在回复里**明确告知用户需要重启**，不要声称"改完即生效"。
-- 校验失败返回英文 `AppError::Validation`/`NotFound` 消息，逐字段修复（如 Password 认证缺 `password`、PrivateKey 缺 `privateKeyPath`）。
-- agent 已启动时改 `acp_agents.json`，正在运行的实例不会重读；需先 `acp_agent_stop` 再重新 start。已打开的 shell 会话同理，需先 close 再 open。
+### 改完配置后：调 `reload_config`，不用重启
+
+eShell 提供 **`reload_config`** 工具（MCP）和同名 Tauri 命令，用来把磁盘上的改动
+读进内存。**改完配置文件后先调它**，不要直接告诉用户重启。
+
+```
+reload_config()                      # 重载全部
+reload_config({ file: "sshConfigs" })  # 只重载一个
+```
+
+可重载的文件名：`sshConfigs`、`acpAgents`、`scripts`、`aiProfiles`、`agentContext`。
+
+返回每个文件的结果：`{ file, path, changed, missing, error }`。
+
+用户也可以自己在 **设置 → 配置文件** 里点「重载」/「全部重载」——所以如果你改完
+配置文件但没法调工具（或用户想自己确认），告诉他去那里点一下即可，同样不用重启。
+
+- `changed: true` 表示内存里的值确实变了。
+- `missing: true` 表示文件不存在，**当前值保持不变**（不会被清空）。
+- `error` 非空表示文件解析失败，**当前值保持不变**——半写入的文件不会清掉用户的服务器。
+  这时把 `error` 原文告诉用户，让他修文件。
+
+**重载不会重启任何东西**：
+
+- 已打开的 SSH 会话保持原连接；新配置对**下一次连接**生效。要立刻用新配置，让用户
+  重新打开会话。
+- 正在运行的 ACP agent 保持启动时的设置；要换 agent 配置，先 `acp_agent_stop` 再 start。
+- `known_hosts.json` **不可重载**（它是 host key 信任库，由 `trust_ssh_host_key` 维护，
+  手改后重载会让信任范围被静默放大）。改它需要重启。
+
+### 仍然需要重启的情况
+
+- 改了**插件代码**（`extensions/<id>/` 下的 js）——没有文件热重载。重新安装同一个
+  插件 id 可以绕过，但仍建议重启。
+- 改了 `known_hosts.json`。
+- 改了本 skill 或 `AGENTS.md` 之外的、不在上表里的文件。
+
+### 错误处理
+
+- 校验失败返回英文 `AppError::Validation`/`NotFound` 消息，逐字段修复（如 Password
+  认证缺 `password`、PrivateKey 缺 `privateKeyPath`）。
+- `reload_config` 对**未知文件名**返回校验错误，不会静默忽略。
 
 补充参考：[ACP Agent 集成指南](docs/acp_agent.md)（本 skill 目录内附有副本；讲 agent 接入/命令/MCP 工具，与配置指导互为补充）。

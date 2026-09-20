@@ -5,6 +5,7 @@
 ## 目录
 
 - [整体架构与启动流程](#整体架构与启动流程)
+- [内置功能插件](#内置功能插件)
 - [错误处理体系](#错误处理体系)
 - [核心数据模型](#核心数据模型)
 - [状态管理：AppState](#状态管理appstate)
@@ -54,7 +55,17 @@ pub fn run() {
 }
 ```
 
-**核心设计**：所有业务状态都收敛到 `AppState` 这一个结构体里，通过 `Arc<AppState>` 共享给所有命令处理器。
+**核心设计**：`AppState` 是共享应用上下文，通过 `Arc<AppState>` 提供连接、会话等基础能力；SFTP 和状态监控的专属状态归内置插件注册表及各插件模块管理，不再直接散落在核心状态机中。
+
+## 内置功能插件
+
+`extensions/builtin.json` 是前后端共用清单，默认启用 `eshell.sftp` 和 `eshell.server-monitor`。Rust 实现在 `src-tauri/src/plugins/`，前端控制器与贡献在 `src/plugins/`。SFTP 文件操作、传输取消状态、监控探针和缓存均归所属插件；SSH 连接、PTY 与通用命令传输保留在核心。
+
+现有 SFTP/status Tauri 命令和成功数据格式保持兼容，MCP bridge 通过插件注册表聚合对应工具。`list_extensions` / `set_extension_enabled` 和 `extensions-changed` 用于生命周期管理，选择持久化到存储根的 `extensions/state.json`；存在在途 API 操作时拒绝停用，持久化失败不发布半完成状态，停用不关闭用户会话。
+
+外部插件从 `<存储根>/extensions/*/manifest.json` 发现并合入清单。`list_external_plugins` 返回入口 URL，自定义 `plugin://` 协议只提供已发现目录内通过规范化与后缀校验的资源。前端在首次 React 渲染前调用 `activate(eshell)`；`invoke_extension_api` 是门面背后的白名单原生调用通道，同时持有调用方与功能提供者的生命周期 lease。前端自身的 Tauri 能力并未被隔离：此路由是契约和 busy 管理，不是权限鉴权。详细用法见 [插件开发指南](../features/plugin_development.md)。
+
+当前原生插件仍静态编译并随应用发布，不支持独立热更新，也不构成进程沙箱。完整边界与回归要求见 [内置插件架构](builtin_extensions.md)。
 
 ---
 
@@ -117,10 +128,9 @@ pub struct AppState {
     pub ops_agent_tools: OpsAgentToolRegistry,     // 工具注册表
     pub ops_agent_runs: OpsAgentRunRegistry,       // 运行注册表（取消控制）
     sessions: RwLock<HashMap<String, ShellSession>>,        // 运行时会话
-    status_cache: RwLock<HashMap<String, ServerStatus>>,    // 状态缓存
     pty_channels: RwLock<HashMap<String, (u64, UnboundedSender<PtyCommand>)>>, // PTY 控制通道 + 代次
     shell_connection_cancellations: RwLock<HashMap<String, CancellationToken>>, // SSH 连接取消标记
-    sftp_transfer_cancellations: RwLock<HashMap<String, CancellationToken>>, // 传输取消标记
+    // 插件注册表另行持有状态缓存与 SFTP 传输取消状态，见 plugins/。
 }
 ```
 
@@ -142,7 +152,8 @@ pub struct AppState {
 - TCP、握手、认证与 KI 等待通过 tokio select 响应 CancellationToken；不再轮询 bool 标记。
 
 **SFTP 传输取消**：
-- `begin_sftp_transfer()` / `cancel_sftp_transfer()` / `is_sftp_transfer_cancelled()` — 每项传输独立 CancellationToken，与 tab 关闭信号一起打断等待
+- 由 `plugins/sftp/` 管理每项传输的 CancellationToken，与 tab 关闭信号一起打断等待。
+- 兼容入口保留既有取消语义，包括在传输启动前到达的取消请求；插件生命周期守卫阻止在途操作期间停用。
 
 所有 HashMap 都用 `RwLock` 保护。由于 Tauri 命令可能在多线程执行，这是必要的同步手段。
 
@@ -171,7 +182,7 @@ pub struct AppState {
 
 ## 服务器操作层（server_ops）
 
-实现拆分为 `transport/`、`service.rs`、`pty.rs`、`sftp.rs` 与 `channel.rs`。详见 [SSH 传输层](ssh_transport.md)。
+核心实现拆分为 `transport/`、`service.rs`、`pty.rs` 与 `channel.rs`。SFTP 和状态监控实现已迁入 `plugins/sftp/` 与 `plugins/status/`，通过核心的窄传输接口复用连接。详见 [SSH 传输层](ssh_transport.md) 和 [内置插件架构](builtin_extensions.md)。
 
 ### SSH 连接
 
@@ -220,15 +231,12 @@ worker 退出时按代次判定自己是否仍代表该标签页：被取代的 
 
 ### 服务器状态采集
 
-[`fetch_server_status()`](src-tauri/src/server_ops/service.rs)：
-- 执行多个远程命令采集数据：
-  - `top -bn1` → CPU + 内存
-  - `cat /proc/net/dev` → 网卡流量
-  - `ps -eo pid,pcpu,rss,comm --sort=-pcpu` → 进程列表
-  - `df -hP` → 磁盘使用
-- 结果存入 `status_cache`，切换标签页时可秒读
+`plugins/status/` 中的 `fetch_server_status()`：
+- 按既有顺序通过核心 exec 通道执行各指标探针，采集 CPU、内存、网卡流量、进程、磁盘及 GPU 数据。
+- 采样命令和解析规则原样迁移，具体语义见 [状态监控指南](../features/server_status.md)。
+- 结果存入插件拥有的状态缓存，切换标签页时可秒读；写入前保留 session 存活校验。
 
-**解析器** [`status_parser.rs`](src-tauri/src/server_ops/status_parser.rs)：
+**解析器**位于 `plugins/status/` 的指标模块中：
 - 兼容 `procps top` 和 `busybox top` 两种输出格式
 - 内存单位自动识别（KiB/MiB/GiB）并统一转为 MiB
 - 有大量单元测试覆盖各种 top 输出格式

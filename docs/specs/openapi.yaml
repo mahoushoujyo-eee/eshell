@@ -1,10 +1,15 @@
 openapi: 3.0.3
 info:
   title: eShell Tauri RPC API
-  version: 0.2.0
+  version: 0.4.0
   description: |
     OpenAPI-style docs for Tauri invoke commands.
     These are logical RPC mappings for desktop integration, not public HTTP routes.
+    SFTP and server monitoring are enabled-by-default built-in extensions.
+    Their existing command names, successful payloads, and transfer events are unchanged.
+    Trusted external ESM plugins are discovered under the storage root's extensions directory.
+    Activation state is persisted; plugins share the host JS context without sandboxing.
+    Extension lifecycle commands are additive and do not introduce a new management UI.
 servers:
   - url: tauri://localhost
 tags:
@@ -16,7 +21,12 @@ tags:
   - name: scripts
   - name: ai
   - name: ops-agent
+  - name: extensions
 x-tauri-events:
+  extensions-changed:
+    payloadSchema:
+      type: array
+      items: { $ref: "#/components/schemas/ExtensionDescriptor" }
   pty-output:
     payloadSchema: { $ref: "#/components/schemas/PtyOutputEvent" }
   sftp-transfer:
@@ -24,6 +34,226 @@ x-tauri-events:
   ops-agent-stream:
     payloadSchema: { $ref: "#/components/schemas/OpsAgentStreamEvent" }
 paths:
+  /rpc/reload_config:
+    post:
+      tags: [config]
+      summary: Re-read config files edited outside the app
+      description: |
+        Reloads one file (`input.file`) or every reloadable file when it is omitted.
+        Reloadable: sshConfigs, acpAgents, scripts, aiProfiles, agentContext.
+        A missing file leaves the current value alone; a file that fails to parse is
+        reported in the outcome rather than applied, so a half-written file cannot
+        wipe the user's servers. Reloading restarts nothing: an open SSH session keeps
+        its connection (a new profile applies to the next connection) and a running ACP
+        agent keeps its spawn settings until restarted. known_hosts.json is not
+        reloadable — it is a trust store, and re-reading a hand-edited copy would
+        silently widen trust.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                input:
+                  type: object
+                  properties:
+                    file:
+                      type: string
+                      enum: [sshConfigs, acpAgents, scripts, aiProfiles, agentContext]
+                      description: Omit to reload every reloadable file.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ReloadOutcome" }
+  /rpc/list_reloadable_configs:
+    post:
+      tags: [config]
+      summary: List the config files reload_config can re-read
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ReloadableConfig" }
+  /rpc/list_extensions:
+    post:
+      tags: [extensions]
+      summary: List built-in and discovered external extensions with activation state
+      description: |
+        Metadata merges extensions/builtin.json with validated external manifest.json
+        files. Both bundled extensions are enabled by default; persisted choices in
+        the storage root's extensions/state.json override manifest defaults.
+        Invalid external plugins are skipped independently without blocking startup.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ExtensionDescriptor" }
+  /rpc/set_extension_enabled:
+    post:
+      tags: [extensions]
+      summary: Persistently enable or disable an installed extension
+      description: |
+        Returns the complete extension list and emits extensions-changed on success.
+        A plugin with in-flight API operations cannot be disabled; cancel or finish
+        those operations before retrying. The calling extension and native feature
+        provider are both covered by lifecycle leases. This is not authentication.
+        Disabling an extension does not close user SSH sessions.
+        Persistence failures, unknown IDs and busy lifecycle changes reject the invoke
+        without publishing a successful state change. The frontend deactivates an
+        external plugin by disposing its resources and unregistering contributions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  type: object
+                  required: [extensionId, enabled]
+                  properties:
+                    extensionId: { type: string }
+                    enabled: { type: boolean }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ExtensionDescriptor" }
+  /rpc/list_external_plugins:
+    post:
+      tags: [extensions]
+      summary: List discovered external modules and their loadable URLs
+      description: |
+        Returns only validated external plugins, including disabled ones. The loader
+        executes only enabled entries. bundleUrl uses the registered plugin protocol
+        (http://plugin.localhost on Windows), not a file URL. Installing or removing a
+        plugin directory re-scans the catalog at runtime; editing a plugin's source
+        still requires restarting the desktop application.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ExternalPluginDescriptor" }
+  /rpc/install_extension:
+    post:
+      tags: [extensions]
+      summary: Install a plugin from a local directory and re-scan the catalog
+      description: |
+        Validates the picked directory with the same rules as a startup scan
+        (manifest parses, apiVersion matches, builtin is false, main resolves inside
+        the directory) BEFORE copying anything, so a rejected install leaves no
+        partial plugin behind. The destination is extensions/<manifest id>/, never
+        the source directory's name. Installing over an existing id replaces it: the
+        old copy is moved aside and restored if the copy fails. The catalog is
+        re-scanned and extensions-changed is emitted, so the plugin is live without a
+        restart. A newly installed plugin starts at its manifest defaultEnabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  type: object
+                  required: [sourceDir]
+                  properties:
+                    sourceDir:
+                      type: string
+                      description: Absolute path to the plugin directory to install
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallExtensionResult" }
+  /rpc/uninstall_extension:
+    post:
+      tags: [extensions]
+      summary: Remove an installed external plugin and re-scan the catalog
+      description: |
+        Moves the plugin directory out of extensions/, re-scans, and drops the
+        plugin's persisted activation flag so a later reinstall starts from its
+        manifest default. Rejected for a builtin id (its code ships with the app) and
+        while the plugin holds a busy lease (deleting the directory would strand an
+        in-flight operation). Emits extensions-changed on success.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  type: object
+                  required: [extensionId]
+                  properties:
+                    extensionId: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ExtensionDescriptor" }
+  /rpc/invoke_extension_api:
+    post:
+      tags: [extensions]
+      summary: Execute a whitelisted plugin API operation with a caller lease
+      description: |
+        Private transport behind the injected JavaScript facade. command and args
+        use the corresponding existing Tauri operation names and argument shapes.
+        The facade does not expose this generic transport or raw PTY input.
+        Supported domains are session list/open/close/execute, SFTP, status fetch/cache,
+        and native file/folder selection. select_upload_file and select_download_dir
+        are broker command values, not separate Tauri commands; their args may contain
+        title and defaultPath, and their result is a path string or null.
+        The lease lasts through the complete native operation, including picker callbacks.
+        Same-context trusted code can bypass this facade; it is not a permission boundary.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  type: object
+                  required: [extensionId, command]
+                  properties:
+                    extensionId: { type: string }
+                    command: { type: string }
+                    args:
+                      type: object
+                      additionalProperties: true
+      responses:
+        "200":
+          description: Existing successful DTO of the selected operation, or null
+          content:
+            application/json:
+              schema: {}
   /rpc/list_ssh_configs:
     post:
       tags: [ssh]
@@ -657,6 +887,84 @@ paths:
 
 components:
   schemas:
+    ExtensionDescriptor:
+      type: object
+      required: [id, displayName, version, apiVersion, builtin, defaultEnabled, enabled, contributes]
+      properties:
+        id: { type: string, example: eshell.sftp }
+        displayName: { type: string }
+        version: { type: string }
+        apiVersion: { type: integer, example: 1 }
+        builtin: { type: boolean }
+        defaultEnabled: { type: boolean }
+        enabled: { type: boolean }
+        contributes:
+          type: object
+          required: [panels]
+          properties:
+            panels:
+              type: array
+              items:
+                type: object
+                required: [id, order]
+                properties:
+                  id: { type: string }
+                  order: { type: integer }
+    ExternalPluginDescriptor:
+      allOf:
+        - $ref: "#/components/schemas/ExtensionDescriptor"
+        - type: object
+          required: [main, bundleUrl]
+          properties:
+            builtin: { type: boolean, enum: [false] }
+            main: { type: string, example: index.js }
+            bundleUrl: { type: string, example: "http://plugin.localhost/com.example.hello/index.js" }
+    ReloadOutcome:
+      type: object
+      required: [file, path, changed, missing]
+      properties:
+        file:
+          type: string
+          description: Wire name of the file, for the caller to match on
+          example: sshConfigs
+        path:
+          type: string
+          description: The path that was read
+        changed:
+          type: boolean
+          description: Whether the in-memory value actually changed
+        missing:
+          type: boolean
+          description: The file does not exist; the current value was kept
+        error:
+          type: string
+          nullable: true
+          description: Set when the file exists but could not be applied; the current value is unchanged
+    ReloadableConfig:
+      type: object
+      required: [file, pathHint]
+      properties:
+        file:
+          type: string
+          description: Wire name to pass back to reload_config
+          example: sshConfigs
+        pathHint:
+          type: string
+          description: Path relative to the storage root, for display
+          example: ssh_configs.json
+    InstallExtensionResult:
+      type: object
+      required: [extensionId, displayName, extensions]
+      properties:
+        extensionId:
+          type: string
+          description: The installed plugin's manifest id, which is also its directory name
+          example: com.example.docker
+        displayName: { type: string, example: Docker }
+        extensions:
+          type: array
+          description: The refreshed merged catalog, so the caller needs no second round trip
+          items: { $ref: "#/components/schemas/ExtensionDescriptor" }
     IdRequest:
       type: object
       required: [id]

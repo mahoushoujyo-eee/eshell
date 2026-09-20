@@ -150,6 +150,38 @@ export const api = {
   appVersion: () => invoke("app_version"),
   checkAppUpdate: () => invoke("check_app_update"),
 
+  // Re-reads config files edited outside the app. `file` is one of
+  // sshConfigs / acpAgents / scripts / aiProfiles / agentContext; omit it to
+  // reload all. Each outcome reports whether the value changed, whether the
+  // file was missing, and any parse error — a bad file is reported, never
+  // applied.
+  reloadConfig: (file) => invoke("reload_config", { input: file ? { file } : {} }),
+  listReloadableConfigs: () => invoke("list_reloadable_configs"),
+
+  // Builtin extension discovery. `list_extensions` mirrors every field of the
+  // shared manifest (`extensions/builtin.json`) per item plus an `enabled`
+  // boolean; `set_extension_enabled` returns the same array after the change.
+  listExtensions: () => invoke("list_extensions"),
+  setExtensionEnabled: (extensionId, enabled) =>
+    invoke("set_extension_enabled", { input: { extensionId, enabled } }),
+  // Install copies a user-picked plugin directory into `extensions/<id>/`
+  // and re-scans, so the plugin is live without a restart. Uninstall removes
+  // the directory and re-scans. Both emit `extensions-changed`.
+  installExtension: (sourceDir) =>
+    invoke("install_extension", { input: { sourceDir } }),
+  uninstallExtension: (extensionId) =>
+    invoke("uninstall_extension", { input: { extensionId } }),
+
+  // External plugin transport (private bridge surface; see
+  // `src/lib/plugin-host.js`). Appended only — every method above is
+  // unchanged. `list_external_plugins` returns external descriptor rows
+  // (`builtin: false`) with `main` and a platform-correct `bundleUrl`;
+  // `invoke_extension_api` brokers a whitelisted existing command name/shape
+  // on behalf of one extension, holding the caller's native lease across the
+  // operation.
+  listExternalPlugins: () => invoke("list_external_plugins"),
+  invokeExtensionApi: (input) => invoke("invoke_extension_api", { input }),
+
   // Signature-verified in-app update via tauri-plugin-updater. The endpoint is
   // the latest.json the release CI publishes next to the signed installers.
   // `check` throws while the pubkey is still the placeholder (or on old

@@ -2,13 +2,31 @@ import {
   Activity,
   AlertTriangle,
   Bot,
+  Boxes,
   CircleCheck,
+  Cloud,
+  Container,
+  Cpu,
+  Database,
   FileText,
   FolderOpen,
+  GitBranch,
+  Globe,
+  HardDrive,
+  Layers,
   LoaderCircle,
+  Monitor,
+  Network,
   NotebookPen,
+  Package,
+  Puzzle,
+  Rocket,
   Server,
   Settings,
+  Shield,
+  Terminal,
+  Wrench,
+  Zap,
 } from "lucide-react";
 import {
   panelVisibilityMarker,
@@ -21,6 +39,134 @@ import { useI18n } from "../../lib/i18n";
 // Brand mark cropped from `docs/assets/Shell.png` (cube + `$`), text removed so
 // it can sit next to the wordmark without repeating "Shell".
 import eshellMark from "../../assets/eshell-mark.png";
+import { getPlugin, resolveToolbarContributions } from "../../plugins";
+import { useRegistryVersion } from "../../plugins/runtime/useRegistry";
+
+// Panel id → the rail icon it used before the plugin split. Icons live with
+// the toolbar (not the plugin) because they are chrome, not feature logic.
+const PANEL_TOOLBAR_ICONS = {
+  sftp: FolderOpen,
+  status: Activity,
+};
+
+const PANEL_TOOLBAR_LABELS = {
+  sftp: {
+    show: "Show SFTP panel",
+    hide: "Hide SFTP panel",
+  },
+  status: {
+    show: "Show status panel",
+    hide: "Hide status panel",
+  },
+};
+
+// External toolbar icons by name. A plugin supplies a string; an unknown
+// name falls back to Puzzle, so a typo never blanks the rail button.
+//
+// The set is deliberately closed: a plugin cannot hand the host an arbitrary
+// component, and a name that is not here is a typo rather than a new icon.
+// Plugins that want their own artwork should pass a URL instead (see below).
+const EXTERNAL_TOOLBAR_ICONS = {
+  box: Package,
+  boxes: Boxes,
+  cloud: Cloud,
+  container: Container,
+  cpu: Cpu,
+  database: Database,
+  git: GitBranch,
+  globe: Globe,
+  harddrive: HardDrive,
+  layers: Layers,
+  monitor: Monitor,
+  network: Network,
+  package: Package,
+  puzzle: Puzzle,
+  rocket: Rocket,
+  server: Server,
+  shield: Shield,
+  terminal: Terminal,
+  wrench: Wrench,
+  zap: Zap,
+};
+
+// A plugin-supplied icon URL. Only the plugin protocol and data URLs are
+// accepted: an `http(s):` URL would make the app fetch a remote image on
+// every render (a tracking beacon the user never asked for), and a
+// `javascript:` URL is a script-injection vector. The plugin protocol is
+// same-origin with the app, so a plugin's own bundled asset loads without
+// widening what the app is willing to fetch.
+const SAFE_ICON_URL = /^(https?:\/\/plugin\.localhost\/|plugin:\/\/|data:image\/)/i;
+
+/** An accepted image URL, or null when it is refused. */
+const safeIconUrl = (value) => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return SAFE_ICON_URL.test(trimmed) ? trimmed : null;
+};
+
+/** Renders a plugin-supplied image icon. The URL is validated by the caller. */
+function PluginImageIcon({ src }) {
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden="true"
+      className="h-[18px] w-[18px] shrink-0 object-contain"
+      draggable={false}
+    />
+  );
+}
+
+/**
+ * A renderable React component: an element (a `$$typeof`-tagged object, which
+ * is also what a lucide icon is) or a plain function component.
+ */
+const isRenderable = (value) =>
+  typeof value === "function" ||
+  (Boolean(value) && typeof value === "object" && value.$$typeof !== undefined);
+
+/**
+ * Resolves one toolbar contribution's `icon` to something renderable.
+ *
+ * Accepted, in order:
+ * - a host React element or component (a plugin that imported nothing can
+ *   pass one, and a lucide icon from the host's own React tree is one);
+ * - a `{ src }` object or a URL string pointing at the plugin's own asset;
+ * - a name from the closed set above.
+ *
+ * Anything else falls back to Puzzle. The return value is always renderable,
+ * so a bad icon never blanks the button — including a `{ src }` whose URL is
+ * refused, which falls back rather than rendering an empty image.
+ */
+export const externalToolbarIcon = (icon) => {
+  if (isRenderable(icon)) {
+    return icon;
+  }
+  if (icon && typeof icon === "object") {
+    // `{ src }` is the documented way to hand over an image; anything else
+    // object-shaped that is not a React element is not renderable.
+    const src = safeIconUrl(icon.src);
+    if (src) {
+      const Image = () => <PluginImageIcon src={src} />;
+      return Image;
+    }
+    return Puzzle;
+  }
+  if (typeof icon === "string") {
+    const src = safeIconUrl(icon);
+    if (src) {
+      const Image = () => <PluginImageIcon src={src} />;
+      return Image;
+    }
+    const named = EXTERNAL_TOOLBAR_ICONS[icon.trim().toLowerCase()];
+    if (named) {
+      return named;
+    }
+  }
+  return Puzzle;
+};
 
 export default function TopToolbar({
   showSftpPanel,
@@ -37,8 +183,13 @@ export default function TopToolbar({
   onOpenSettings,
   busy,
   error,
+  extensions,
+  workbench,
 }) {
   const { t } = useI18n();
+  // Re-resolve toolbar contributions when the registry changes (a late
+  // external registration or a disable), not only on workbench re-renders.
+  useRegistryVersion();
   const hasError = Boolean(error && String(error).trim());
   const normalizedError = hasError ? String(error).trim() : "";
   const isWarning =
@@ -56,6 +207,72 @@ export default function TopToolbar({
       : t("Recent issue")
     : t("No issues");
   const errorTitle = hasError ? errorDetail : errorText;
+
+  // Plugin-contributed panel toggles, in manifest order (sftp, then status,
+  // then externals). A disabled extension contributes nothing: the button
+  // disappears until the extension is re-enabled. The command-draft toggle is
+  // app chrome and stays.
+  //
+  // Builtin panels keep their original icons, translated labels, order and
+  // the workbench's onToggleX callback. External panels get the generic
+  // toggle surface (visibility map + hide/show label from the contribution),
+  // so a new panel key needs no hardcoded map entry here.
+  const panelVisibility = {
+    sftp: showSftpPanel,
+    status: showStatusPanel,
+    ...(workbench?.panelVisibility || {}),
+  };
+  const panelToggles = {
+    sftp: onToggleSftpPanel,
+    status: onToggleStatusPanel,
+  };
+  const genericToggle = (key) => () => workbench?.togglePanel?.(key);
+  const contributedPanels = resolveToolbarContributions(extensions)
+    .filter((item) => item.enabled)
+    .map((item) => {
+      const plugin = getPlugin(item.pluginId);
+      if (!plugin) {
+        return null;
+      }
+      if (plugin.builtin === false) {
+        // External contribution: icon/label from the contribution, the
+        // generic visibility map, the plugin's own toggle if it declared an
+        // action, otherwise the generic panel toggle.
+        const toggle =
+          typeof item.onClick === "function"
+            ? item.onClick
+            : item.panelId
+              ? genericToggle(item.panelId)
+              : null;
+        if (!toggle) {
+          return null;
+        }
+        return {
+          key: item.key,
+          icon: externalToolbarIcon(item.icon),
+          label: item.label ? t(item.label) : item.key,
+          visible: panelVisibility[item.panelId || item.key] === true,
+          onToggle: toggle,
+          actionOnly: typeof item.onClick === "function" && !item.panelId,
+        };
+      }
+      if (!panelToggles[item.key]) {
+        // An unknown builtin key (manifest drift) renders nothing rather
+        // than a dead button.
+        return null;
+      }
+      // Builtin panels keep their original icon, translated label and the
+      // workbench's onToggleX callback, byte-for-byte.
+      return {
+        key: item.key,
+        icon: PANEL_TOOLBAR_ICONS[item.key],
+        labels: PANEL_TOOLBAR_LABELS[item.key],
+        visible: panelVisibility[item.key] === true,
+        onToggle: panelToggles[item.key],
+        actionOnly: false,
+      };
+    })
+    .filter(Boolean);
 
   return (
     <aside
@@ -94,30 +311,37 @@ export default function TopToolbar({
         </div>
       </div>
 
-      <div className="mt-2 space-y-2">
+      {/* `min-h-0` lets the Panels section shrink and scroll instead of
+          pushing the Quick section off the bottom of the rail. */}
+      <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2">
         <ToolbarSection title={t("Config")} collapsed={collapsed}>
           <RailButton icon={Server} label={t("SSH Profiles")} onClick={onOpenSshConfig} collapsed={collapsed} />
           <RailButton icon={FileText} label={t("Script Center")} onClick={onOpenScriptConfig} collapsed={collapsed} />
           <RailButton icon={Bot} label={t("Agent Config")} onClick={onOpenAgentConfig} collapsed={collapsed} />
         </ToolbarSection>
 
-        <ToolbarSection title={t("Panels")} collapsed={collapsed}>
-          <RailButton
-            icon={FolderOpen}
-            label={showSftpPanel ? t("Hide SFTP panel") : t("Show SFTP panel")}
-            active={showSftpPanel}
-            onClick={onToggleSftpPanel}
-            collapsed={collapsed}
-            trailing={panelVisibilityMarker}
-          />
-          <RailButton
-            icon={Activity}
-            label={showStatusPanel ? t("Hide status panel") : t("Show status panel")}
-            active={showStatusPanel}
-            onClick={onToggleStatusPanel}
-            collapsed={collapsed}
-            trailing={panelVisibilityMarker}
-          />
+        <ToolbarSection title={t("Panels")} collapsed={collapsed} scroll>
+          {contributedPanels.map((panel) => (
+            <RailButton
+              key={panel.key}
+              icon={panel.icon}
+              label={
+                panel.actionOnly
+                  ? panel.label
+                  : panel.labels
+                    ? panel.visible
+                      ? t(panel.labels.hide)
+                      : t(panel.labels.show)
+                    : panel.visible
+                      ? `${t("Hide")} ${panel.label}`
+                      : `${t("Show")} ${panel.label}`
+              }
+              active={panel.actionOnly ? false : panel.visible}
+              onClick={panel.onToggle}
+              collapsed={collapsed}
+              trailing={panel.actionOnly ? null : panelVisibilityMarker}
+            />
+          ))}
           <RailButton
             icon={NotebookPen}
             label={showCommandDraftPanel ? t("Hide command draft") : t("Show command draft")}
@@ -129,13 +353,12 @@ export default function TopToolbar({
         </ToolbarSection>
       </div>
 
-      <div className="mt-auto pt-2">
+      <div className="shrink-0 pt-2">
         <ToolbarSection title={t("Quick")} collapsed={collapsed}>
           <RailButton
             icon={Settings}
             label={t("Settings")}
             onClick={onOpenSettings}
-            collapsed={collapsed}
           />
 
           <div

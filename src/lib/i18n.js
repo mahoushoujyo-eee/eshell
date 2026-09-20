@@ -68,6 +68,7 @@ const zhMessages = {
   "Configured: {count}": "已配置：{count}",
   "Connect": "连接",
   "Connect a session first": "请先连接会话",
+  "Connected to {name}": "已连接到 {name}",
   "Connected to {name} ({dir})": "已连接到 {name}（{dir}）",
   "Connecting to {target}...": "正在连接到 {target}……",
   "Connecting...": "连接中……",
@@ -295,6 +296,44 @@ const zhMessages = {
   "Language": "语言",
   "Settings": "设置",
   "Interface": "界面设置",
+  "Appearance": "外观",
+  "Extensions": "扩展",
+  "Config Files": "配置文件",
+  "About": "关于",
+  "Reload": "重载",
+  "Reload all": "全部重载",
+  "Reloadable while the app is running": "应用运行时可重载",
+  "Reloaded with changes.": "已重载，内容有变化。",
+  "Reloaded, nothing changed.": "已重载，内容无变化。",
+  "File not found — the current value was kept.": "文件不存在 —— 已保留当前值。",
+  "Could not apply: {reason}": "无法应用：{reason}",
+  "No reloadable config files.": "没有可重载的配置文件。",
+  "Re-read config files you edited outside the app, without restarting. Reloading does not restart anything: open sessions keep their connection.":
+    "重读你在应用外修改过的配置文件，无需重启。重载不会重启任何东西：已打开的会话保持原连接。",
+  "A missing file keeps its current value, and a file that fails to parse is reported instead of applied — a half-written file cannot clear your settings.":
+    "文件不存在时保留当前值；解析失败只报告不应用 —— 半写入的文件不会清空你的设置。",
+  "Plugins": "插件",
+  "Install from folder…": "从文件夹安装…",
+  "Plugins run in this app's context. Only install code you trust.":
+    "插件与本应用共用同一运行上下文，请只安装你信任的代码。",
+  "Built-in": "内置",
+  "External": "外部",
+  "Enabled": "已启用",
+  "Disabled": "已禁用",
+  "Remove": "移除",
+  "Confirm": "确认",
+  "Confirm Remove": "确认移除",
+  "Remove this plugin?": "确定要移除这个插件吗？",
+  "and its folder will be deleted from disk. This cannot be undone.":
+    "，它的目录会从磁盘上删除，此操作无法撤销。",
+  "To use it again, install it from its folder again.": "如需再次使用，需要重新从文件夹安装。",
+  "Plugin": "插件",
+  "Removing...": "正在移除…",
+  "No extensions found.": "未找到扩展。",
+  "{count} external plugins installed.": "已安装 {count} 个外部插件。",
+  "Installed {name}": "已安装 {name}",
+  "Removed {name}": "已移除 {name}",
+  "Delete this plugin's folder": "删除该插件的目录",
   "Version": "版本",
   "Theme": "主题",
   "Current version": "当前版本",
@@ -599,6 +638,10 @@ const zhMessages = {
 
 zhMessages["Approval"] = "审批";
 zhMessages["Full Access"] = "完全访问";
+
+zhMessages["Show"] = "显示";
+zhMessages["Hide"] = "隐藏";
+zhMessages["Panel failed to render"] = "面板渲染失败";
 
 zhMessages["Approval"] = "瀹℃壒";
 zhMessages["Full Access"] = "瀹屽叏璁块棶";

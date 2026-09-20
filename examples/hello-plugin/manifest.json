@@ -1,0 +1,12 @@
+{
+  "id": "com.example.hello",
+  "displayName": "Hello Plugin",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "builtin": false,
+  "defaultEnabled": true,
+  "main": "index.js",
+  "contributes": {
+    "panels": [{ "id": "com.example.hello.panel", "order": 30 }]
+  }
+}

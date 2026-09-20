@@ -1,0 +1,12 @@
+{
+  "id": "com.example.docker",
+  "displayName": "Docker",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "builtin": false,
+  "defaultEnabled": true,
+  "main": "index.js",
+  "contributes": {
+    "panels": [{ "id": "com.example.docker.panel", "order": 40 }]
+  }
+}

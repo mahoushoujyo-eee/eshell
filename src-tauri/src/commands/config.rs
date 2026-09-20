@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::error::to_command_error;
@@ -13,6 +14,24 @@ use crate::models::{
     TrustSshHostKeyInput,
 };
 use crate::state::AppState;
+use crate::storage::{ConfigFile, ReloadOutcome};
+
+/// `reload_config` input. Omitting `file` reloads every reloadable file.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReloadConfigInput {
+    pub file: Option<String>,
+}
+
+/// One reloadable config file, as listed by `list_reloadable_configs`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReloadableConfig {
+    /// Wire name to pass back to `reload_config`.
+    pub file: String,
+    /// Path relative to the storage root, for display.
+    pub path_hint: String,
+}
 
 /// Returns all stored SSH connection profiles.
 #[tauri::command]
@@ -279,5 +298,57 @@ pub fn ai_import_source_kind_label(kind: AiImportSourceKind) -> String {
         AiImportSourceKind::ClaudeCode => "Claude Code".to_string(),
         AiImportSourceKind::Codex => "Codex".to_string(),
         AiImportSourceKind::CustomJson => "Custom".to_string(),
+    }
+}
+
+/// Re-reads config files that were edited outside the app.
+///
+/// `input.file` selects one file; omitting it reloads every reloadable file.
+/// A file that is missing leaves the current value alone, and a file that
+/// fails to parse is reported in the outcome rather than applied, so a
+/// half-written file cannot wipe the user's servers.
+///
+/// Reloading does not restart anything: an open SSH session keeps its
+/// connection (a new profile applies to the next connection), and a running
+/// ACP agent keeps its spawn settings until it is restarted.
+#[tauri::command]
+pub fn reload_config(
+    state: State<'_, Arc<AppState>>,
+    input: Option<ReloadConfigInput>,
+) -> Result<Vec<ReloadOutcome>, String> {
+    match input.and_then(|value| value.file) {
+        Some(name) => {
+            let file = ConfigFile::parse(&name).map_err(to_command_error)?;
+            Ok(vec![state.storage.reload_config(file)])
+        }
+        None => Ok(state.storage.reload_all_configs()),
+    }
+}
+
+/// The reloadable config files, for a caller that wants to offer a choice.
+#[tauri::command]
+pub fn list_reloadable_configs() -> Vec<ReloadableConfig> {
+    reloadable_configs()
+}
+
+/// Shared by the Tauri command and the plugin broker, so both surfaces
+/// report the same list.
+pub fn reloadable_configs() -> Vec<ReloadableConfig> {
+    ConfigFile::ALL
+        .iter()
+        .map(|file| ReloadableConfig {
+            file: file_wire_name(*file).to_string(),
+            path_hint: file.file_name().to_string(),
+        })
+        .collect()
+}
+
+fn file_wire_name(file: ConfigFile) -> &'static str {
+    match file {
+        ConfigFile::SshConfigs => "sshConfigs",
+        ConfigFile::AcpAgents => "acpAgents",
+        ConfigFile::Scripts => "scripts",
+        ConfigFile::AiProfiles => "aiProfiles",
+        ConfigFile::AgentContext => "agentContext",
     }
 }

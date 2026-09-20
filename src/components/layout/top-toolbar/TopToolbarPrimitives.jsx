@@ -93,20 +93,40 @@ export function StatusIndicator({
   );
 }
 
-export function ToolbarSection({ title, collapsed, children }) {
+/**
+ * One labelled group of rail buttons.
+ *
+ * `scroll` makes the section's body scroll instead of growing without bound.
+ * The Panels section needs it: every enabled plugin contributes a button, so
+ * an unbounded list would push the Quick section off the bottom of the rail
+ * with no way to reach it. The header stays put and only the buttons scroll,
+ * so the group remains identifiable while scrolled.
+ *
+ * `min-h-0` is required for the flex child to shrink below its content size;
+ * without it the section would overflow its parent instead of scrolling.
+ */
+export function ToolbarSection({ title, collapsed, scroll = false, children }) {
   return (
     <div
       className={[
         "rounded-2xl border border-border/70 bg-panel/70",
         collapsed ? "p-1.5" : "p-2",
+        scroll ? "flex min-h-0 flex-col" : "",
       ].join(" ")}
     >
       {!collapsed ? (
-        <div className="mb-2 px-1 text-[11px] font-semibold tracking-[0.18em] text-muted uppercase">
+        <div className="mb-2 shrink-0 px-1 text-[11px] font-semibold tracking-[0.18em] text-muted uppercase">
           {title}
         </div>
       ) : null}
-      <div className={collapsed ? "space-y-1.5" : "space-y-1"}>{children}</div>
+      <div
+        className={[
+          collapsed ? "space-y-1.5" : "space-y-1",
+          scroll ? "scroll-region min-h-0 flex-1 overflow-y-auto" : "",
+        ].join(" ")}
+      >
+        {children}
+      </div>
     </div>
   );
 }

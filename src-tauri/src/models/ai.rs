@@ -166,7 +166,7 @@ pub struct AiProfileInput {
     pub max_context_tokens: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AiProfilesState {
     pub profiles: Vec<AiProfile>,

@@ -5,13 +5,12 @@ use tauri::State;
 use crate::error::{to_command_error, AppError};
 use crate::models::{
     CancelShellConnectionInput, CloseShellInput, CommandExecutionResult, ExecuteCommandInput,
-    FetchServerStatusInput, OpenShellInput, PtyResizeInput, PtyWriteInput, RunScriptInput,
-    RunScriptResult, SftpCancelTransferInput, SftpCreateInput, SftpDeleteInput, SftpDownloadInput,
-    SftpDownloadPayload, SftpDownloadToLocalInput, SftpFileContent, SftpListInput,
-    ReopenShellPtyInput, SftpListResponse, SftpReadInput, SftpRenameInput, SftpTransferResult,
-    SftpUploadInput,
-    SftpUploadLocalWithProgressInput, SftpUploadWithProgressInput, SftpWriteInput, ShellSession,
-    SshKiRespondInput,
+    FetchServerStatusInput, OpenShellInput, PtyResizeInput, PtyWriteInput, ReopenShellPtyInput,
+    RunScriptInput, RunScriptResult, SftpCancelTransferInput, SftpCreateInput, SftpDeleteInput,
+    SftpDownloadInput, SftpDownloadPayload, SftpDownloadToLocalInput, SftpFileContent,
+    SftpListInput, SftpListResponse, SftpReadInput, SftpRenameInput, SftpTransferResult,
+    SftpUploadInput, SftpUploadLocalWithProgressInput, SftpUploadWithProgressInput, SftpWriteInput,
+    ShellSession, SshKiRespondInput,
 };
 use crate::state::AppState;
 
@@ -287,7 +286,10 @@ pub fn sftp_cancel_transfer(
     state: State<'_, Arc<AppState>>,
     input: SftpCancelTransferInput,
 ) -> Result<bool, String> {
-    Ok(super::sftp_cancel_transfer(&state, &input.transfer_id))
+    Ok(crate::plugins::sftp::ops::sftp_cancel_transfer(
+        &state,
+        &input.transfer_id,
+    ))
 }
 
 /// Returns the current server runtime metrics (CPU/memory/network/process/disk).
@@ -309,7 +311,10 @@ pub fn get_cached_server_status(
     state: State<'_, Arc<AppState>>,
     session_id: String,
 ) -> Result<Option<crate::models::ServerStatus>, String> {
-    Ok(super::get_cached_server_status(&state, &session_id))
+    Ok(crate::plugins::status::get_cached_server_status(
+        &state,
+        &session_id,
+    ))
 }
 
 /// Executes one saved script in selected shell tab.

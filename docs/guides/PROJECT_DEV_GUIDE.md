@@ -41,6 +41,33 @@ When changing user-visible frontend copy:
 Rule:
 - New behavior should be added to the correct split module, not merged back into a large monolith.
 
+## 3.1 Built-in Extension Boundaries
+
+- SFTP and monitoring implementations belong to `src/plugins/` and `src-tauri/src/plugins/`; do not add their feature logic back to the core workbench or SSH transport.
+- `extensions/builtin.json` is shared manifest metadata for both runtimes.
+- Preserve existing panel IDs, markup, styles, settings keys, command contracts, and default polling/transfer behavior during migration.
+- Lifecycle APIs are additive; persistent deactivation must not close user SSH sessions, silently cancel transfers, bypass caller/provider busy leases, or publish a state change when persistence fails.
+- Trusted external ESM loads before the initial React render through the native plugin protocol. Each external controller needs its own keyed React component; never run a dynamic hook loop in `useWorkbench`.
+- The plugin API is a contract, not a sandbox. Validate discovery/resource paths independently and retain the current monitor's serialized polling, batched probes and 20-second budget.
+- Install and uninstall go through the same discovery validation as a startup scan, and must validate before copying so a rejected install leaves nothing behind. The catalog is re-scanned at runtime; a re-scan must not change an existing extension's explicit activation flag.
+- See [Plugin Development](features/plugin_development.md) for the API-v1 contract and the two ready-to-load examples.
+- See [Built-in Extensions](architecture/builtin_extensions.md) for ownership, lifecycle, and verification requirements.
+
+## 3.2 Bundled Agent Skills
+
+`skills/` holds agent-facing references that ship with the app. Each is seeded
+into `.eshell-data/agent/skills/<name>/` on first launch (written only when
+missing, so a user or agent edit survives) and returned by the MCP
+`read_agent_context` tool.
+
+- `skills/eshell-config/` — editing `.eshell-data/*.json` (SSH/ACP schemas, wire formats, server-operation norms, restart rules).
+- `skills/eshell-plugin-dev/` — writing an external plugin (manifest, API v1 facade, lifecycle, install flow, trust model).
+
+Adding a skill means three edits, not one: the directory under `skills/`, a
+`seed_*_skill` call in `src-tauri/src/storage/mod.rs`, and an entry in
+`BUNDLED_SKILLS` in `src-tauri/src/mcp_bridge/mod.rs` so the agent can read it.
+`storage::tests::bundled_skills_are_seeded_on_first_run` covers the seed.
+
 ## 4. SFTP Transfer Conventions
 
 Events:

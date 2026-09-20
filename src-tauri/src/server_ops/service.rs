@@ -10,10 +10,9 @@ use uuid::Uuid;
 
 use super::channel::OwnedChannel;
 use super::pty;
-use super::status::{default_probes, ServerStatusDraft};
 use super::transport::{self, is_stale_connection_error};
 use crate::error::{AppError, AppResult};
-use crate::models::{now_rfc3339, CommandExecutionResult, FetchServerStatusInput, ShellSession};
+use crate::models::{now_rfc3339, CommandExecutionResult, ShellSession};
 use crate::state::{AppState, PtyCommand, SharedSshSession};
 
 // Commands are not replayed on timeout or output overflow: they may have already
@@ -243,48 +242,28 @@ fn command_in_directory(current_dir: &str, command: &str) -> String {
     }
 }
 
-/// Probes remain sequential, but no probe holds up PTY, SFTP or another exec.
-pub async fn fetch_server_status(
+/// Runs one probe command on the tab's transport and returns its stdout.
+///
+/// This is the narrow bridge the server-monitor plugin uses: probe commands
+/// are ordinary session commands, so they reuse the core's channel-open
+/// retry boundary (never replaying an EXEC) instead of the plugin opening
+/// its own channels.
+pub async fn run_session_command_for_probe(
     state: &Arc<AppState>,
     app: Option<&AppHandle>,
-    input: FetchServerStatusInput,
-) -> AppResult<crate::models::ServerStatus> {
-    let mut draft = ServerStatusDraft::default();
-    for probe in default_probes() {
-        let output =
-            match run_session_command(state, app, &input.session_id, &probe.command()).await {
-                Ok(result) => result.0,
-                Err(err) => {
-                    append_server_ops_debug_log(
-                        state,
-                        "status.probe.failed",
-                        &input.session_id,
-                        format!("probe={} error={err}", probe.id()),
-                    );
-                    return Err(err);
-                }
-            };
-        probe.apply(&output, &mut draft);
-    }
-    let status = draft.into_status(input.selected_interface);
-    // Do not resurrect a closed tab's cache after its last probe completed.
-    state.get_session(&input.session_id)?;
-    state.put_cached_status(&input.session_id, status.clone());
-    Ok(status)
-}
-
-pub fn get_cached_server_status(
-    state: &AppState,
     session_id: &str,
-) -> Option<crate::models::ServerStatus> {
-    state.get_cached_status(session_id)
+    command: &str,
+) -> AppResult<String> {
+    Ok(run_session_command(state, app, session_id, command)
+        .await?
+        .0)
 }
 
 pub fn ssh_ki_respond(state: &AppState, request_id: &str, responses: Vec<String>) -> AppResult<()> {
     state.respond_ki(request_id, responses)
 }
 
-pub(super) async fn cached_ssh_session(
+pub(crate) async fn cached_ssh_session(
     state: &Arc<AppState>,
     app: Option<&AppHandle>,
     session_id: &str,
@@ -414,7 +393,7 @@ impl CommandOutput {
     }
 }
 
-pub(super) fn append_server_ops_debug_log(
+pub fn append_server_ops_debug_log(
     state: &AppState,
     event: &str,
     session_id: &str,
@@ -474,7 +453,7 @@ fn sanitize_cwd(value: &str) -> String {
     if value.trim().is_empty() {
         "/".to_string()
     } else {
-        super::sftp::normalize_remote_path(value.trim())
+        crate::plugins::sftp::ops::normalize_remote_path(value.trim())
     }
 }
 

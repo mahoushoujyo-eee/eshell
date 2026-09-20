@@ -5,7 +5,7 @@
 - `russh = 0.63.3`（精确锁定，关闭默认 features，启用 ring/rsa）、`russh-sftp = 2.4.0`。
 - `transport/`：TCP/跳板流、TOFU 主机密钥验证、密码/私钥/passphrase/KI 认证、keepalive、错误分类。
 - `state.rs`：每 tab 一个 `Arc<Connection>`；按 tab 的 tokio Mutex 防止重复握手，短时读写锁只保护内存 map。连接驱逐比较 Arc 身份，不误删新连接。PTY 通道同样带代次，旧 worker 退出时不注销继任者的通道。
-- `pty.rs`：PTY task；`service.rs`：exec、cwd、状态探测、`reopen_shell_pty`；`sftp.rs`：独立 SFTP channel；`channel.rs`：取消/退出时关闭 channel。
+- `pty.rs`：PTY task；`service.rs`：exec、cwd、`reopen_shell_pty`；`channel.rs`：取消/退出时关闭 channel。SFTP 实现迁至 `plugins/sftp/`，状态探测迁至 `plugins/status/`，两者仍通过核心传输复用同一连接，见 [内置插件架构](builtin_extensions.md)。
 - Tauri、MCP bridge、Ops Agent 直接 await 网络操作；进度传输运行在独立 async task。没有 libssh2、整会话 IO 锁和跳板中继线程。
 
 一条物理连接同时承载 PTY、exec、SFTP、状态探测。跳板链每跳需要自己的 SSH 传输，但不为不同功能重复建连。channel 仍受服务器 MaxSessions、TCP 带宽和流控约束。

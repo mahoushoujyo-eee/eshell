@@ -4,7 +4,7 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.5.5** 是一个基于 **Tauri 2、React 19、Rust** 的桌面运维工作台。
+**eShell v1.6.0** 是一个基于 **Tauri 2、React 19、Rust** 的桌面运维工作台。
 
 它把 SSH 会话、PTY 终端、SFTP 文件操作、服务器状态监控、脚本执行，以及 ACP 编码 agent 面板集成在一个本地优先的桌面应用里。
 
@@ -20,6 +20,7 @@
 - 保存常用脚本，并在当前会话中执行。
 - 通过 Agent Client Protocol 驱动外部编码 agent（Codex、Claude Code、Gemini CLI 等），支持按项目隔离会话和权限审批。
 - 配置多个 AI Provider Profile，支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 兼容协议。
+- 在 **设置 → 插件** 里安装、启用和移除扩展；外部插件是本地 ESM 目录，安装后无需重启即可生效。
 - 支持英文和简体中文 UI，并持久化语言偏好。
 
 ## ACP Agent 面板
@@ -52,6 +53,31 @@
 - reqwest
 - serde / serde_json
 
+## 插件
+
+SFTP 和状态监控仍是默认启用的内置插件，原有界面与命令契约保持兼容，
+并与外部浏览器 ESM 插件共用 API-v1 门面。
+
+在 **设置 → 插件 → 从文件夹安装…** 里选中插件目录即可：它会被复制到
+`<存储根>/extensions/<清单 id>/` 并立即生效。同一个页面可以启用/禁用每个扩展，
+以及移除外部插件；内置扩展只能禁用，它们的代码随应用发布。
+
+仓库自带两个可直接加载的示例：[`examples/hello-plugin/`](examples/hello-plugin/)
+（最小示例）和 [`examples/docker-plugin/`](examples/docker-plugin/)（含 controller、
+异步会话命令、插件自带图标，以及带单元测试的纯逻辑模块）。也可以手动安装：关闭
+eShell，把整个目录复制到 `<存储根>/extensions/<id>/`，然后重启。常规桌面开发运行的
+存储根通常为 `src-tauri/.eshell-data`。
+
+安装、移除、启停都是热生效的，**但修改插件代码不是**——改源码仍需重启桌面进程，
+没有文件热重载。
+
+**只安装可信代码。** 插件与应用共用 JS 上下文和 Tauri 能力，API 门面不是沙箱，
+也不是插件级权限系统。本阶段没有插件市场、插件自动更新或 Node 宿主。
+原生实现的更新仍随 eShell 发布。
+
+详见 [插件开发指南](docs/guides/features/plugin_development.md) 和
+[插件架构](docs/guides/architecture/builtin_extensions.md)。
+
 ## 项目结构
 
 ```text
@@ -65,6 +91,7 @@ src/
   hooks/
     useWorkbench.js
     workbench/     # 会话、操作、effects、错误、AI profiles
+  plugins/         # 内置 SFTP/状态插件控制器与工作台贡献
   lib/
     tauri-api.js
     ops-agent-stream.js
@@ -75,11 +102,16 @@ src/
 
 src-tauri/src/
   commands/        # Tauri 命令入口
-  server_ops/      # SSH、PTY、SFTP、状态采集
+  server_ops/      # SSH、PTY、共享命令传输
+  plugins/         # 原生内置插件注册表、SFTP、状态监控、
+                   #   外部插件发现/安装、plugin:// 协议
   ops_agent/       # ACP 客户端、自研 agent 运行时、Provider、工具、审批
   storage/         # SSH / 脚本 / AI profiles / agent 上下文持久化
   models/          # 按领域拆分的模型模块
   state.rs
+
+examples/          # 可直接加载的外部插件示例（hello、docker）
+skills/            # 面向 agent 的参考文档，首启 seed 到 .eshell-data/agent/skills/
 
 docs/
   guides/
@@ -94,7 +126,7 @@ docs/
 
 前置要求：
 
-- Node.js 18+
+- Node.js 22.12+（也可使用 Node 24）
 - Rust stable
 - 当前操作系统对应的 Tauri 2 依赖
 
@@ -186,7 +218,7 @@ cargo test
 - `ai_profiles.json` 保存 AI profiles、当前激活 profile、审批模式和 agent 模式。
 - `acp_agents.json` 声明面板可启动的 ACP agent；`acp_sessions/` 每个会话一个记录文件。
 - `projects.json` 保存 ACP 项目到本地目录的映射。
-- `agent/AGENTS.md` 是全局 agent 上下文文件，`agent/<serverId>.md` 是按服务器拆分的上下文，`agent/skills/` 存放 `eshell-config` 等内置 skill。
+- `agent/AGENTS.md` 是全局 agent 上下文文件，`agent/<serverId>.md` 是按服务器拆分的上下文，`agent/skills/` 存放 `eshell-config` 和 `eshell-plugin-dev` 两个内置 skill。
 - `ops_agent_conversations/` 保存自研 Ops Agent 的聊天历史；`ops_agent_attachments/` 保存分离的图片附件（conversation JSON 只保存 `attachmentIds`）。
 - `server_ops_debug.log` 记录服务端操作事件（`pty.worker.started`、`status.probe.failed` 等），会话异常时先看这里。
 
@@ -205,5 +237,6 @@ cargo test
 - [OpenAPI 风格 RPC 规格](docs/specs/openapi.yaml)
 - [服务器状态指南](docs/guides/features/server_status.md)
 - [SFTP 传输指南](docs/guides/features/sftp_transfer.md)
+- [插件开发指南](docs/guides/features/plugin_development.md)
 - [未发布变更](docs/releases/unreleased.md)
-- [1.5.5 发布说明](docs/releases/v1.5.5.md)
+- [1.6.0 发布说明](docs/releases/v1.6.0.md)

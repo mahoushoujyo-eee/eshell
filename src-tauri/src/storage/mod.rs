@@ -3,8 +3,11 @@ mod ai_profiles;
 mod agent_context;
 mod io;
 mod known_hosts;
+mod reload;
 mod scripts;
 mod ssh;
+
+pub use reload::{ConfigFile, ReloadOutcome};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -134,7 +137,7 @@ impl Storage {
 }
 
 /// Seeds the agent context area under `.eshell-data/agent/`: a default global
-/// AGENTS.md, migrated legacy files, and the bundled eshell-config skill.
+/// AGENTS.md, migrated legacy files, and the bundled skills.
 fn seed_agent_context(root: &Path, agent_dir: &Path) -> AppResult<()> {
     let global_path = agent_dir.join(GLOBAL_AGENTS_FILE);
     if !global_path.exists() {
@@ -146,7 +149,8 @@ fn seed_agent_context(root: &Path, agent_dir: &Path) -> AppResult<()> {
     // file does not already exist (so a user edit is never overwritten).
     migrate_legacy_agent_context(root, agent_dir)?;
 
-    seed_eshell_config_skill(agent_dir)
+    seed_eshell_config_skill(agent_dir)?;
+    seed_eshell_plugin_dev_skill(agent_dir)
 }
 
 fn migrate_legacy_agent_context(root: &Path, agent_dir: &Path) -> AppResult<()> {
@@ -205,6 +209,23 @@ fn seed_eshell_config_skill(agent_dir: &Path) -> AppResult<()> {
         fs::write(
             &doc_md,
             include_str!("../../../skills/eshell-config/docs/acp_agent.md"),
+        )?;
+    }
+    Ok(())
+}
+
+/// Seeds the bundled `eshell-plugin-dev` skill into
+/// `.eshell-data/agent/skills/`. Same rule as the config skill: written only
+/// when missing, so a user or agent edit survives every later launch.
+fn seed_eshell_plugin_dev_skill(agent_dir: &Path) -> AppResult<()> {
+    let skill_dir = agent_dir.join("skills").join("eshell-plugin-dev");
+    let skill_md = skill_dir.join("SKILL.md");
+
+    if !skill_md.exists() {
+        fs::create_dir_all(&skill_dir)?;
+        fs::write(
+            &skill_md,
+            include_str!("../../../skills/eshell-plugin-dev/SKILL.md"),
         )?;
     }
     Ok(())

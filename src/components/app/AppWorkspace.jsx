@@ -28,6 +28,7 @@ export default function AppWorkspace({
     dirtyFile,
     openFileContent,
     handleOpenFileContentChange,
+    extensions,
   } = workbench;
   const {
     sidebarCollapsed,
@@ -71,6 +72,8 @@ export default function AppWorkspace({
           onToggleCommandDraftPanel={() => setShowCommandDraftPanel((prev) => !prev)}
           busy={busy}
           error={error}
+          extensions={extensions}
+          workbench={workbench}
         />
 
         <div ref={workspaceRef} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -84,6 +87,12 @@ export default function AppWorkspace({
               onOpenFileEditor={onOpenFileEditor}
             />
           </div>
+
+          {/* External plugin controller hosts: one keyed sibling per external
+              plugin. Enabling a plugin appends one; disabling removes exactly
+              that one — the core layout (and the terminal's component chain)
+              never changes, so it cannot remount. */}
+          {workbench.pluginControllerHosts}
 
           <AppAiDock
             acp={acp}

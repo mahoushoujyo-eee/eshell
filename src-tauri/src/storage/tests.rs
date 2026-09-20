@@ -311,6 +311,54 @@ fn agent_contexts_are_stored_as_markdown_files() {
     assert_eq!(bundle.server.as_deref(), Some("server notes"));
 }
 
+/// Both bundled skills must land on first run: the agent reads them from
+/// `.eshell-data/agent/skills/<name>/SKILL.md`, so a missing seed is a
+/// silently absent capability rather than a visible error.
+#[test]
+fn bundled_skills_are_seeded_on_first_run() {
+    let storage = Storage::new(temp_dir("agent-skills")).expect("create storage");
+    let skills = storage.data_dir().join("agent").join("skills");
+
+    for name in ["eshell-config", "eshell-plugin-dev"] {
+        let path = skills.join(name).join("SKILL.md");
+        assert!(path.exists(), "{} was not seeded at {}", name, path.display());
+        let content = std::fs::read_to_string(&path).expect("read seeded skill");
+        assert!(
+            content.contains(&format!("name: {name}")),
+            "{name} frontmatter does not name the skill"
+        );
+    }
+
+    // The config skill's companion doc ships with it.
+    assert!(skills
+        .join("eshell-config")
+        .join("docs")
+        .join("acp_agent.md")
+        .exists());
+}
+
+/// A user or agent edit must survive the next launch: the seed only writes
+/// when the file is missing.
+#[test]
+fn seeded_skills_are_never_overwritten() {
+    let root = temp_dir("agent-skills-keep");
+    let storage = Storage::new(root.clone()).expect("create storage");
+    let skill_md = storage
+        .data_dir()
+        .join("agent")
+        .join("skills")
+        .join("eshell-plugin-dev")
+        .join("SKILL.md");
+    std::fs::write(&skill_md, "edited by the user").expect("edit skill");
+
+    // A second construction is what a relaunch does.
+    let _reopened = Storage::new(root).expect("reopen storage");
+    assert_eq!(
+        std::fs::read_to_string(&skill_md).expect("read skill"),
+        "edited by the user"
+    );
+}
+
 #[test]
 fn get_ai_config_prefers_requested_active_profile() {
     let profile_seed = test_ai_profile();
@@ -499,4 +547,153 @@ fn save_ai_approval_mode_updates_global_setting_only() {
         storage.get_ai_config().approval_mode,
         AiApprovalMode::AutoExecute
     );
+}
+
+/// Reloading picks up an edit made on disk, which is the whole point: the
+/// user (or an agent) edits a JSON file and the app sees it without a restart.
+#[test]
+fn reload_picks_up_an_external_edit() {
+    let root = temp_dir("reload-edit");
+    let storage = Storage::new(root.clone()).expect("create storage");
+
+    let path = root.join("ssh_configs.json");
+    std::fs::write(
+        &path,
+        r#"[{"id":"s1","name":"edited","host":"h","port":22,"username":"u",
+             "authType":"password","password":"p","description":"",
+             "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}]"#,
+    )
+    .expect("write config");
+
+    assert!(storage.list_ssh_configs().is_empty(), "not loaded yet");
+
+    let outcome = storage.reload_config(ConfigFile::SshConfigs);
+    assert_eq!(outcome.file, "sshConfigs");
+    assert!(outcome.changed, "the edit must be reported as a change");
+    assert!(outcome.error.is_none());
+    assert_eq!(storage.list_ssh_configs().len(), 1);
+    assert_eq!(storage.list_ssh_configs()[0].name, "edited");
+}
+
+/// Reloading an unchanged file reports no change, so a caller can tell a
+/// no-op reload from a real one.
+#[test]
+fn reload_reports_no_change_when_the_file_is_unchanged() {
+    let root = temp_dir("reload-noop");
+    let storage = Storage::new(root).expect("create storage");
+
+    let outcome = storage.reload_config(ConfigFile::SshConfigs);
+    assert!(!outcome.changed);
+    assert!(outcome.error.is_none());
+}
+
+/// A malformed file is reported, never applied: the in-memory value must
+/// survive so a half-written file cannot wipe the user's servers.
+#[test]
+fn reload_reports_a_parse_failure_without_clobbering_state() {
+    let root = temp_dir("reload-bad");
+    let storage = Storage::new(root.clone()).expect("create storage");
+
+    storage
+        .upsert_ssh_config(crate::models::SshConfigInput {
+            id: None,
+            name: "keep-me".to_string(),
+            host: "example.com".to_string(),
+            port: 22,
+            username: "root".to_string(),
+            auth_type: SshAuthType::Password,
+            password: "secret".to_string(),
+            private_key_path: String::new(),
+            private_key_passphrase: String::new(),
+            use_password_fallback: false,
+            jump_host_id: None,
+            description: None,
+        })
+        .expect("seed a config");
+
+    std::fs::write(root.join("ssh_configs.json"), "{ this is not json").expect("write garbage");
+
+    let outcome = storage.reload_config(ConfigFile::SshConfigs);
+    assert!(outcome.error.is_some(), "a parse failure must be reported");
+    assert!(!outcome.changed);
+    assert_eq!(
+        storage.list_ssh_configs().len(),
+        1,
+        "the last good value must survive a bad file"
+    );
+    assert_eq!(storage.list_ssh_configs()[0].name, "keep-me");
+}
+
+/// A missing file leaves the current value alone rather than clearing it.
+#[test]
+fn reload_of_a_missing_file_keeps_the_current_value() {
+    let root = temp_dir("reload-missing");
+    let storage = Storage::new(root.clone()).expect("create storage");
+
+    storage
+        .upsert_ssh_config(crate::models::SshConfigInput {
+            id: None,
+            name: "still-here".to_string(),
+            host: "example.com".to_string(),
+            port: 22,
+            username: "root".to_string(),
+            auth_type: SshAuthType::Password,
+            password: "secret".to_string(),
+            private_key_path: String::new(),
+            private_key_passphrase: String::new(),
+            use_password_fallback: false,
+            jump_host_id: None,
+            description: None,
+        })
+        .expect("seed a config");
+
+    std::fs::remove_file(root.join("ssh_configs.json")).expect("delete the file");
+
+    let outcome = storage.reload_config(ConfigFile::SshConfigs);
+    assert!(outcome.missing);
+    assert!(!outcome.changed);
+    assert!(outcome.error.is_none(), "a missing file is not an error");
+    assert_eq!(storage.list_ssh_configs().len(), 1);
+}
+
+/// Reloading everything visits each file and one bad file does not stop the
+/// others.
+#[test]
+fn reload_all_visits_every_file_and_isolates_failures() {
+    let root = temp_dir("reload-all");
+    let storage = Storage::new(root.clone()).expect("create storage");
+
+    // Break one file; the rest must still be reported.
+    std::fs::write(root.join("scripts.json"), "not json at all").expect("write garbage");
+
+    let outcomes = storage.reload_all_configs();
+    assert_eq!(outcomes.len(), ConfigFile::ALL.len());
+
+    let scripts = outcomes
+        .iter()
+        .find(|outcome| outcome.file == "scripts")
+        .expect("scripts outcome");
+    assert!(scripts.error.is_some(), "the broken file is reported");
+
+    let ssh = outcomes
+        .iter()
+        .find(|outcome| outcome.file == "sshConfigs")
+        .expect("ssh outcome");
+    assert!(ssh.error.is_none(), "a sibling failure must not leak");
+
+    // Every reloadable file is named, and the wire names round-trip.
+    for outcome in &outcomes {
+        assert!(
+            ConfigFile::parse(&outcome.file).is_ok(),
+            "{} must round-trip through ConfigFile::parse",
+            outcome.file
+        );
+    }
+}
+
+/// An unknown file name is a validation error, not a silent no-op.
+#[test]
+fn reload_rejects_an_unknown_file_name() {
+    let error = ConfigFile::parse("nope").expect_err("unknown name must be rejected");
+    assert!(format!("{error:?}").contains("nope"), "{error:?}");
 }

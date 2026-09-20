@@ -1,5 +1,11 @@
 //! Async SFTP operations over the shared per-tab russh connection.
 //!
+//! This module is the SFTP extension's implementation. It moved from
+//! `server_ops/sftp.rs` unchanged in behavior; the differences are
+//! plugin-scoped: every public operation checks the extension is active
+//! (and is leased busy) before touching the wire, and the transfer
+//! cancellation registry lives on the plugin state.
+//!
 //! Every high-level operation opens its own SFTP *session channel* on the single
 //! physical `Connection` cached for the shell tab. The physical connection is never
 //! locked or held for the duration of a transfer: opening a subsystem channel per
@@ -30,7 +36,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::{CancellationToken, DropGuard};
 use uuid::Uuid;
 
-use super::service::{append_server_ops_debug_log, cached_ssh_session};
 use crate::error::{AppError, AppResult};
 use crate::models::{
     SftpCreateInput, SftpDeleteInput, SftpDownloadInput, SftpDownloadPayload,
@@ -38,6 +43,8 @@ use crate::models::{
     SftpListResponse, SftpReadInput, SftpRenameInput, SftpTransferEvent, SftpTransferResult,
     SftpUploadInput, SftpUploadLocalWithProgressInput, SftpUploadWithProgressInput, SftpWriteInput,
 };
+use crate::server_ops::append_server_ops_debug_log;
+use crate::server_ops::service::cached_ssh_session;
 use crate::state::{AppState, SharedSshSession};
 
 const SFTP_TRANSFER_EVENT: &str = "sftp-transfer";
@@ -49,8 +56,8 @@ const SFTP_SUBSYSTEM_REPLY_TIMEOUT: Duration = Duration::from_secs(15);
 /// partial file is best-effort and bounded.
 const SFTP_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
 /// Message preserved from the synchronous implementation for transfer cancellations.
-const SFTP_TRANSFER_CANCELLED_MESSAGE: &str = "transfer cancelled by user";
-const SFTP_OPERATION_CANCELLED_MESSAGE: &str = "SFTP operation cancelled by user";
+pub(crate) const SFTP_TRANSFER_CANCELLED_MESSAGE: &str = "transfer cancelled by user";
+pub(crate) const SFTP_OPERATION_CANCELLED_MESSAGE: &str = "SFTP operation cancelled by user";
 
 /// One SFTP subsystem channel plus the physical connection that carries it.
 ///
@@ -177,8 +184,10 @@ async fn open_sftp_session(
             _ = watcher_cancel.cancelled() => {},
         }
     }));
-    let stream =
-        super::transport::CancellableStream::new(channel.into_stream(), stream_cancel.clone());
+    let stream = crate::server_ops::transport::CancellableStream::new(
+        channel.into_stream(),
+        stream_cancel.clone(),
+    );
     let session = match race_cancel(transfer_token, session_token, SftpSession::new(stream)).await {
         Ok(Ok(session)) => session,
         Ok(Err(error)) => {
@@ -290,6 +299,7 @@ pub async fn sftp_list_dir(
     app: Option<&AppHandle>,
     input: SftpListInput,
 ) -> AppResult<SftpListResponse> {
+    let _active = super::require_active(state)?;
     let (handle, token) = open_operation_session(state, app, &input.session_id).await?;
     let result = list_remote_dir(&handle.session, &token, &input.path).await;
     handle.shutdown().await;
@@ -348,6 +358,7 @@ pub async fn sftp_read_file(
     app: Option<&AppHandle>,
     input: SftpReadInput,
 ) -> AppResult<SftpFileContent> {
+    let _active = super::require_active(state)?;
     let (handle, token) = open_operation_session(state, app, &input.session_id).await?;
     let result = read_remote_file_text(&handle.session, &token, &input.path).await;
     handle.shutdown().await;
@@ -391,6 +402,7 @@ pub async fn sftp_write_file(
     app: Option<&AppHandle>,
     input: SftpWriteInput,
 ) -> AppResult<()> {
+    let _active = super::require_active(state)?;
     let (handle, token) = open_operation_session(state, app, &input.session_id).await?;
     let result = write_remote_file_text(state.as_ref(), &handle.session, &token, &input).await;
     handle.shutdown().await;
@@ -456,6 +468,7 @@ pub async fn sftp_create_file(
     app: Option<&AppHandle>,
     input: SftpCreateInput,
 ) -> AppResult<()> {
+    let _active = super::require_active(state)?;
     let (handle, token) = open_operation_session(state, app, &input.session_id).await?;
     let result = create_empty_remote_file(&handle.session, &token, &input.path).await;
     handle.shutdown().await;
@@ -492,6 +505,7 @@ pub async fn sftp_create_directory(
     app: Option<&AppHandle>,
     input: SftpCreateInput,
 ) -> AppResult<()> {
+    let _active = super::require_active(state)?;
     let (handle, token) = open_operation_session(state, app, &input.session_id).await?;
     let result = create_remote_directory(&handle.session, &token, &input.path).await;
     handle.shutdown().await;
@@ -539,6 +553,7 @@ pub async fn sftp_upload_file(
     app: Option<&AppHandle>,
     input: SftpUploadInput,
 ) -> AppResult<()> {
+    let _active = super::require_active(state)?;
     let (handle, token) = open_operation_session(state, app, &input.session_id).await?;
     let result = upload_base64(&handle.session, &token, &input).await;
     handle.shutdown().await;
@@ -561,6 +576,7 @@ pub async fn sftp_delete_entry(
     app: Option<&AppHandle>,
     input: SftpDeleteInput,
 ) -> AppResult<()> {
+    let _active = super::require_active(state)?;
     let (handle, token) = open_operation_session(state, app, &input.session_id).await?;
     let result = delete_remote_entry(&handle.session, &token, &input).await;
     handle.shutdown().await;
@@ -659,6 +675,7 @@ pub async fn sftp_rename_entry(
     app: Option<&AppHandle>,
     input: SftpRenameInput,
 ) -> AppResult<()> {
+    let _active = super::require_active(state)?;
     let (handle, token) = open_operation_session(state, app, &input.session_id).await?;
     let result = rename_remote_entry_inner(&handle.session, &token, &input).await;
     handle.shutdown().await;
@@ -686,6 +703,7 @@ pub async fn sftp_upload_file_with_progress(
     app: &AppHandle,
     input: SftpUploadWithProgressInput,
 ) -> AppResult<SftpTransferResult> {
+    let _active = super::require_active(state)?;
     let guard = SftpTransferGuard::new(state.as_ref(), &input.transfer_id);
     let transfer_token = guard.token();
     let session_token = state.shell_session_token(&input.session_id)?;
@@ -861,6 +879,7 @@ pub async fn sftp_upload_local_file_with_progress(
     app: &AppHandle,
     input: SftpUploadLocalWithProgressInput,
 ) -> AppResult<SftpTransferResult> {
+    let _active = super::require_active(state)?;
     let guard = SftpTransferGuard::new(state.as_ref(), &input.transfer_id);
     let transfer_token = guard.token();
     let session_token = state.shell_session_token(&input.session_id)?;
@@ -1089,6 +1108,7 @@ pub async fn sftp_download_file(
     app: Option<&AppHandle>,
     input: SftpDownloadInput,
 ) -> AppResult<SftpDownloadPayload> {
+    let _active = super::require_active(state)?;
     let (handle, token) = open_operation_session(state, app, &input.session_id).await?;
     let result = download_remote_file_payload(&handle.session, &token, &input.remote_path).await;
     handle.shutdown().await;
@@ -1136,6 +1156,7 @@ pub async fn sftp_download_file_to_local(
     app: &AppHandle,
     input: SftpDownloadToLocalInput,
 ) -> AppResult<SftpTransferResult> {
+    let _active = super::require_active(state)?;
     let guard = SftpTransferGuard::new(state.as_ref(), &input.transfer_id);
     let transfer_token = guard.token();
     let session_token = state.shell_session_token(&input.session_id)?;
@@ -1413,8 +1434,11 @@ pub fn default_download_dir() -> String {
 }
 
 /// Requests cancellation for a running SFTP transfer.
-pub fn sftp_cancel_transfer(state: &AppState, transfer_id: &str) -> bool {
-    state.cancel_sftp_transfer(transfer_id)
+///
+/// Delegates to the plugin state; cancelling is how a user winds an
+/// operation down, so it deliberately works on a deactivated extension.
+pub(crate) fn sftp_cancel_transfer(state: &AppState, transfer_id: &str) -> bool {
+    super::sftp_cancel_transfer(state, transfer_id)
 }
 
 /// Opens a remote file for reading, honouring cancellation while the request is in flight.
@@ -1529,7 +1553,7 @@ struct SftpTransferGuard<'a> {
 
 impl<'a> SftpTransferGuard<'a> {
     fn new(state: &'a AppState, transfer_id: &str) -> Self {
-        let token = state.begin_sftp_transfer(transfer_id);
+        let token = state.sftp_plugin().state.begin_transfer(transfer_id);
         Self {
             state,
             transfer_id: transfer_id.to_string(),
@@ -1544,7 +1568,10 @@ impl<'a> SftpTransferGuard<'a> {
 
 impl Drop for SftpTransferGuard<'_> {
     fn drop(&mut self) {
-        self.state.clear_sftp_transfer(&self.transfer_id);
+        self.state
+            .sftp_plugin()
+            .state
+            .clear_transfer(&self.transfer_id);
     }
 }
 
@@ -1863,7 +1890,7 @@ fn resolve_default_download_dir() -> PathBuf {
 }
 
 /// Normalizes a remote POSIX path. Shared with `service` for cwd sanitization.
-pub(super) fn normalize_remote_path(value: &str) -> String {
+pub(crate) fn normalize_remote_path(value: &str) -> String {
     let mut normalized = value.trim().replace('\\', "/");
     if normalized.is_empty() {
         return "/".to_string();

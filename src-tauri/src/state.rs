@@ -10,13 +10,18 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{ServerStatus, ShellSession};
+use crate::models::ShellSession;
 use crate::ops_agent::acp::commands::AcpAgentRegistry;
 use crate::ops_agent::infrastructure::agent_trace_store::OpsAgentTraceStore;
 use crate::ops_agent::infrastructure::attachments::OpsAgentAttachmentStore;
 use crate::ops_agent::infrastructure::run_registry::OpsAgentRunRegistry;
 use crate::ops_agent::infrastructure::store::OpsAgentStore;
 use crate::ops_agent::tools::{default_ops_agent_tool_registry, OpsAgentToolRegistry};
+use crate::plugins::extension_state::ActivationStateStore;
+use crate::plugins::manifest::ExtensionCatalog;
+use crate::plugins::registry::ExtensionRegistry;
+use crate::plugins::sftp::SftpPlugin;
+use crate::plugins::status::StatusPlugin;
 use crate::server_ops::transport::Connection;
 use crate::storage::Storage;
 
@@ -73,7 +78,23 @@ pub struct AppState {
     /// not hold `ssh_sessions` itself: a handshake takes seconds and that map is
     /// shared by every tab.
     ssh_connect_locks: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
-    status_cache: RwLock<HashMap<String, ServerStatus>>,
+    /// Extension runtime: catalog metadata, activation flags and busy leases.
+    /// Feature state itself lives on the plugins below.
+    extensions: ExtensionRegistry,
+    /// Merged builtin + external catalog.
+    ///
+    /// Behind a lock because installing or removing a plugin directory
+    /// re-scans `extensions/` at runtime: the `plugin://` protocol handler
+    /// resolves every asset request through this catalog, so a replaced
+    /// catalog must be visible to it without a restart.
+    extensions_catalog: RwLock<ExtensionCatalog>,
+    /// Persisted explicit activation flags (`extensions/state.json`).
+    extension_activation: Mutex<ActivationStateStore>,
+    /// SFTP plugin state (transfer cancellation registry). Owned here so the
+    /// plugin manages its own maps; `AppState` never touches them directly.
+    sftp_plugin: SftpPlugin,
+    /// Server-monitor plugin state (status cache). Same ownership rule.
+    status_plugin: StatusPlugin,
     /// PTY control channel per shell tab, tagged with the generation of the
     /// worker that registered it. A tab can outlive several PTY workers (see
     /// [`AppState::reopen_pty_channel`]), and a worker that is being replaced
@@ -85,7 +106,6 @@ pub struct AppState {
     /// later updates, and cancelled by `remove_session`.
     shell_session_tokens: RwLock<HashMap<String, CancellationToken>>,
     shell_connection_cancellations: RwLock<HashMap<String, CancellationToken>>,
-    sftp_transfer_cancellations: RwLock<HashMap<String, CancellationToken>>,
     ki_pending: RwLock<HashMap<String, oneshot::Sender<Vec<String>>>>,
 }
 
@@ -100,6 +120,17 @@ impl AppState {
         storage_root: PathBuf,
         ops_agent_tools: OpsAgentToolRegistry,
     ) -> AppResult<Self> {
+        let extensions_catalog = build_extension_catalog(&storage_root)?;
+        let extensions_dir = storage_root.join("extensions");
+        let extension_activation = ActivationStateStore::load(&extensions_dir);
+        let extensions = ExtensionRegistry::from_catalog(&extensions_catalog);
+        // Seed persisted flags: a restart resumes exactly the last committed
+        // activation, builtin or external, without looking like a change.
+        for id in extensions_catalog.iter_ids() {
+            if let Some(enabled) = extension_activation.get(&id) {
+                extensions.seed_persisted(&id, enabled);
+            }
+        }
         Ok(Self {
             storage: Storage::new(storage_root.clone())?,
             ops_agent: OpsAgentStore::new(storage_root.clone())?,
@@ -112,12 +143,15 @@ impl AppState {
             sessions: RwLock::new(HashMap::new()),
             ssh_sessions: RwLock::new(HashMap::new()),
             ssh_connect_locks: Mutex::new(HashMap::new()),
-            status_cache: RwLock::new(HashMap::new()),
+            extensions,
+            extensions_catalog: RwLock::new(extensions_catalog),
+            extension_activation: Mutex::new(extension_activation),
+            sftp_plugin: SftpPlugin::new(),
+            status_plugin: StatusPlugin::new(),
             pty_channels: RwLock::new(HashMap::new()),
             pty_generations: AtomicU64::new(0),
             shell_session_tokens: RwLock::new(HashMap::new()),
             shell_connection_cancellations: RwLock::new(HashMap::new()),
-            sftp_transfer_cancellations: RwLock::new(HashMap::new()),
             ki_pending: RwLock::new(HashMap::new()),
         })
     }
@@ -232,10 +266,8 @@ impl AppState {
             token.cancel();
         }
 
-        self.status_cache
-            .write()
-            .expect("status cache lock poisoned")
-            .remove(session_id);
+        // The server-monitor plugin drops its cache entry for the closed tab.
+        crate::plugins::status::on_session_removed(self, session_id);
         self.remove_ssh_session(session_id);
         Ok(())
     }
@@ -514,7 +546,10 @@ impl AppState {
     /// the tab was reopened while this worker was still winding down — the
     /// replacement is left alone, because it is the live one.
     pub fn remove_pty_channel_if_current(&self, session_id: &str, generation: u64) {
-        let mut guard = self.pty_channels.write().expect("pty channel lock poisoned");
+        let mut guard = self
+            .pty_channels
+            .write()
+            .expect("pty channel lock poisoned");
         let is_current = guard
             .get(session_id)
             .is_some_and(|(current, _)| *current == generation);
@@ -582,85 +617,113 @@ impl AppState {
             .remove(request_id);
     }
 
-    /// Returns cached status for a session when available.
-    pub fn get_cached_status(&self, session_id: &str) -> Option<ServerStatus> {
-        self.status_cache
+    /// The extension registry (activation flags and busy leases).
+    pub fn extensions(&self) -> &ExtensionRegistry {
+        &self.extensions
+    }
+
+    /// The merged builtin + external catalog, for descriptor rendering and
+    /// the `plugin` URI scheme.
+    ///
+    /// Returns a snapshot clone: the catalog is replaced wholesale when a
+    /// plugin is installed or removed, so handing out a reference would mean
+    /// holding the lock across the caller's whole operation.
+    pub fn extensions_catalog(&self) -> ExtensionCatalog {
+        self.extensions_catalog
             .read()
-            .expect("status cache lock poisoned")
-            .get(session_id)
-            .cloned()
-    }
-
-    /// Updates cached status for a session.
-    ///
-    /// The `sessions` map is held for reading across the insert so a status result
-    /// that raced with `remove_session` is not cached for a tab that no longer
-    /// exists (the caller's earlier `get_session` check alone can be overtaken).
-    pub fn put_cached_status(&self, session_id: &str, status: ServerStatus) {
-        let sessions_guard = self.sessions.read().expect("session lock poisoned");
-        if !sessions_guard.contains_key(session_id) {
-            return;
-        }
-        self.status_cache
-            .write()
-            .expect("status cache lock poisoned")
-            .insert(session_id.to_string(), status);
-    }
-
-    /// Marks one transfer as active unless it was already pre-cancelled.
-    ///
-    /// Returns the token the transfer must observe. An existing token is reused
-    /// unchanged, so a `cancel_sftp_transfer` that arrived first still wins.
-    pub fn begin_sftp_transfer(&self, transfer_id: &str) -> CancellationToken {
-        let mut guard = self
-            .sftp_transfer_cancellations
-            .write()
-            .expect("sftp cancellation lock poisoned");
-        guard
-            .entry(transfer_id.to_string())
-            .or_insert_with(CancellationToken::new)
+            .expect("extension catalog lock poisoned")
             .clone()
     }
 
-    /// Requests cancellation for a transfer.
+    /// Re-scans `extensions/` and swaps in a fresh catalog, returning it.
     ///
-    /// Returns whether the transfer was already registered. Cancelling before the
-    /// transfer begins records a pre-cancelled token, so the later
-    /// `begin_sftp_transfer` observes cancellation instead of starting work.
-    pub fn cancel_sftp_transfer(&self, transfer_id: &str) -> bool {
-        let (existed, token) = {
-            let mut guard = self
-                .sftp_transfer_cancellations
-                .write()
-                .expect("sftp cancellation lock poisoned");
-            let existed = guard.contains_key(transfer_id);
-            let token = guard
-                .entry(transfer_id.to_string())
-                .or_insert_with(CancellationToken::new)
-                .clone();
-            (existed, token)
-        };
-        // Cancel outside the write guard: the critical section stays a plain map update.
-        token.cancel();
-        existed
-    }
-
-    /// Checks whether transfer is cancelled.
-    pub fn is_sftp_transfer_cancelled(&self, transfer_id: &str) -> bool {
-        self.sftp_transfer_cancellations
-            .read()
-            .expect("sftp cancellation lock poisoned")
-            .get(transfer_id)
-            .map(CancellationToken::is_cancelled)
-            .unwrap_or(false)
-    }
-
-    /// Clears one transfer cancellation marker.
-    pub fn clear_sftp_transfer(&self, transfer_id: &str) {
-        self.sftp_transfer_cancellations
+    /// Used after an install or a removal. The registry is reconciled with
+    /// the new catalog in the same call so a newly discovered plugin has an
+    /// activation entry (at its `defaultEnabled`) before anything can ask
+    /// whether it is enabled.
+    ///
+    /// A plugin that is currently busy is left alone: removing its directory
+    /// while one of its operations is in flight would strand that operation,
+    /// so the id keeps its old entry until the lease is released.
+    pub fn rescan_extensions_catalog(&self) -> AppResult<ExtensionCatalog> {
+        let catalog = build_extension_catalog(&self.storage.data_dir())?;
+        self.extensions.reconcile_catalog(&catalog);
+        *self
+            .extensions_catalog
             .write()
-            .expect("sftp cancellation lock poisoned")
-            .remove(transfer_id);
+            .expect("extension catalog lock poisoned") = catalog.clone();
+        Ok(catalog)
+    }
+
+    /// Persists one explicit activation flag to `extensions/state.json`.
+    ///
+    /// Called from inside the registry's lifecycle critical section (see
+    /// [`ExtensionRegistry::apply_enabled_with_persist`]); a failure rejects
+    /// the whole transition, so this returns `Err` without touching the
+    /// in-memory map.
+    pub fn persist_extension_enabled(
+        &self,
+        extension_id: &str,
+        enabled: bool,
+    ) -> Result<(), String> {
+        self.extension_activation
+            .lock()
+            .expect("extension activation lock poisoned")
+            .save(extension_id, enabled)
+    }
+
+    /// Drops one extension's persisted activation flag.
+    ///
+    /// Called on uninstall so a later reinstall of the same id starts from
+    /// its manifest `defaultEnabled` rather than the removed copy's choice.
+    /// A failure to persist is not fatal to the uninstall: the directory is
+    /// already gone, and a stale flag for an absent id is inert.
+    pub fn forget_extension_enabled(&self, extension_id: &str) {
+        let _ = self
+            .extension_activation
+            .lock()
+            .expect("extension activation lock poisoned")
+            .remove(extension_id);
+    }
+
+    /// The persisted flag for one extension, if it was ever toggled.
+    #[cfg(test)]
+    pub fn persisted_extension_enabled(&self, extension_id: &str) -> Option<bool> {
+        self.extension_activation
+            .lock()
+            .expect("extension activation lock poisoned")
+            .get(extension_id)
+    }
+
+    /// Test-only: registers one external extension id into the activation
+    /// surface so broker tests can take a caller lease on it.
+    ///
+    /// Real registration happens in [`Self::new_with_ops_agent_tools`] via
+    /// discovery; tests that did not install a plugin directory use this.
+    #[cfg(test)]
+    pub fn extensions_test_register(&self, extension_id: &str) {
+        self.extensions.test_register(extension_id);
+    }
+
+    /// The SFTP plugin (transfer cancellation registry).
+    pub fn sftp_plugin(&self) -> &SftpPlugin {
+        &self.sftp_plugin
+    }
+
+    /// The server-monitor plugin (status cache).
+    pub fn status_plugin(&self) -> &StatusPlugin {
+        &self.status_plugin
+    }
+
+    /// Read access to the sessions map for plugin state that must validate
+    /// liveness under the same read lock the core uses.
+    ///
+    /// This is the narrow bridge: plugins never re-implement session
+    /// bookkeeping, they borrow the core's map for their insert guards.
+    pub(crate) fn sessions_read(
+        &self,
+    ) -> std::sync::RwLockReadGuard<'_, HashMap<String, ShellSession>> {
+        self.sessions.read().expect("session lock poisoned")
     }
 
     /// Registers a sender to receive keyboard-interactive responses for one auth challenge.
@@ -691,6 +754,29 @@ impl AppState {
             .expect("ki pending lock poisoned")
             .remove(request_id);
     }
+}
+
+/// Builds the merged extension catalog for one storage root.
+///
+/// The builtin manifest is strict (a broken `builtin.json` is a startup
+/// failure). External discovery is best-effort: per-plugin failures are
+/// logged to stderr and skipped, never fatal, so one broken user-installed
+/// plugin cannot block startup or hide its neighbors.
+fn build_extension_catalog(storage_root: &std::path::Path) -> AppResult<ExtensionCatalog> {
+    let builtin = crate::plugins::manifest::BuiltinManifest::parse().map_err(AppError::Runtime)?;
+    let builtin_ids: std::collections::BTreeSet<String> =
+        builtin.extensions.iter().map(|e| e.id.clone()).collect();
+    let extensions_dir = storage_root.join("extensions");
+    // A missing directory is a clean install; create it so a later toggle can
+    // persist without a surprise. Failure is ignored: discovery treats a
+    // missing directory as "no external plugins".
+    let _ = std::fs::create_dir_all(&extensions_dir);
+    let (external, problems) =
+        crate::plugins::discovery::discover_external_plugins(&extensions_dir, &builtin_ids);
+    for problem in &problems {
+        eprintln!("eshell: skipping external plugin: {problem}");
+    }
+    Ok(ExtensionCatalog { builtin, external })
 }
 
 #[cfg(test)]
@@ -1242,25 +1328,28 @@ mod tests {
         assert!(state.is_shell_connection_cancelled("req-2"));
     }
 
+    /// The SFTP plugin owns transfer cancellation now; the same pre-cancel
+    /// contract is asserted in `plugins::sftp::tests`.
     #[test]
-    fn sftp_transfer_cancellation_preserves_pre_cancel() {
+    fn sftp_transfer_cancellation_delegates_to_the_plugin() {
         let state = temp_state("sftp-cancel");
 
-        let active = state.begin_sftp_transfer("transfer-1");
+        let plugin = &state.sftp_plugin().state;
+        let active = plugin.begin_transfer("transfer-1");
         assert!(!active.is_cancelled());
-        assert!(!state.is_sftp_transfer_cancelled("transfer-1"));
+        assert!(!plugin.is_transfer_cancelled("transfer-1"));
 
-        assert!(state.cancel_sftp_transfer("transfer-1"));
+        assert!(plugin.cancel_transfer("transfer-1"));
         assert!(active.is_cancelled());
-        assert!(state.is_sftp_transfer_cancelled("transfer-1"));
+        assert!(plugin.is_transfer_cancelled("transfer-1"));
 
-        state.clear_sftp_transfer("transfer-1");
-        assert!(!state.is_sftp_transfer_cancelled("transfer-1"));
+        plugin.clear_transfer("transfer-1");
+        assert!(!plugin.is_transfer_cancelled("transfer-1"));
 
-        assert!(!state.cancel_sftp_transfer("transfer-2"));
-        let pre = state.begin_sftp_transfer("transfer-2");
+        assert!(!plugin.cancel_transfer("transfer-2"));
+        let pre = plugin.begin_transfer("transfer-2");
         assert!(pre.is_cancelled());
-        assert!(state.is_sftp_transfer_cancelled("transfer-2"));
+        assert!(plugin.is_transfer_cancelled("transfer-2"));
     }
 
     #[tokio::test]

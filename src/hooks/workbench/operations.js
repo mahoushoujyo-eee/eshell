@@ -2,30 +2,19 @@ import { useCallback, useEffect, useRef } from "react";
 import { EMPTY_SCRIPT, EMPTY_SSH } from "../../constants/workbench";
 import { useI18n } from "../../lib/i18n";
 import { createPtyInputSender } from "../../lib/pty-input-sender";
-import { createSftpTransferSeed, upsertSftpTransfer } from "../../lib/sftp-transfer";
 import { api } from "../../lib/tauri-api";
-import { copyTextToClipboard } from "../../utils/clipboard";
-import { joinPath, normalizeRemotePath, renameRemoteEntryPath } from "../../utils/path";
+import { normalizeRemotePath } from "../../utils/path";
 import {
-  STATUS_FETCH_WARNING_PREFIX,
   isPtyLostError,
   isSessionGoneError,
   toErrorMessage,
 } from "./errors";
 import { shellQuote } from "./session";
 
-const isTransferCancelledError = (err) =>
-  toErrorMessage(err).toLowerCase().includes("transfer cancelled by user");
-
 const isConnectionCancelledError = (err) =>
   toErrorMessage(err).toLowerCase().includes("ssh connection cancelled");
 
 const SSH_HOST_KEY_TRUST_REQUIRED_PREFIX = "SSH_HOST_KEY_TRUST_REQUIRED:";
-
-const localPathBaseName = (value) => {
-  const normalized = String(value || "").replace(/\\/g, "/");
-  return normalized.split("/").filter(Boolean).pop() || "upload.bin";
-};
 
 const parseHostKeyTrustChallenge = (err) => {
   const message = toErrorMessage(err);
@@ -39,11 +28,6 @@ const parseHostKeyTrustChallenge = (err) => {
   } catch {
     return null;
   }
-};
-
-const isValidRemoteEntryName = (value) => {
-  const name = String(value || "").trim();
-  return Boolean(name) && name !== "." && name !== ".." && !/[\\/]/.test(name);
 };
 
 const SCRIPT_PARAMETER_PATTERN = /\{\{\s*([A-Za-z0-9_-]+)\s*\}\}/g;
@@ -103,9 +87,7 @@ export function useWorkbenchOperations({
   sshConfigs,
   sessions,
   activeSessionId,
-  currentPath,
   downloadDirectory,
-  selectedEntry,
   scriptForm,
   scripts,
   sshForm,
@@ -116,13 +98,6 @@ export function useWorkbenchOperations({
   setNicBySession,
   setSessions,
   setActiveSessionId,
-  setSftpEntries,
-  setSftpTransfers,
-  setSelectedEntry,
-  openFilePath,
-  setOpenFilePath,
-  openFileSessionId,
-  setOpenFileSessionId,
   setOpenFileContent,
   setDirtyFile,
   setScripts,
@@ -381,6 +356,12 @@ export function useWorkbenchOperations({
     runWithSessionReconnectRef.current = runWithSessionReconnect;
   }, [runWithSessionReconnect]);
 
+  // Assigned synchronously too (not only in the effect above): plugin
+  // controllers mount before this hook's effects flush, and their first poll
+  // needs the current implementation immediately.
+  runWithSessionReconnectRef.current = runWithSessionReconnect;
+  onErrorRef.current = onError;
+
   useEffect(() => {
     const sender = createPtyInputSender({
       send: (sessionId, data) => {
@@ -502,24 +483,17 @@ export function useWorkbenchOperations({
           ...prev,
           [session.id]: normalizeRemotePath(session.currentDir || "/"),
         }));
-        appendLog(
-          session.id,
-          "SYSTEM",
-          tRef.current("Connected to {name} ({dir})", {
-            name: session.configName,
-            dir: session.currentDir,
-          }),
+        const hasDirectory =
+          typeof session.currentDir === "string" && session.currentDir.trim().length > 0;
+        const connectedMessage = tRef.current(
+          hasDirectory ? "Connected to {name} ({dir})" : "Connected to {name}",
+          { name: session.configName, dir: session.currentDir },
         );
-        pushUiNotice(
-          tRef.current("Connected to {name} ({dir})", {
-            name: session.configName,
-            dir: session.currentDir,
-          }),
-          {
+        appendLog(session.id, "SYSTEM", connectedMessage);
+        pushUiNotice(connectedMessage, {
           tone: "success",
           ttlMs: 4200,
-          },
-        );
+        });
         return true;
       } catch (err) {
         dismissUiNotice(pendingNoticeId);
@@ -694,216 +668,6 @@ export function useWorkbenchOperations({
     [activeSessionId, onError, runWithSessionReconnect],
   );
 
-  const requestSftpDir = useCallback(
-    async (path) => {
-      if (!activeSessionId) {
-        return null;
-      }
-      try {
-        const normalizedPath = normalizeRemotePath(path);
-        return await runBusy(tRef.current("Read directory"), () =>
-          runWithSessionReconnect(activeSessionId, (sessionId) =>
-            api.sftpListDir(sessionId, normalizedPath),
-          ),
-        );
-      } catch (err) {
-        onError(err);
-        return null;
-      }
-    },
-    [activeSessionId, onError, runBusy, runWithSessionReconnect],
-  );
-
-  const refreshSftp = useCallback(
-    async (path) => {
-      if (!activeSessionId) {
-        return null;
-      }
-      const requestedSessionId = activeSessionId;
-      const result = await requestSftpDir(path);
-      if (!result) {
-        return null;
-      }
-      const targetSessionId = resolveSessionAlias(requestedSessionId) || requestedSessionId;
-      setSftpEntries(result.entries);
-      setSftpPath((prev) => ({
-        ...prev,
-        [targetSessionId]: normalizeRemotePath(result.path),
-      }));
-      setSelectedEntry(null);
-      return result;
-    },
-    [activeSessionId, requestSftpDir, resolveSessionAlias],
-  );
-
-  const openEntry = useCallback(
-    async (entry) => {
-      if (!activeSessionId) {
-        return { opened: false };
-      }
-      setSelectedEntry(entry);
-      if (entry.entryType === "directory") {
-        await refreshSftp(entry.path);
-        return { opened: false };
-      }
-      try {
-        const opened = await runBusy(tRef.current("Read file"), () =>
-          runWithSessionReconnect(activeSessionId, async (sessionId) => ({
-            sessionId,
-            file: await api.sftpReadFile(sessionId, entry.path),
-          })),
-        );
-        // Remember the owning session so later saves cannot land on another tab.
-        setOpenFileSessionId(opened.sessionId);
-        setOpenFilePath(normalizeRemotePath(opened.file.path));
-        setOpenFileContent(opened.file.content || "");
-        setDirtyFile(false);
-        return { opened: true, path: normalizeRemotePath(opened.file.path) };
-      } catch (err) {
-        onError(err);
-        return { opened: false };
-      }
-    },
-    [
-      activeSessionId,
-      onError,
-      refreshSftp,
-      runBusy,
-      runWithSessionReconnect,
-      setOpenFileSessionId,
-    ],
-  );
-
-  const selectSftpEntry = useCallback((entry) => {
-    setSelectedEntry(entry || null);
-  }, [setSelectedEntry]);
-
-  const uploadFile = useCallback(
-    async () => {
-      if (!activeSessionId) {
-        return;
-      }
-      const selectedPath = await api.sftpSelectUploadFile();
-      const localPath = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
-      if (!localPath) {
-        return;
-      }
-
-      const fileName = localPathBaseName(localPath);
-      const transferId = globalThis.crypto?.randomUUID?.() || `upload-${Date.now()}-${Math.random()}`;
-      const remotePath = joinPath(currentPath, fileName);
-      const seed = createSftpTransferSeed({
-        transferId,
-        sessionId: activeSessionId,
-        direction: "upload",
-        remotePath,
-        localPath,
-        fileName,
-      });
-      if (seed) {
-        setSftpTransfers((prev) => upsertSftpTransfer(prev, seed));
-      }
-
-      try {
-        await runBusy(tRef.current("Upload file"), () =>
-          runWithSessionReconnect(activeSessionId, (sessionId) =>
-            api.sftpUploadLocalFileWithProgress(
-              sessionId,
-              remotePath,
-              localPath,
-              transferId,
-              fileName,
-            ),
-          ),
-        );
-        await refreshSftp(currentPath);
-      } catch (err) {
-        const cancelled = isTransferCancelledError(err);
-        setSftpTransfers((prev) =>
-          upsertSftpTransfer(prev, {
-            transferId,
-            sessionId: activeSessionId,
-            direction: "upload",
-            stage: cancelled ? "cancelled" : "failed",
-            remotePath,
-            localPath,
-            fileName,
-            transferredBytes: 0,
-            totalBytes: null,
-            percent: 0,
-            message: cancelled ? tRef.current("Transfer cancelled") : toErrorMessage(err),
-          }),
-        );
-        if (!cancelled) {
-          onError(err);
-        }
-      }
-    },
-    [
-      activeSessionId,
-      currentPath,
-      onError,
-      refreshSftp,
-      runBusy,
-      runWithSessionReconnect,
-      setSftpTransfers,
-    ],
-  );
-
-  const createSftpEntry = useCallback(
-    async (entryType, rawName) => {
-      if (!activeSessionId) {
-        return false;
-      }
-      const isDirectory = entryType === "directory";
-      const name = String(rawName || "").trim();
-      if (!isValidRemoteEntryName(name)) {
-        onError(tRef.current("Use a name without slashes."));
-        return false;
-      }
-
-      const remotePath = joinPath(currentPath, name);
-      try {
-        await runBusy(tRef.current(isDirectory ? "Create remote folder" : "Create remote file"), () =>
-          runWithSessionReconnect(activeSessionId, (sessionId) =>
-            isDirectory
-              ? api.sftpCreateDirectory(sessionId, remotePath)
-              : api.sftpCreateFile(sessionId, remotePath),
-          ),
-        );
-        await refreshSftp(currentPath);
-        setSelectedEntry({
-          name,
-          path: remotePath,
-          entryType: isDirectory ? "directory" : "file",
-          size: 0,
-          modifiedAt: null,
-        });
-        pushUiNotice(
-          tRef.current(isDirectory ? "Created folder {name}" : "Created file {name}", { name }),
-          {
-            tone: "success",
-            ttlMs: 4200,
-          },
-        );
-        return true;
-      } catch (err) {
-        onError(err);
-        return false;
-      }
-    },
-    [
-      activeSessionId,
-      currentPath,
-      onError,
-      pushUiNotice,
-      refreshSftp,
-      runBusy,
-      runWithSessionReconnect,
-      setSelectedEntry,
-    ],
-  );
-
   const cancelConnectServer = useCallback(
     async (requestId) => {
       if (!requestId) {
@@ -918,325 +682,6 @@ export function useWorkbenchOperations({
       }
     },
     [onError],
-  );
-
-  const downloadFile = useCallback(async (entry = null) => {
-    const targetEntry = entry || selectedEntry;
-    if (!activeSessionId || !targetEntry || targetEntry.entryType === "directory") {
-      return;
-    }
-    const localDir = (downloadDirectory || "").trim();
-    if (!localDir) {
-      onError(tRef.current("Please set a local download directory first"));
-      return;
-    }
-
-    const transferId =
-      globalThis.crypto?.randomUUID?.() || `download-${Date.now()}-${Math.random()}`;
-    const remotePath = normalizeRemotePath(targetEntry.path);
-    const seed = createSftpTransferSeed({
-      transferId,
-      sessionId: activeSessionId,
-      direction: "download",
-      remotePath,
-      localPath: localDir,
-      fileName: targetEntry.name || "download.bin",
-      totalBytes: targetEntry.size || null,
-    });
-    if (seed) {
-      setSftpTransfers((prev) => upsertSftpTransfer(prev, seed));
-    }
-
-    try {
-      const result = await runBusy(tRef.current("Download file"), () =>
-        runWithSessionReconnect(activeSessionId, (sessionId) =>
-          api.sftpDownloadFileToLocal(sessionId, remotePath, localDir, transferId),
-        ),
-      );
-      setSftpTransfers((prev) =>
-        upsertSftpTransfer(prev, {
-          transferId,
-          sessionId: activeSessionId,
-          direction: "download",
-          stage: "completed",
-          remotePath: result.remotePath || remotePath,
-          localPath: result.localPath || localDir,
-          fileName: result.fileName || targetEntry.name || "download.bin",
-          transferredBytes: result.size || targetEntry.size || 0,
-          totalBytes: result.size || targetEntry.size || null,
-          percent: 100,
-          message: "",
-        }),
-      );
-    } catch (err) {
-      const cancelled = isTransferCancelledError(err);
-      setSftpTransfers((prev) =>
-        upsertSftpTransfer(prev, {
-          transferId,
-          sessionId: activeSessionId,
-          direction: "download",
-          stage: cancelled ? "cancelled" : "failed",
-          remotePath,
-          localPath: localDir,
-          fileName: targetEntry.name || "download.bin",
-          transferredBytes: 0,
-          totalBytes: targetEntry.size || null,
-          percent: 0,
-          message: cancelled ? tRef.current("Transfer cancelled") : toErrorMessage(err),
-        }),
-      );
-      if (!cancelled) {
-        onError(err);
-      }
-    }
-  }, [
-    activeSessionId,
-    downloadDirectory,
-    onError,
-    runBusy,
-    runWithSessionReconnect,
-    selectedEntry,
-    setSftpTransfers,
-  ]);
-
-  const deleteSftpEntry = useCallback(
-    async (entry = null) => {
-      const targetEntry = entry || selectedEntry;
-      if (!activeSessionId || !targetEntry) {
-        return false;
-      }
-
-      const remotePath = normalizeRemotePath(targetEntry.path);
-      try {
-        await runBusy(tRef.current("Delete remote file"), () =>
-          runWithSessionReconnect(activeSessionId, (sessionId) =>
-            api.sftpDeleteEntry(sessionId, remotePath, targetEntry.entryType),
-          ),
-        );
-
-        if (
-          targetEntry.entryType !== "directory" &&
-          openFilePath &&
-          openFileSessionId === activeSessionId &&
-          normalizeRemotePath(openFilePath) === remotePath
-        ) {
-          setOpenFilePath("");
-          setOpenFileSessionId(null);
-          setOpenFileContent("");
-          setDirtyFile(false);
-        }
-
-        await refreshSftp(currentPath);
-        setSelectedEntry(null);
-        pushUiNotice(tRef.current("Deleted {name}", { name: targetEntry.name || remotePath }), {
-          tone: "success",
-          ttlMs: 4200,
-        });
-        return true;
-      } catch (err) {
-        onError(err);
-        return false;
-      }
-    },
-    [
-      activeSessionId,
-      currentPath,
-      onError,
-      openFilePath,
-      openFileSessionId,
-      pushUiNotice,
-      refreshSftp,
-      runBusy,
-      runWithSessionReconnect,
-      selectedEntry,
-      setDirtyFile,
-      setOpenFileContent,
-      setOpenFilePath,
-      setOpenFileSessionId,
-      setSelectedEntry,
-    ],
-  );
-
-  const renameSftpEntry = useCallback(
-    async (entry = null, rawName = "") => {
-      const targetEntry = entry || selectedEntry;
-      if (!activeSessionId || !targetEntry) {
-        return false;
-      }
-
-      const name = String(rawName || "").trim();
-      if (!isValidRemoteEntryName(name)) {
-        onError(tRef.current("Use a name without slashes."));
-        return false;
-      }
-
-      const remotePath = normalizeRemotePath(targetEntry.path);
-      const nextPath = renameRemoteEntryPath(remotePath, name);
-      if (!nextPath) {
-        onError(tRef.current("Use a name without slashes."));
-        return false;
-      }
-
-      try {
-        await runBusy(tRef.current("Rename remote entry"), () =>
-          runWithSessionReconnect(activeSessionId, (sessionId) =>
-            api.sftpRenameEntry(sessionId, remotePath, name),
-          ),
-        );
-
-        if (
-          targetEntry.entryType !== "directory" &&
-          openFilePath &&
-          openFileSessionId === activeSessionId &&
-          normalizeRemotePath(openFilePath) === remotePath
-        ) {
-          setOpenFilePath(nextPath);
-        }
-
-        await refreshSftp(currentPath);
-        setSelectedEntry({
-          ...targetEntry,
-          name,
-          path: nextPath,
-        });
-        pushUiNotice(tRef.current("Renamed {name}", { name }), {
-          tone: "success",
-          ttlMs: 4200,
-        });
-        return true;
-      } catch (err) {
-        onError(err);
-        return false;
-      }
-    },
-    [
-      activeSessionId,
-      currentPath,
-      onError,
-      openFilePath,
-      openFileSessionId,
-      pushUiNotice,
-      refreshSftp,
-      runBusy,
-      runWithSessionReconnect,
-      selectedEntry,
-      setOpenFilePath,
-      setSelectedEntry,
-    ],
-  );
-
-  const copySftpEntryPath = useCallback(
-    async (entry = null) => {
-      const targetEntry = entry || selectedEntry;
-      const remotePath = targetEntry?.path ? normalizeRemotePath(targetEntry.path) : "";
-      if (!remotePath) {
-        return false;
-      }
-
-      try {
-        const copied = await copyTextToClipboard(remotePath);
-        if (!copied) {
-          throw new Error(tRef.current("Failed to copy path"));
-        }
-        pushUiNotice(tRef.current("Copied path: {path}", { path: remotePath }), {
-          tone: "success",
-          ttlMs: 2800,
-        });
-        return true;
-      } catch (err) {
-        onError(err);
-        return false;
-      }
-    },
-    [onError, pushUiNotice, selectedEntry],
-  );
-
-  const cancelSftpTransfer = useCallback(
-    async (transferId) => {
-      if (!transferId) {
-        return;
-      }
-      try {
-        await api.sftpCancelTransfer(transferId);
-        setSftpTransfers((prev) =>
-          upsertSftpTransfer(prev, {
-            transferId,
-            stage: "cancelled",
-            message: tRef.current("Cancellation requested"),
-          }),
-        );
-      } catch (err) {
-        onError(err);
-      }
-    },
-    [onError, setSftpTransfers],
-  );
-
-  const refreshStatus = useCallback(
-    async (sessionId, nic) => {
-      if (!sessionId) {
-        return;
-      }
-      const resolvedSessionId = resolveSessionAlias(sessionId) || sessionId;
-      const requestedNic = typeof nic === "string" && nic.trim() ? nic : null;
-      const requestToken = Symbol(resolvedSessionId);
-      const statusWarningMessage = tRef.current(STATUS_FETCH_WARNING_PREFIX);
-      statusRequestTokenRef.current.set(resolvedSessionId, requestToken);
-
-      try {
-        const statusResult = await runWithSessionReconnect(resolvedSessionId, async (activeId) => {
-          const cached = await api.getCachedServerStatus(activeId);
-          const live = await api.fetchServerStatus(activeId, requestedNic);
-          return {
-            activeId,
-            cached,
-            live,
-          };
-        });
-
-        const tokenKey = statusResult.activeId || resolvedSessionId;
-        const latestToken =
-          statusRequestTokenRef.current.get(tokenKey) ??
-          statusRequestTokenRef.current.get(resolvedSessionId);
-        if (latestToken !== requestToken) {
-          return;
-        }
-        if (statusResult.activeId !== resolvedSessionId) {
-          statusRequestTokenRef.current.set(statusResult.activeId, requestToken);
-        }
-
-        if (statusResult.cached) {
-          setStatusBySession((prev) => ({ ...prev, [statusResult.activeId]: statusResult.cached }));
-        }
-        setStatusBySession((prev) => ({ ...prev, [statusResult.activeId]: statusResult.live }));
-
-        // Respect explicit user selection and only auto-pick NIC when no preference is provided.
-        if (!requestedNic && statusResult.live.selectedInterface) {
-          setNicBySession((prev) => ({
-            ...prev,
-            [statusResult.activeId]: statusResult.live.selectedInterface,
-          }));
-        }
-
-        setError((prev) => {
-          const current = typeof prev === "string" ? prev.trim() : "";
-          return current === STATUS_FETCH_WARNING_PREFIX || current === statusWarningMessage ? "" : prev;
-        });
-      } catch (err) {
-        setError((prev) => {
-          const current = typeof prev === "string" ? prev.trim() : "";
-          if (
-            current &&
-            current !== STATUS_FETCH_WARNING_PREFIX &&
-            current !== statusWarningMessage
-          ) {
-            return prev;
-          }
-          return statusWarningMessage;
-        });
-      }
-    },
-    [resolveSessionAlias, runWithSessionReconnect],
   );
 
   const saveScript = useCallback(
@@ -1368,18 +813,6 @@ export function useWorkbenchOperations({
     [onError, runBusy],
   );
 
-  const handleNicChange = useCallback(
-    (nic) => {
-      if (!activeSessionId) {
-        return;
-      }
-      const targetSessionId = resolveSessionAlias(activeSessionId) || activeSessionId;
-      setNicBySession((prev) => ({ ...prev, [targetSessionId]: nic }));
-      refreshStatus(targetSessionId, nic);
-    },
-    [activeSessionId, refreshStatus, resolveSessionAlias],
-  );
-
   const handleOpenFileContentChange = useCallback((value) => {
     setOpenFileContent(value);
     setDirtyFile(true);
@@ -1407,25 +840,12 @@ export function useWorkbenchOperations({
     cancelConnectServer,
     closeSession,
     sendCommandDraft,
-    requestSftpDir,
-    refreshSftp,
-    openEntry,
-    selectSftpEntry,
-    uploadFile,
-    createSftpEntry,
-    downloadFile,
-    deleteSftpEntry,
-    renameSftpEntry,
-    copySftpEntryPath,
-    cancelSftpTransfer,
-    refreshStatus,
     saveScript,
     runScript,
     sendPtyInput,
     resizePty,
     handleDeleteSsh,
     handleDeleteScript,
-    handleNicChange,
     handleOpenFileContentChange,
     handleDownloadDirectoryChange,
   };

@@ -33,6 +33,8 @@ Root project introductions:
 ## Document Index
 
 - [Backend Architecture](guides/architecture/backend_architecture.md) — Complete implementation guide for the Rust backend (state, SSH/PTY/SFTP, Ops Agent, ReAct loop, approvals, providers)
+- [Extension Architecture](guides/architecture/builtin_extensions.md) — Built-in/external ownership, lifecycle, install/uninstall commands, and compatibility guarantees
+- [Plugin Development](guides/features/plugin_development.md) — Trusted local ESM installation (Settings → Plugins, or by hand), API-v1 facade, controllers, toolbar icons, and the hello/docker plugin examples
 - [SSH Transport](guides/architecture/ssh_transport.md) — russh transport layout, lifecycle and cancellation boundaries, timeouts, and the manual test checklist
 - [Project Description](specs/project_description.md) — Product scope, runtime state, and feature models
 - [OpenAPI-style RPC Spec](specs/openapi.yaml) — Tauri invoke command contracts
@@ -44,8 +46,12 @@ Root project introductions:
 - [ACP Panel Frontend Guide](guides/features/acp_panel_frontend.md) — UI handoff doc for the ACP chat panel: component map, state contract, interaction inventory, and UI backlog
 - [Webshell Session Guide](guides/features/webshell_session.md) — PTY keepalive-based disconnect detection, in-place session recovery, and terminal clipboard shortcuts
 - [eshell-config Skill](../skills/eshell-config/SKILL.md) — Agent-facing reference for editing `.eshell-data/*.json` (SSH/ACP schemas, wire formats, server-operation norms, non-hot-reload restart rule)
+- [eshell-plugin-dev Skill](../skills/eshell-plugin-dev/SKILL.md) — Agent-facing reference for writing an eShell external plugin (manifest schema, API v1 facade, lifecycle, install/enable flow, trust model)
+- [External Plugin Loading Validation](reports/external-plugin-loading-validation.md) — Route A API, lifecycle, native protocol, persistence, and UI validation
+- [Built-in Extension Migration Validation](reports/builtin-extension-migration.md) — Compatibility checks, regression tests, browser comparisons, and remaining manual coverage
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
+- [Release Notes 1.6.0](releases/v1.6.0.md) — Built-in extensions and trusted external plugins, Settings → Plugins install/remove, config reload, the eshell-plugin-dev skill, and a two-pane settings dialog
 - [Release Notes 1.5.5](releases/v1.5.5.md) — update check no longer hits the rate-limited GitHub API
 - [Release Notes 1.5.4](releases/v1.5.4.md) — in-place PTY recovery, no orphan tabs, terminal clipboard shortcuts
 - [Release Notes 1.5.3](releases/v1.5.3.md) — russh SSH transport rewrite, ACP project sessions, MCP agent context

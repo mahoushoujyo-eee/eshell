@@ -2,6 +2,13 @@
 
 This document describes the SFTP file-management and transfer behavior in eShell.
 
+SFTP is provided by the enabled-by-default `eshell.sftp` built-in extension.
+Its native implementation lives in `src-tauri/src/plugins/sftp/`, and its
+frontend integration is owned by `src/plugins/sftp/`. The existing UI, commands,
+transfer events, and settings are preserved. Hiding the panel does not stop a
+transfer; runtime deactivation is rejected while an operation is in flight.
+See [Built-in Extensions](../architecture/builtin_extensions.md) for lifecycle details.
+
 ## 1. UX Behavior
 
 From the SFTP panel:

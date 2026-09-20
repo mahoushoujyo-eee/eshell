@@ -4,6 +4,7 @@ mod error;
 mod mcp_bridge;
 mod models;
 mod ops_agent;
+mod plugins;
 mod server_ops;
 mod state;
 mod storage;
@@ -30,8 +31,15 @@ pub fn run() {
     let shared_state = Arc::new(app_state);
     let bridge_state = Arc::clone(&shared_state);
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(shared_state)
+        // External plugin bundles: http://plugin.localhost/<id>/<main> on
+        // Windows, plugin://localhost/<id>/<main> elsewhere. See
+        // `plugins::protocol` for the containment/suffix/CORS rules.
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(move |_app| {
             // Local MCP bridge: exposes eShell's sessions/SFTP as tools that
             // get injected into ACP agent sessions. Failure is non-fatal —
@@ -43,10 +51,6 @@ pub fn run() {
             });
             Ok(())
         })
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             commands::app_update::app_version,
             commands::app_update::check_app_update,
@@ -54,6 +58,8 @@ pub fn run() {
             commands::config::save_ssh_config,
             commands::config::delete_ssh_config,
             commands::config::trust_ssh_host_key,
+            commands::config::reload_config,
+            commands::config::list_reloadable_configs,
             server_ops::commands::list_shell_sessions,
             server_ops::commands::open_shell_session,
             server_ops::commands::cancel_open_shell_session,
@@ -79,6 +85,12 @@ pub fn run() {
             server_ops::commands::ssh_ki_respond,
             server_ops::commands::fetch_server_status,
             server_ops::commands::get_cached_server_status,
+            plugins::commands::list_extensions,
+            plugins::commands::set_extension_enabled,
+            plugins::commands::list_external_plugins,
+            plugins::commands::install_extension,
+            plugins::commands::uninstall_extension,
+            plugins::broker::invoke_extension_api,
             commands::config::list_scripts,
             commands::config::save_script,
             commands::config::delete_script,
@@ -128,9 +140,20 @@ pub fn run() {
             ops_agent::acp::projects::acp_project_create,
             ops_agent::acp::projects::acp_project_delete,
             commands::ai::ai_ask
-        ])
+        ]);
+    attach_plugin_scheme(builder)
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Registers the external-plugin URI scheme on the production builder.
+///
+/// Kept as a free function so `plugins::protocol` stays runtime-agnostic and
+/// unit-testable; the Builder API is consumed here, in the real application
+/// bootstrap (the plan's referenced `src/ipc/protocol.rs` does not exist).
+#[cfg(not(test))]
+fn attach_plugin_scheme(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    plugins::protocol::register_plugin_scheme(builder)
 }
 
 #[cfg(test)]

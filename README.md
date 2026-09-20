@@ -4,7 +4,7 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.5.5** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
+**eShell v1.6.0** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
 
 It combines SSH sessions, PTY terminals, SFTP file operations, server status monitoring, reusable scripts, and an ACP coding agent panel in one local-first application.
 
@@ -20,6 +20,7 @@ It combines SSH sessions, PTY terminals, SFTP file operations, server status mon
 - Save reusable scripts and run them against the active session.
 - Drive external coding agents (Codex, Claude Code, Gemini CLI, …) over the Agent Client Protocol, with per-project sessions and permission prompts.
 - Configure multiple AI provider profiles for OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages compatible APIs.
+- Install, enable, and remove extensions from **Settings → Plugins**; external plugins are local ESM directories and take effect without a restart.
 - Use English or Simplified Chinese UI with persisted locale preference.
 
 ## ACP Agent Panel
@@ -52,6 +53,35 @@ Backend:
 - reqwest
 - serde / serde_json
 
+## Extensions
+
+SFTP and server monitoring remain enabled-by-default built-in extensions. Their
+existing UI and command contracts are preserved, and they consume the same API-v1
+facade available to trusted external browser-ESM plugins.
+
+Install a plugin from **Settings → Plugins → Install from folder…**: pick a plugin
+directory and it is copied to `<storage-root>/extensions/<manifest id>/` and becomes
+live immediately. The same tab enables/disables each extension and removes external
+ones. Built-in extensions can only be toggled — their code ships with the app.
+
+Two ready-to-load examples ship in the repo: [`examples/hello-plugin/`](examples/hello-plugin/)
+(minimal) and [`examples/docker-plugin/`](examples/docker-plugin/) (a controller,
+async session commands, a plugin-supplied icon, and unit-tested pure logic). You can
+also install by hand: close eShell, copy the whole directory to
+`<storage-root>/extensions/<id>/`, and restart. In a typical desktop dev run, that
+root is `src-tauri/.eshell-data`.
+
+Installing, removing, and toggling take effect without a restart. **Editing plugin
+code does not** — source changes need a process restart; there is no file hot reload.
+
+**Only install code you trust.** Plugins share the application's JS context and
+Tauri capabilities; the facade is not a sandbox or plugin permission system.
+There is no marketplace, automatic plugin updater, or Node host. Native
+implementation updates still ship with eShell.
+
+See [Plugin Development](docs/guides/features/plugin_development.md) and
+[Extension Architecture](docs/guides/architecture/builtin_extensions.md).
+
 ## Project Layout
 
 ```text
@@ -65,6 +95,7 @@ src/
   hooks/
     useWorkbench.js
     workbench/     # sessions, operations, effects, errors, AI profiles
+  plugins/         # built-in SFTP/status controllers and contributions
   lib/
     tauri-api.js
     ops-agent-stream.js
@@ -75,11 +106,16 @@ src/
 
 src-tauri/src/
   commands/        # Tauri command entry points
-  server_ops/      # SSH, PTY, SFTP, status collection
+  server_ops/      # SSH, PTY, shared command transport
+  plugins/         # native built-in registry, SFTP, server monitoring,
+                   #   external discovery/install, plugin:// protocol
   ops_agent/       # ACP client, self-hosted agent runtime, providers, tools, approvals
   storage/         # persisted SSH / scripts / AI profiles / agent context
   models/          # per-domain model modules
   state.rs
+
+examples/          # ready-to-load external plugins (hello, docker)
+skills/            # agent-facing references seeded into .eshell-data/agent/skills/
 
 docs/
   guides/
@@ -94,7 +130,7 @@ docs/
 
 Prerequisites:
 
-- Node.js 18+
+- Node.js 22.12+ (Node 24 also works)
 - Rust stable
 - Tauri 2 system prerequisites for your OS
 
@@ -186,7 +222,7 @@ Persistence notes:
 - `ai_profiles.json` is the source of truth for AI profiles, active profile, approval mode, and agent mode.
 - `acp_agents.json` declares the ACP agents the panel can spawn; `acp_sessions/` holds one transcript per session.
 - `projects.json` maps ACP projects to local folders.
-- `agent/AGENTS.md` is the global agent context file, `agent/<serverId>.md` the per-server one, and `agent/skills/` holds bundled skills such as `eshell-config`.
+- `agent/AGENTS.md` is the global agent context file, `agent/<serverId>.md` the per-server one, and `agent/skills/` holds the bundled `eshell-config` and `eshell-plugin-dev` skills.
 - `ops_agent_conversations/` keeps the self-hosted Ops Agent chat history; `ops_agent_attachments/` stores detached image payloads (conversation JSON keeps only `attachmentIds`).
 - `server_ops_debug.log` records server-operation events (`pty.worker.started`, `status.probe.failed`, …) and is the first place to look when a session misbehaves.
 
@@ -205,5 +241,6 @@ Persistence notes:
 - [OpenAPI-style RPC Spec](docs/specs/openapi.yaml)
 - [Server Status Guide](docs/guides/features/server_status.md)
 - [SFTP Transfer Guide](docs/guides/features/sftp_transfer.md)
+- [Plugin Development](docs/guides/features/plugin_development.md)
 - [Unreleased Notes](docs/releases/unreleased.md)
-- [Release Notes 1.5.5](docs/releases/v1.5.5.md)
+- [Release Notes 1.6.0](docs/releases/v1.6.0.md)

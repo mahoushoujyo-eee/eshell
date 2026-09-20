@@ -1,0 +1,341 @@
+[
+  {
+    "api": "sessions.list",
+    "params": [],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "list_shell_sessions",
+      "args": {}
+    }
+  },
+  {
+    "api": "sessions.open",
+    "params": [
+      "wire-config",
+      "wire-request"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "open_shell_session",
+      "args": {
+        "input": {
+          "configId": "wire-config",
+          "requestId": "wire-request"
+        }
+      }
+    }
+  },
+  {
+    "api": "sessions.close",
+    "params": [
+      "wire-session"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "close_shell_session",
+      "args": {
+        "input": {
+          "sessionId": "wire-session"
+        }
+      }
+    }
+  },
+  {
+    "api": "sessions.execute",
+    "params": [
+      "wire-session",
+      "pwd"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "execute_shell_command",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "command": "pwd"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.listDir",
+    "params": [
+      "wire-session",
+      "/var"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_list_dir",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "path": "/var"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.readFile",
+    "params": [
+      "wire-session",
+      "/var/app.txt"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_read_file",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "path": "/var/app.txt"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.writeFile",
+    "params": [
+      "wire-session",
+      "/var/app.txt",
+      "hello"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_write_file",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "path": "/var/app.txt",
+          "content": "hello"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.createFile",
+    "params": [
+      "wire-session",
+      "/var/new.txt"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_create_file",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "path": "/var/new.txt"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.createDirectory",
+    "params": [
+      "wire-session",
+      "/var/new-dir"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_create_directory",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "path": "/var/new-dir"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.deleteEntry",
+    "params": [
+      "wire-session",
+      "/var/app.txt",
+      "file"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_delete_entry",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "path": "/var/app.txt",
+          "entryType": "file"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.renameEntry",
+    "params": [
+      "wire-session",
+      "/var/app.txt",
+      "renamed.txt"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_rename_entry",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "path": "/var/app.txt",
+          "newName": "renamed.txt"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.uploadLocalFile",
+    "params": [
+      "wire-session",
+      "/var/asset.txt",
+      "/local/asset.txt",
+      "wire-upload",
+      "asset.txt"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_upload_local_file_with_progress",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "remotePath": "/var/asset.txt",
+          "localPath": "/local/asset.txt",
+          "transferId": "wire-upload",
+          "localName": "asset.txt"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.downloadToLocal",
+    "params": [
+      "wire-session",
+      "/var/asset.txt",
+      "/local",
+      "wire-download"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_download_file_to_local",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "remotePath": "/var/asset.txt",
+          "localDir": "/local",
+          "transferId": "wire-download"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.cancelTransfer",
+    "params": [
+      "wire-upload"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_cancel_transfer",
+      "args": {
+        "input": {
+          "transferId": "wire-upload"
+        }
+      }
+    }
+  },
+  {
+    "api": "sftp.defaultDownloadDir",
+    "params": [],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "sftp_default_download_dir",
+      "args": {}
+    }
+  },
+  {
+    "api": "sftp.selectUploadFile",
+    "params": [
+      {
+        "title": "Choose file",
+        "defaultPath": "/local"
+      }
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "select_upload_file",
+      "args": {
+        "title": "Choose file",
+        "defaultPath": "/local"
+      }
+    }
+  },
+  {
+    "api": "sftp.selectDownloadDir",
+    "params": [
+      {
+        "title": "Choose directory",
+        "defaultPath": "/local"
+      }
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "select_download_dir",
+      "args": {
+        "title": "Choose directory",
+        "defaultPath": "/local"
+      }
+    }
+  },
+  {
+    "api": "status.fetch",
+    "params": [
+      "wire-session",
+      "eth0"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "fetch_server_status",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "selectedInterface": "eth0"
+        }
+      }
+    }
+  },
+  {
+    "api": "status.cached",
+    "params": [
+      "wire-session"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "get_cached_server_status",
+      "args": {
+        "sessionId": "wire-session"
+      }
+    }
+  },
+  {
+    "api": "config.reload",
+    "params": [
+      "sshConfigs"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "reload_config",
+      "args": {
+        "input": {
+          "file": "sshConfigs"
+        }
+      }
+    }
+  },
+  {
+    "api": "config.list",
+    "params": [],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "list_reloadable_configs",
+      "args": {}
+    }
+  }
+]

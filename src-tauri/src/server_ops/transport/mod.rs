@@ -367,14 +367,14 @@ fn spawn_graceful_disconnect(handle: Arc<Handle<ConnectionHandler>>) {
 /// cancelled or dropped connection could otherwise leave the underlying socket open until the peer
 /// timed out. Reporting an IO error from the stream the moment the token is cancelled makes the
 /// session loop terminate promptly, which closes both the TCP socket and the jump channel.
-pub(super) struct CancellableStream<S> {
+pub(crate) struct CancellableStream<S> {
     inner: S,
     read_cancelled: Pin<Box<dyn Future<Output = ()> + Send + Sync>>,
     write_cancelled: Pin<Box<dyn Future<Output = ()> + Send + Sync>>,
 }
 
 impl<S> CancellableStream<S> {
-    pub(super) fn new(inner: S, cancel: CancellationToken) -> Self {
+    pub(crate) fn new(inner: S, cancel: CancellationToken) -> Self {
         // Split readers and writers can have different task wakers.
         Self {
             inner,

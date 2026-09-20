@@ -23,7 +23,6 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
 
-use crate::models::{FetchServerStatusInput, SftpListInput, SftpReadInput, SftpWriteInput};
 use crate::server_ops;
 use crate::state::{AppState, McpBridgeInfo};
 
@@ -149,7 +148,7 @@ pub(crate) async fn handle_rpc(state: &Arc<AppState>, message: &Value) -> Value 
     let result = match method {
         "initialize" => Ok(initialize_result(&params)),
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": tool_definitions() })),
+        "tools/list" => Ok(json!({ "tools": tool_definitions(state) })),
         "tools/call" => call_tool(state, &params).await,
         // eShell serves tools only, but a client probing the other primitive
         // families must get a spec-shaped empty list rather than a method-not-
@@ -225,15 +224,42 @@ fn session_id_property() -> Value {
     })
 }
 
-fn tool_definitions() -> Vec<Value> {
-    vec![
+/// The tools the bridge itself owns: agent context, profiles, sessions and
+/// command execution.
+///
+/// SFTP and server-status tools are contributed by their plugins through
+/// [`plugin_tool_definitions`]: the definitions and the call handlers are
+/// registered by the plugin, so deactivating a plugin removes its tools from
+/// both `tools/list` and `tools/call` in one place. The concatenation order
+/// below is the wire contract: core tools first, then the plugins in
+/// manifest order, exactly as before the migration.
+fn tool_definitions(state: &Arc<AppState>) -> Vec<Value> {
+    let mut tools = vec![
         tool(
             "read_agent_context",
             "Read the user's agent context from eShell: the global AGENTS.md instructions \
-             users write for agents, plus the bundled eshell-config skill that documents \
-             eShell's config files and server-operation rules. Call this once at the \
-             start of a session before doing any work.",
+             users write for agents, plus the bundled eshell-config skill (eShell's config \
+             files and server-operation rules) and the eshell-plugin-dev skill (how to \
+             write an eShell external plugin). Call this once at the start of a session \
+             before doing any work.",
             json!({}),
+            &[],
+        ),
+        tool(
+            "reload_config",
+            "Re-read eShell's config files after editing them outside the app, so the \
+             change takes effect without restarting. Pass `file` for one file \
+             (sshConfigs, acpAgents, scripts, aiProfiles, agentContext) or omit it to \
+             reload all. Returns per-file outcomes: a missing file keeps the current \
+             value, and a file that fails to parse is reported rather than applied. \
+             Reloading does not restart anything — an open SSH session keeps its \
+             connection, and a running agent keeps its spawn settings until restarted.",
+            json!({
+                "file": {
+                    "type": "string",
+                    "description": "One of sshConfigs, acpAgents, scripts, aiProfiles, agentContext. Omit to reload all.",
+                },
+            }),
             &[],
         ),
         tool(
@@ -260,42 +286,22 @@ fn tool_definitions() -> Vec<Value> {
             }),
             &["sessionId", "command"],
         ),
-        tool(
-            "read_remote_file",
-            "Read a text file from the remote server of an open session via SFTP.",
-            json!({
-                "sessionId": session_id_property(),
-                "path": {"type": "string", "description": "Absolute remote path"},
-            }),
-            &["sessionId", "path"],
-        ),
-        tool(
-            "write_remote_file",
-            "Write (create or overwrite) a text file on the remote server of an open session via SFTP.",
-            json!({
-                "sessionId": session_id_property(),
-                "path": {"type": "string", "description": "Absolute remote path"},
-                "content": {"type": "string", "description": "Full file content to write"},
-            }),
-            &["sessionId", "path", "content"],
-        ),
-        tool(
-            "list_remote_dir",
-            "List a directory on the remote server of an open session via SFTP.",
-            json!({
-                "sessionId": session_id_property(),
-                "path": {"type": "string", "description": "Absolute remote directory path"},
-            }),
-            &["sessionId", "path"],
-        ),
-        tool(
-            "get_server_status",
-            "Fetch live CPU, memory, disk, network, and top-process metrics for the remote \
-             server of an open session.",
-            json!({ "sessionId": session_id_property() }),
-            &["sessionId"],
-        ),
-    ]
+    ];
+    tools.extend(crate::plugins::mcp_tools::plugin_tool_definitions(state));
+    tools
+}
+
+/// Dispatches a tool call to the plugin that registered it.
+///
+/// Returns `None` when no plugin owns `name` (an unknown tool), `Some`
+/// otherwise. A deactivated plugin's tools are absent here too, so calling
+/// one reports the same unknown-tool error as before it existed.
+async fn call_plugin_tool(
+    state: &Arc<AppState>,
+    name: &str,
+    args: &Value,
+) -> Option<Result<Value, String>> {
+    crate::plugins::mcp_tools::dispatch_plugin_tool(state, name, args).await
 }
 
 async fn call_tool(state: &Arc<AppState>, params: &Value) -> Result<Value, (i32, String)> {
@@ -309,14 +315,14 @@ async fn call_tool(state: &Arc<AppState>, params: &Value) -> Result<Value, (i32,
 
     let outcome: Result<Value, String> = match name {
         "read_agent_context" => read_agent_context(state),
+        "reload_config" => reload_config(state, &args),
         "list_ssh_profiles" => Ok(list_ssh_profiles(state)),
         "list_shell_sessions" => Ok(list_shell_sessions(state)),
         "execute_command" => execute_command(state, &args).await,
-        "read_remote_file" => read_remote_file(state, &args).await,
-        "write_remote_file" => write_remote_file(state, &args).await,
-        "list_remote_dir" => list_remote_dir(state, &args).await,
-        "get_server_status" => get_server_status(state, &args).await,
-        other => return Err((-32602, format!("unknown tool `{other}`"))),
+        other => match call_plugin_tool(state, other, &args).await {
+            Some(outcome) => outcome,
+            None => return Err((-32602, format!("unknown tool `{other}`"))),
+        },
     };
 
     // Tool-level failures are reported inside the result (isError), not as
@@ -353,34 +359,64 @@ fn arg_str(args: &Value, key: &str) -> Result<String, String> {
         .ok_or_else(|| format!("missing or empty argument `{key}`"))
 }
 
+/// The bundled skills this tool serves, in the order they appear in the
+/// response. Each is seeded into `.eshell-data/agent/skills/<dir>/SKILL.md`
+/// at startup (see `storage::seed_agent_context`).
+const BUNDLED_SKILLS: &[(&str, &str)] = &[
+    ("eshell-config", "eshellConfigSkill"),
+    ("eshell-plugin-dev", "eshellPluginDevSkill"),
+];
+
 /// Serves the agent-context tool: the global AGENTS.md plus the bundled
-/// eshell-config skill, so agents pick up the user's instructions without
-/// the app injecting them into prompts.
+/// skills, so agents pick up the user's instructions without the app
+/// injecting them into prompts.
 fn read_agent_context(state: &Arc<AppState>) -> Result<Value, String> {
     let global = state
         .storage
         .get_agent_context(None)
         .map_err(|e| e.to_string())?;
-    let skill_path = state
-        .storage
-        .data_dir()
-        .join("agent")
-        .join("skills")
-        .join("eshell-config")
-        .join("SKILL.md");
-    let skill = std::fs::read_to_string(&skill_path)
-        .map_err(|e| format!("read {}: {e}", skill_path.display()))?;
-    Ok(json!({
+
+    let mut payload = json!({
         "agentsMd": {
             "path": global.path,
             "exists": global.exists,
             "content": global.content,
         },
-        "eshellConfigSkill": {
-            "path": skill_path.to_string_lossy(),
-            "content": skill,
-        },
-    }))
+    });
+
+    for (dir, key) in BUNDLED_SKILLS {
+        let path = state
+            .storage
+            .data_dir()
+            .join("agent")
+            .join("skills")
+            .join(dir)
+            .join("SKILL.md");
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        payload[key] = json!({
+            "path": path.to_string_lossy(),
+            "content": content,
+        });
+    }
+
+    Ok(payload)
+}
+
+/// Re-reads config files edited outside the app.
+///
+/// The agent edits `.eshell-data/*.json` directly (that is what the
+/// eshell-config skill documents), so it needs a way to make the host pick
+/// the edit up. Without this the only answer was "restart the app".
+fn reload_config(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
+    let outcomes = match args.get("file").and_then(Value::as_str) {
+        Some(name) if !name.trim().is_empty() => {
+            let file = crate::storage::ConfigFile::parse(name).map_err(|e| e.to_string())?;
+            vec![state.storage.reload_config(file)]
+        }
+        _ => state.storage.reload_all_configs(),
+    };
+    serde_json::to_value(outcomes).map_err(|e| e.to_string())
 }
 
 fn list_ssh_profiles(state: &Arc<AppState>) -> Value {
@@ -433,61 +469,6 @@ async fn execute_command(state: &Arc<AppState>, args: &Value) -> Result<Value, S
     }))
 }
 
-// The bridge has no AppHandle and only ever touches sessions the user already
-// opened, so `server_ops` calls pass `None` for the app handle: that parameter
-// exists to emit keyboard-interactive 2FA prompts while (re)connecting, and a
-// headless HTTP tool call has no UI to prompt through — it fails with an error
-// instead, which is the right outcome for an agent-triggered call.
-async fn read_remote_file(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
-    let input = SftpReadInput {
-        session_id: arg_str(args, "sessionId")?,
-        path: arg_str(args, "path")?,
-    };
-    let file = server_ops::sftp_read_file(state, None, input)
-        .await
-        .map_err(|e| e.to_string())?;
-    serde_json::to_value(file).map_err(|e| e.to_string())
-}
-
-async fn write_remote_file(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
-    let input = SftpWriteInput {
-        session_id: arg_str(args, "sessionId")?,
-        path: arg_str(args, "path")?,
-        content: args
-            .get("content")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .ok_or("missing argument `content`")?,
-    };
-    let path = input.path.clone();
-    server_ops::sftp_write_file(state, None, input)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(json!({ "written": path }))
-}
-
-async fn list_remote_dir(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
-    let input = SftpListInput {
-        session_id: arg_str(args, "sessionId")?,
-        path: arg_str(args, "path")?,
-    };
-    let listing = server_ops::sftp_list_dir(state, None, input)
-        .await
-        .map_err(|e| e.to_string())?;
-    serde_json::to_value(listing).map_err(|e| e.to_string())
-}
-
-async fn get_server_status(state: &Arc<AppState>, args: &Value) -> Result<Value, String> {
-    let input = FetchServerStatusInput {
-        session_id: arg_str(args, "sessionId")?,
-        selected_interface: None,
-    };
-    let status = server_ops::fetch_server_status(state, None, input)
-        .await
-        .map_err(|e| e.to_string())?;
-    serde_json::to_value(status).map_err(|e| e.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -499,6 +480,162 @@ mod tests {
         ));
         Arc::new(AppState::new(dir).expect("create test state"))
     }
+
+    /// The pre-migration `tools/list`, captured from git HEAD. Do not
+    /// regenerate from the current implementation.
+    ///
+    /// Two deliberate edits since capture. `read_agent_context`'s description
+    /// now names both bundled skills, and `reload_config` was added after it
+    /// so an agent can make an external config edit take effect. Both are
+    /// additive: no captured tool changed its name, order or schema.
+    const PRE_MIGRATION_TOOLS_LIST_JSON: &str = r#"[
+  {
+    "name": "read_agent_context",
+    "description": "Read the user's agent context from eShell: the global AGENTS.md instructions users write for agents, plus the bundled eshell-config skill (eShell's config files and server-operation rules) and the eshell-plugin-dev skill (how to write an eShell external plugin). Call this once at the start of a session before doing any work.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "reload_config",
+    "description": "Re-read eShell's config files after editing them outside the app, so the change takes effect without restarting. Pass `file` for one file (sshConfigs, acpAgents, scripts, aiProfiles, agentContext) or omit it to reload all. Returns per-file outcomes: a missing file keeps the current value, and a file that fails to parse is reported rather than applied. Reloading does not restart anything — an open SSH session keeps its connection, and a running agent keeps its spawn settings until restarted.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "One of sshConfigs, acpAgents, scripts, aiProfiles, agentContext. Omit to reload all."
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "list_ssh_profiles",
+    "description": "List the SSH server profiles configured in eShell (no credentials).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "list_shell_sessions",
+    "description": "List the currently open eShell terminal sessions. Returns each session's id, server profile, and current working directory. Other tools operate on these sessions.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  {
+    "name": "execute_command",
+    "description": "Run a non-interactive shell command on the remote server of an open session, in that session's current working directory. Returns stdout, stderr, and exit code. `cd` updates the session's working directory.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "Shell session id from list_shell_sessions"
+        },
+        "command": {
+          "type": "string",
+          "description": "Shell command to execute"
+        }
+      },
+      "required": [
+        "sessionId",
+        "command"
+      ]
+    }
+  },
+  {
+    "name": "read_remote_file",
+    "description": "Read a text file from the remote server of an open session via SFTP.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "Shell session id from list_shell_sessions"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute remote path"
+        }
+      },
+      "required": [
+        "sessionId",
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "write_remote_file",
+    "description": "Write (create or overwrite) a text file on the remote server of an open session via SFTP.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "Shell session id from list_shell_sessions"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute remote path"
+        },
+        "content": {
+          "type": "string",
+          "description": "Full file content to write"
+        }
+      },
+      "required": [
+        "sessionId",
+        "path",
+        "content"
+      ]
+    }
+  },
+  {
+    "name": "list_remote_dir",
+    "description": "List a directory on the remote server of an open session via SFTP.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "Shell session id from list_shell_sessions"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute remote directory path"
+        }
+      },
+      "required": [
+        "sessionId",
+        "path"
+      ]
+    }
+  },
+  {
+    "name": "get_server_status",
+    "description": "Fetch live CPU, memory, disk, network, and top-process metrics for the remote server of an open session.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "Shell session id from list_shell_sessions"
+        }
+      },
+      "required": [
+        "sessionId"
+      ]
+    }
+  }
+]"#;
 
     fn rpc(method: &str, params: Value) -> Value {
         json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
@@ -531,17 +668,88 @@ mod tests {
         let state = test_state();
         let response = handle_rpc(&state, &rpc("tools/list", json!({}))).await;
         let tools = response["result"]["tools"].as_array().unwrap();
-        let names: Vec<&str> = tools
+        let names: Vec<String> = tools
             .iter()
-            .map(|tool| tool["name"].as_str().unwrap())
+            .map(|tool| tool["name"].as_str().unwrap().to_string())
             .collect();
-        assert!(names.contains(&"read_agent_context"));
-        assert!(names.contains(&"execute_command"));
-        assert!(names.contains(&"list_shell_sessions"));
-        assert!(names.contains(&"read_remote_file"));
+        assert!(names.contains(&"read_agent_context".to_string()));
+        assert!(names.contains(&"execute_command".to_string()));
+        assert!(names.contains(&"list_shell_sessions".to_string()));
+        assert!(names.contains(&"read_remote_file".to_string()));
         for tool in tools {
             assert!(tool["inputSchema"]["type"] == "object");
         }
+    }
+
+    /// The complete default `tools/list` must equal the pre-migration list
+    /// (git HEAD `tool_definitions()`): names, order, schemas, descriptions.
+    /// The golden value below was captured from that implementation, not
+    /// regenerated from this one.
+    #[tokio::test]
+    async fn default_tools_list_matches_the_pre_migration_golden() {
+        let state = test_state();
+        let response = handle_rpc(&state, &rpc("tools/list", json!({}))).await;
+        assert_eq!(
+            response["result"]["tools"],
+            serde_json::from_str::<Value>(PRE_MIGRATION_TOOLS_LIST_JSON)
+                .expect("parse golden json"),
+            "the default tools/list must be unchanged by the plugin migration"
+        );
+    }
+
+    /// Disabling a plugin removes its tools from `tools/list`; the core
+    /// tools and the other plugin's tools stay.
+    #[tokio::test]
+    async fn tools_list_drops_a_deactivated_plugins_tools() {
+        let state = test_state();
+        state
+            .extensions()
+            .set_enabled("eshell.sftp", false)
+            .expect("disable sftp");
+
+        let response = handle_rpc(&state, &rpc("tools/list", json!({}))).await;
+        let names: Vec<String> = response["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "read_agent_context",
+                "reload_config",
+                "list_ssh_profiles",
+                "list_shell_sessions",
+                "execute_command",
+                "get_server_status",
+            ]
+        );
+    }
+
+    /// Calling a deactivated plugin's tool keeps the pre-migration error
+    /// semantics: unknown tool (-32602), not a silent success.
+    #[tokio::test]
+    async fn calling_a_deactivated_plugins_tool_is_unknown() {
+        let state = test_state();
+        state
+            .extensions()
+            .set_enabled("eshell.sftp", false)
+            .expect("disable sftp");
+
+        let response = handle_rpc(
+            &state,
+            &rpc(
+                "tools/call",
+                json!({"name": "read_remote_file", "arguments": {"sessionId": "s", "path": "/"}}),
+            ),
+        )
+        .await;
+        assert_eq!(response["error"]["code"], -32602);
+        assert!(response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown tool"));
     }
 
     #[tokio::test]
@@ -554,7 +762,10 @@ mod tests {
 
         let response = handle_rpc(
             &state,
-            &rpc("tools/call", json!({"name": "read_agent_context", "arguments": {}})),
+            &rpc(
+                "tools/call",
+                json!({"name": "read_agent_context", "arguments": {}}),
+            ),
         )
         .await;
         assert_eq!(response["result"]["isError"], false);
@@ -564,6 +775,14 @@ mod tests {
         assert_eq!(payload["agentsMd"]["exists"], true);
         let skill = payload["eshellConfigSkill"]["content"].as_str().unwrap();
         assert!(skill.contains("eshell-config"));
+        // The plugin-dev skill ships in the same response: an agent asked to
+        // write a plugin must not have to go looking for it.
+        let plugin_skill = payload["eshellPluginDevSkill"]["content"].as_str().unwrap();
+        assert!(plugin_skill.contains("eshell-plugin-dev"));
+        assert!(payload["eshellPluginDevSkill"]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("SKILL.md"));
     }
 
     #[tokio::test]
@@ -582,7 +801,10 @@ mod tests {
         // Actually reading gets a clear "tools only" message rather than -32601.
         let response = handle_rpc(&state, &rpc("resources/read", json!({"uri": "x"}))).await;
         assert_eq!(response["error"]["code"], -32602);
-        assert!(response["error"]["message"].as_str().unwrap().contains("tools only"));
+        assert!(response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("tools only"));
     }
 
     #[tokio::test]
