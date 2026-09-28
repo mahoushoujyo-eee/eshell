@@ -14,51 +14,88 @@
    not by the OS preference, so `dark:` has to follow that attribute. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+/* Token names are part of the plugin contract: external panels use the
+   generated classes (`bg-panel`, `text-muted`, ...) directly, so tokens may be
+   added but never renamed. Layering goes bg (window frame) → surface → panel
+   (content) → elevated (menus, dialogs); depth comes from these steps, not
+   from shadows. */
 :root {
-  --es-bg: #efece3;
-  --es-surface: #f7f4ed;
-  --es-panel: #fcfaf5;
-  --es-border: #d6d1c4;
-  --es-text: #2d2a24;
-  --es-muted: #746c5b;
-  --es-accent: #1c7a67;
-  --es-accent-soft: #d9f1ea;
-  --es-warm: #e8ddca;
-  --es-warning: #b26a16;
-  --es-danger: #c24832;
-  --es-shadow: 18px 18px 40px rgba(64, 56, 38, 0.12);
+  color-scheme: light;
+  --es-bg: #e8ecf2;
+  --es-surface: #f3f5f9;
+  --es-panel: #ffffff;
+  --es-elevated: #ffffff;
+  --es-border: #dde2ea;
+  --es-border-strong: #c5ccd8;
+  --es-text: #151a25;
+  --es-muted: #5b6478;
+  --es-subtle: #8a92a5;
+  --es-accent: #0b7a54;
+  --es-on-accent: #ffffff;
+  --es-accent-soft: #e3f4ec;
+  --es-warm: #e8ecf2;
+  --es-info: #2f6fd6;
+  --es-success: #0b7a54;
+  --es-warning: #a35f00;
+  --es-danger: #c93434;
+  --es-hover: rgba(21, 26, 37, 0.055);
+  --es-shadow: 0 16px 40px rgba(21, 26, 37, 0.16), 0 2px 8px rgba(21, 26, 37, 0.08);
 }
 
 :root[data-theme="dark"] {
-  --es-bg: #1a1f24;
-  --es-surface: #20272d;
-  --es-panel: #252d34;
-  --es-border: #35424b;
-  --es-text: #dce4df;
-  --es-muted: #93a29a;
-  --es-accent: #57b095;
-  --es-accent-soft: #23453d;
-  --es-warm: #2a343d;
-  --es-warning: #d8a45f;
-  /* Lifted like accent and warning are: the light value sits at ~3.1:1 on the
-     dark surfaces, below AA for text. */
-  --es-danger: #e07a63;
-  --es-shadow: 14px 18px 42px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+  --es-bg: #0e1118;
+  --es-surface: #141823;
+  --es-panel: #191e2b;
+  --es-elevated: #212839;
+  --es-border: #262d3f;
+  --es-border-strong: #353d54;
+  --es-text: #e3e7f0;
+  --es-muted: #8a93a9;
+  --es-subtle: #6b7389;
+  /* The dark accent is bright, so text on it is near-black (`on-accent`),
+     not white. */
+  --es-accent: #3dd68c;
+  --es-on-accent: #062015;
+  --es-accent-soft: #1e3a31;
+  --es-warm: #232a3b;
+  --es-info: #6ea8ff;
+  --es-success: #3dd68c;
+  --es-warning: #f0b35a;
+  --es-danger: #ff7a7a;
+  --es-hover: rgba(255, 255, 255, 0.05);
+  --es-shadow: 0 18px 48px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 @theme {
   --color-bg: var(--es-bg);
   --color-surface: var(--es-surface);
   --color-panel: var(--es-panel);
+  --color-elevated: var(--es-elevated);
   --color-border: var(--es-border);
+  --color-border-strong: var(--es-border-strong);
   --color-text: var(--es-text);
   --color-muted: var(--es-muted);
+  --color-subtle: var(--es-subtle);
   --color-accent: var(--es-accent);
+  --color-on-accent: var(--es-on-accent);
   --color-accent-soft: var(--es-accent-soft);
   --color-warm: var(--es-warm);
+  --color-info: var(--es-info);
+  --color-success: var(--es-success);
   --color-warning: var(--es-warning);
-  --color-success: #3e8f57;
   --color-danger: var(--es-danger);
+  --color-hover: var(--es-hover);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  --shadow-overlay: var(--es-shadow);
+
+  --font-sans: "Geist Variable", "Microsoft YaHei UI", "PingFang SC", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
 }
 
 html,
@@ -75,22 +112,29 @@ body {
   inset: 0;
   margin: 0;
   color: var(--es-text);
-  background:
-    radial-gradient(circle at 12% 8%, rgba(255, 255, 255, 0.55), transparent 35%),
-    radial-gradient(circle at 85% 16%, rgba(102, 154, 141, 0.16), transparent 45%),
-    linear-gradient(135deg, var(--es-bg), #d7d2c8 100%);
-  font-family: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", sans-serif;
-}
-
-:root[data-theme="dark"] body {
-  background:
-    radial-gradient(circle at 14% 10%, rgba(87, 176, 149, 0.14), transparent 34%),
-    radial-gradient(circle at 82% 20%, rgba(129, 120, 91, 0.18), transparent 40%),
-    linear-gradient(145deg, #141a1f, var(--es-bg) 76%);
+  background: var(--es-bg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 * {
   box-sizing: border-box;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--es-accent) 32%, transparent);
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--es-accent) 70%, transparent);
+  outline-offset: 1px;
 }
 
 body > #root {
@@ -122,31 +166,46 @@ body > #root {
   height: 10px;
 }
 
-::-webkit-scrollbar-thumb {
-  border-radius: 10px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-  background-color: color-mix(in srgb, var(--es-muted) 65%, transparent);
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.panel-card {
-  border: 1px solid color-mix(in srgb, var(--es-border) 88%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--es-panel) 90%, white 10%);
-  box-shadow: var(--es-shadow);
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--es-muted) 38%, transparent);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--es-muted) 62%, transparent);
+}
+
+/* Session tab strip: scrolls sideways without showing a scrollbar in the
+   40px title bar. */
+.tab-strip {
+  scrollbar-width: none;
+}
+
+.tab-strip::-webkit-scrollbar {
+  display: none;
 }
 
 /* Brand wordmark: "eShell" in the display face, mixed case, no CSS uppercase. */
 .brand-wordmark {
-  font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", var(--font-sans);
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 
 .ai-markdown {
   color: var(--es-text);
-  font-size: 15px;
-  line-height: 1.75;
+  font-size: 13.5px;
+  line-height: 1.7;
 }
 
 .ai-markdown > :first-child {
@@ -160,21 +219,21 @@ body > #root {
 .ai-markdown h1,
 .ai-markdown h2,
 .ai-markdown h3 {
-  margin: 1.25rem 0 0.8rem;
+  margin: 1.1rem 0 0.6rem;
   font-weight: 600;
   line-height: 1.35;
 }
 
 .ai-markdown h1 {
-  font-size: 1.5rem;
-}
-
-.ai-markdown h2 {
   font-size: 1.3rem;
 }
 
+.ai-markdown h2 {
+  font-size: 1.15rem;
+}
+
 .ai-markdown h3 {
-  font-size: 1.1rem;
+  font-size: 1.02rem;
 }
 
 .ai-markdown p,
@@ -183,12 +242,20 @@ body > #root {
 .ai-markdown blockquote,
 .ai-markdown .ai-markdown-table-wrap,
 .ai-markdown .ai-markdown-pre {
-  margin: 0.8rem 0;
+  margin: 0.7rem 0;
 }
 
 .ai-markdown ul,
 .ai-markdown ol {
-  padding-left: 1.5rem;
+  padding-left: 1.4rem;
+}
+
+.ai-markdown ul {
+  list-style: disc;
+}
+
+.ai-markdown ol {
+  list-style: decimal;
 }
 
 .ai-markdown li + li {
@@ -196,8 +263,8 @@ body > #root {
 }
 
 .ai-markdown blockquote {
-  padding-left: 1rem;
-  border-left: 3px solid color-mix(in srgb, var(--es-muted) 45%, transparent);
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--es-border-strong);
   color: var(--es-muted);
 }
 
@@ -209,29 +276,31 @@ body > #root {
 
 .ai-markdown-inline-code {
   display: inline-block;
-  padding: 0.05rem 0.4rem;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--es-text) 8%, transparent);
-  font-family: "Consolas", "Courier New", monospace;
-  font-size: 0.92em;
-  line-height: 1.4;
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  background: var(--es-hover);
+  border: 1px solid var(--es-border);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  line-height: 1.5;
 }
 
 .ai-markdown-pre {
   overflow: auto;
-  padding: 1rem 1.1rem;
-  border: 1px solid color-mix(in srgb, var(--es-border) 85%, transparent);
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--es-border);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--es-text) 6%, var(--es-panel) 94%);
+  background: var(--es-bg);
 }
 
 .ai-markdown-pre > code {
   display: block;
   padding: 0;
+  border: 0;
   border-radius: 0;
   background: transparent;
-  font-family: "Consolas", "Courier New", monospace;
-  font-size: 0.95em;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
   line-height: 1.6;
   white-space: pre;
   color: inherit;
@@ -249,32 +318,15 @@ body > #root {
 
 .ai-markdown th,
 .ai-markdown td {
-  padding: 0.25rem 0.9rem 0.25rem 0;
+  padding: 0.3rem 0.9rem 0.3rem 0;
   text-align: left;
   vertical-align: top;
-  border: 0;
+  border-bottom: 1px solid var(--es-border);
 }
 
 .ai-markdown th {
   font-weight: 600;
   color: var(--es-muted);
-}
-
-:root[data-theme="dark"] .ai-markdown-inline-code {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-:root[data-theme="dark"] .ai-markdown-pre {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: #2b2b2b;
-}
-
-:root[data-theme="dark"] .ai-markdown-pre > code {
-  color: #d4d4d4;
-}
-
-:root[data-theme="dark"] .ai-markdown th {
-  color: #9da7b3;
 }
 
 .terminal-frame {
@@ -287,19 +339,14 @@ body > #root {
   background-repeat: no-repeat;
 }
 
-.terminal-host::before {
+/* Legibility wash over wallpapers only; the plain terminal stays untinted. */
+.terminal-host.terminal-host--tinted::before {
   content: "";
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  background-image:
-    linear-gradient(180deg, rgba(3, 8, 8, 0.12), rgba(0, 0, 0, 0.42)),
-    linear-gradient(
-      to bottom,
-      color-mix(in srgb, var(--es-accent-soft) 16%, transparent),
-      transparent 45%
-    );
+  background-image: linear-gradient(180deg, rgba(3, 6, 10, 0.1), rgba(0, 0, 0, 0.4));
   opacity: 0.56;
 }
 
@@ -309,13 +356,9 @@ body > #root {
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  background: rgba(10, 16, 17, 0.16);
+  background: rgba(8, 11, 16, 0.18);
   backdrop-filter: blur(7px) saturate(116%);
   -webkit-backdrop-filter: blur(7px) saturate(116%);
-}
-
-.terminal-host.terminal-host--glass::before {
-  opacity: 0.44;
 }
 
 .terminal-host .xterm,
@@ -332,9 +375,10 @@ body > #root {
   height: 100%;
   position: relative;
   z-index: 1;
+  padding: 6px 0 0 10px;
 }
 
 .terminal-host .xterm-viewport {
-  scrollbar-color: color-mix(in srgb, var(--es-muted) 72%, transparent) transparent;
+  scrollbar-color: rgba(138, 147, 169, 0.45) transparent;
   overscroll-behavior: contain;
 }

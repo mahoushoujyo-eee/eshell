@@ -1,5 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/jetbrains-mono";
 import App from "./App";
 import { I18nProvider } from "./lib/i18n";
 import { registerBuiltinPlugins } from "./plugins";
