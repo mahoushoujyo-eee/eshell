@@ -2,18 +2,16 @@ import { AlertTriangle, CircleCheck, Info, TriangleAlert, X } from "lucide-react
 import { useEffect, useRef } from "react";
 import { useI18n } from "../../lib/i18n";
 
-const noticeToneClass = (tone) => {
-  if (tone === "success") {
-    return { bar: "bg-success", icon: "text-success" };
-  }
-  if (tone === "warning") {
-    return { bar: "bg-warning", icon: "text-warning" };
-  }
-  if (tone === "info") {
-    return { bar: "bg-info", icon: "text-info" };
-  }
-  return { bar: "bg-danger", icon: "text-danger" };
+// Each tone tints the card with an ambient glow behind its icon plus a faint
+// same-hue border and halo, rather than a hard colour stripe.
+const NOTICE_TONES = {
+  success: { color: "var(--es-success)", icon: "text-success", border: "border-success/25" },
+  warning: { color: "var(--es-warning)", icon: "text-warning", border: "border-warning/30" },
+  info: { color: "var(--es-info)", icon: "text-info", border: "border-info/25" },
+  danger: { color: "var(--es-danger)", icon: "text-danger", border: "border-danger/30" },
 };
+
+const noticeTone = (tone) => NOTICE_TONES[tone] || NOTICE_TONES.danger;
 
 const NoticeIcon = ({ tone }) => {
   if (tone === "success") {
@@ -101,19 +99,35 @@ export default function UiNoticeStack({ notices, onDismiss }) {
           return null;
         }
 
-        const toneClass = noticeToneClass(tone);
+        const toneStyle = noticeTone(tone);
         return (
           <section
             key={notice.id}
-            className="pointer-events-auto relative overflow-hidden rounded-lg border border-border bg-elevated py-2.5 pr-2 pl-4 text-text shadow-overlay animate-[es-dialog-in_160ms_ease-out]"
+            className={[
+              "pointer-events-auto relative isolate overflow-hidden rounded-xl border bg-elevated py-2.5 pr-2 pl-3 text-text animate-[es-dialog-in_160ms_ease-out]",
+              toneStyle.border,
+            ].join(" ")}
+            style={{
+              boxShadow: `var(--es-shadow), 0 10px 32px -12px color-mix(in srgb, ${toneStyle.color} 55%, transparent)`,
+            }}
             role={tone === "danger" || tone === "warning" ? "alert" : "status"}
           >
-            <span className={["absolute inset-y-0 left-0 w-[3px]", toneClass.bar].join(" ")} aria-hidden="true" />
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute -top-12 -left-10 -z-10 h-32 w-32 rounded-full opacity-20 blur-2xl dark:opacity-30"
+              style={{ background: toneStyle.color }}
+            />
             <div className="flex items-start gap-2.5">
-              <span className={["mt-0.5 shrink-0", toneClass.icon].join(" ")}>
+              <span
+                className={[
+                  "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+                  toneStyle.icon,
+                ].join(" ")}
+                style={{ background: `color-mix(in srgb, ${toneStyle.color} 14%, transparent)` }}
+              >
                 <NoticeIcon tone={tone} />
               </span>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 pt-px">
                 <div className="text-xs font-semibold text-text">
                   {titleByTone[tone] || titleByTone.danger}
                 </div>
