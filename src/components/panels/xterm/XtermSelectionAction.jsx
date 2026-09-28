@@ -1,4 +1,4 @@
-import { Bot, Plus } from "lucide-react";
+import { Plus, Sparkles } from "lucide-react";
 import { useI18n } from "../../../lib/i18n";
 
 export default function XtermSelectionAction({ selectionLength, onClick }) {
@@ -7,18 +7,16 @@ export default function XtermSelectionAction({ selectionLength, onClick }) {
   return (
     <button
       type="button"
-      className="absolute top-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-accent/45 bg-panel/92 px-3 py-1.5 text-[11px] font-medium text-text shadow-[0_10px_26px_rgba(0,0,0,0.22)] backdrop-blur-md transition-colors hover:border-accent hover:bg-accent-soft"
+      className="absolute top-2.5 right-3 z-10 inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-elevated pr-1.5 pl-2 text-xs font-medium text-text shadow-overlay transition-colors hover:border-accent/50 hover:bg-accent-soft"
       onClick={onClick}
       title={t("Attach terminal selection to the agent")}
     >
-      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-white">
-        <Bot className="h-3 w-3" aria-hidden="true" />
-      </span>
+      <Sparkles className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
       <span>{t("Add To Agent")}</span>
-      <span className="rounded-full bg-warm px-1.5 py-0.5 font-mono text-[10px] text-muted">
+      <span className="rounded bg-hover px-1.5 font-mono text-[10.5px] leading-5 text-muted">
         {selectionLength}
       </span>
-      <Plus className="h-3 w-3 text-accent" aria-hidden="true" />
+      <Plus className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
     </button>
   );
 }

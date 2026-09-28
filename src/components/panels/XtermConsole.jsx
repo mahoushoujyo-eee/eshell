@@ -2,32 +2,65 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
-import { Loader2, RotateCcw, WifiOff } from "lucide-react";
+import { Loader2, Plus, RotateCcw, SquareTerminal, WifiOff } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
-import { getTerminalWallpaperStyle, normalizeWallpaperSelection } from "../../constants/workbench";
+import {
+  getTerminalWallpaperStyle,
+  isDecoratedWallpaper,
+  normalizeWallpaperSelection,
+} from "../../constants/workbench";
 import { useI18n } from "../../lib/i18n";
 import { normalizeShellContextContent } from "../../lib/ops-agent-shell-context";
 import { recordTerminalResize, recordXtermWrite, recordPtyChunk } from "../../lib/terminal-perf-debug";
 import { copyTextToClipboard, readTextFromClipboard } from "../../utils/clipboard";
+import Button from "../ui/Button";
 import XtermSelectionAction from "./xterm/XtermSelectionAction";
 
 const transparentTerminalBackground = "rgba(0, 0, 0, 0)";
+
+const TERMINAL_FONT = "JetBrains Mono Variable";
 
 const XTERM_OPTIONS = {
   cursorBlink: true,
   convertEol: false,
   scrollback: 8_000,
   fontSize: 13,
-  lineHeight: 1.28,
-  fontFamily: '"JetBrains Mono", "Cascadia Mono", Consolas, monospace',
+  lineHeight: 1.3,
+  fontFamily: `"${TERMINAL_FONT}", "JetBrains Mono", "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace`,
   allowTransparency: true,
+  // Tuned for the navy terminal background; the cursor is the brand green.
   theme: {
-    foreground: "#d6f6dc",
+    foreground: "#d5dae5",
     background: transparentTerminalBackground,
-    cursor: "#d6f6dc",
-    selectionBackground: "rgba(90, 166, 134, 0.34)",
+    cursor: "#3dd68c",
+    cursorAccent: "#11141c",
+    selectionBackground: "rgba(110, 168, 255, 0.3)",
+    black: "#1c2130",
+    red: "#ff6b7a",
+    green: "#3dd68c",
+    yellow: "#f0c05a",
+    blue: "#6ea8ff",
+    magenta: "#c792ea",
+    cyan: "#56d4dd",
+    white: "#c7cdd9",
+    brightBlack: "#5c6479",
+    brightRed: "#ff8b96",
+    brightGreen: "#6be3a8",
+    brightYellow: "#ffd580",
+    brightBlue: "#92bfff",
+    brightMagenta: "#dcb2ff",
+    brightCyan: "#82e6ec",
+    brightWhite: "#f2f4f8",
   },
 };
+
+// Start loading the bundled terminal face as soon as the module loads:
+// xterm measures glyphs when a terminal opens, and a terminal opened on the
+// fallback face would keep the wrong cell size.
+const terminalFontReady =
+  typeof document !== "undefined" && document.fonts?.load
+    ? document.fonts.load(`${XTERM_OPTIONS.fontSize}px "${TERMINAL_FONT}"`).catch(() => [])
+    : Promise.resolve([]);
 
 // Full-frame overlay shown when the session's PTY died: explains that the
 // terminal is no longer interactive and offers a reconnect.
@@ -52,25 +85,28 @@ function XtermDisconnectOverlay({ reason, onReconnect }) {
   };
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/60 px-6 text-center backdrop-blur-[2px]">
-      <WifiOff className="h-8 w-8 text-red-400" aria-hidden="true" />
-      <div className="text-sm font-semibold text-white">{t("Session disconnected")}</div>
-      <p className="max-w-md text-xs leading-relaxed text-white/75">
-        {t("The SSH connection was lost and this terminal is no longer interactive. Reconnect to open a new shell on the same server (terminal history above stays visible).")}
-      </p>
-      {reason ? (
-        <p className="max-w-md truncate font-mono text-[10px] text-white/45" title={reason}>
-          {reason}
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#0b0d13]/70 px-6 backdrop-blur-[2px]">
+      <div className="flex w-full max-w-md flex-col items-center gap-2.5 rounded-xl border border-white/10 bg-[#171b26]/95 px-6 py-5 text-center shadow-[0_18px_48px_rgba(0,0,0,0.45)]">
+        <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#ff6b7a]/14 text-[#ff8b96]">
+          <WifiOff className="h-4.5 w-4.5" aria-hidden="true" />
+        </span>
+        <div className="text-sm font-semibold text-[#e3e7f0]">{t("Session disconnected")}</div>
+        <p className="text-xs leading-relaxed text-[#8a93a9]">
+          {t("The SSH connection was lost and this terminal is no longer interactive. Reconnect to open a new shell on the same server (terminal history above stays visible).")}
         </p>
-      ) : null}
-      {error ? <p className="max-w-md text-xs text-red-300">{error}</p> : null}
-      {onReconnect ? (
-        <button
-          type="button"
-          onClick={handleReconnect}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
+        {reason ? (
+          <p className="max-w-full truncate font-mono text-[10.5px] text-[#6b7389]" title={reason}>
+            {reason}
+          </p>
+        ) : null}
+        {error ? <p className="text-xs text-[#ff8b96]">{error}</p> : null}
+        {onReconnect ? (
+          <button
+            type="button"
+            onClick={handleReconnect}
+            disabled={busy}
+            className="mt-1 inline-flex h-8 items-center gap-1.5 rounded-md bg-[#3dd68c] px-4 text-[13px] font-medium text-[#062015] transition-colors hover:bg-[#3dd68c]/88 disabled:opacity-60"
+          >
           {busy ? (
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -82,8 +118,9 @@ function XtermDisconnectOverlay({ reason, onReconnect }) {
               {t("Reconnect")}
             </>
           )}
-        </button>
-      ) : null}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -112,6 +149,7 @@ export default function XtermConsole({
   onResize,
   onAttachSelection,
   wallpaper,
+  onNewSession,
 }) {
   const { t } = useI18n();
   const containerRef = useRef(null);
@@ -410,6 +448,30 @@ export default function XtermConsole({
     };
   }, []);
 
+  // A terminal opened before the bundled face finished loading measured the
+  // fallback font. Once it is ready, flip the family away and back — xterm
+  // ignores a same-value option — so each terminal re-measures, then refit.
+  useEffect(() => {
+    let cancelled = false;
+    void terminalFontReady.then(() => {
+      if (cancelled) {
+        return;
+      }
+      terminalsRef.current.forEach((entry) => {
+        try {
+          entry.term.options.fontFamily = "monospace";
+          entry.term.options.fontFamily = XTERM_OPTIONS.fontFamily;
+        } catch {
+          // Disposed mid-flight; nothing to re-measure.
+        }
+        fitTerminal(entry, "font-ready");
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fitTerminal]);
+
   // Keep every terminal sized to the container, not just the visible one, so a
   // background tab does not reflow its scrollback the moment it is selected.
   useEffect(() => {
@@ -473,8 +535,8 @@ export default function XtermConsole({
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden p-2 pb-3">
-      <div className="terminal-frame relative h-full w-full overflow-hidden border border-black/15 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+    <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="terminal-frame relative h-full w-full overflow-hidden">
         {selectionText ? (
           <XtermSelectionAction
             selectionLength={Array.from(selectionText).length}
@@ -485,14 +547,22 @@ export default function XtermConsole({
           <XtermDisconnectOverlay reason={disconnectReason} onReconnect={onReconnect} />
         ) : null}
         {!activeSessionId ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center text-xs text-muted">
-            {t("No active sessions")}
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-center">
+            <SquareTerminal className="h-8 w-8 text-[#5c6479]" strokeWidth={1.5} aria-hidden="true" />
+            <div className="text-[13px] text-[#8a93a9]">{t("No active sessions")}</div>
+            {onNewSession ? (
+              <Button variant="primary" size="sm" onClick={onNewSession}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("New connection")}
+              </Button>
+            ) : null}
           </div>
         ) : null}
         <div
           ref={containerRef}
           className={[
             "terminal-host relative h-full w-full",
+            isDecoratedWallpaper(normalizedWallpaper) ? "terminal-host--tinted" : "",
             normalizedWallpaper.glass ? "terminal-host--glass" : "",
           ].join(" ")}
           style={wallpaperStyle}

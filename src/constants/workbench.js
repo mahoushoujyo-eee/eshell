@@ -2,10 +2,9 @@ export const WALLPAPER_PRESETS = [
   {
     id: "none",
     name: "Plain Terminal",
-    preview:
-      "linear-gradient(145deg, rgba(11, 22, 20, 0.98), rgba(8, 14, 16, 0.96))",
+    preview: "linear-gradient(145deg, #161a25, #0f1219)",
     terminalStyle: {
-      backgroundColor: "#0a1212",
+      backgroundColor: "#11141c",
       backgroundImage: "none",
     },
   },
@@ -63,9 +62,15 @@ const WALLPAPER_PRESET_MAP = new Map(WALLPAPER_PRESETS.map((preset) => [preset.i
 
 export const DEFAULT_WALLPAPER = Object.freeze({
   type: "preset",
-  id: "aurora-grid",
-  glass: true,
+  id: "none",
+  glass: false,
 });
+
+/** Whether a selection paints an image or gradient behind the terminal. */
+export const isDecoratedWallpaper = (selection) => {
+  const normalized = normalizeWallpaperSelection(selection);
+  return normalized.type === "custom" || normalized.id !== "none";
+};
 
 export const EMPTY_SSH = {
   id: null,
