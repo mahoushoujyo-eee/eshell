@@ -4,7 +4,7 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.6.0** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
+**eShell v1.7.0** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
 
 It combines SSH sessions, PTY terminals, SFTP file operations, server status monitoring, reusable scripts, and an ACP coding agent panel in one local-first application.
 
@@ -13,6 +13,7 @@ It combines SSH sessions, PTY terminals, SFTP file operations, server status mon
 ## What It Does
 
 - Manage multiple SSH profiles and switch active sessions quickly.
+- Work in a Termius-style workspace: session tabs in the title bar, a slim activity rail, a status bar, and light and dark themes.
 - Use an interactive `xterm.js` PTY terminal with resize sync, custom wallpaper, and Ctrl+Shift+C/V clipboard shortcuts.
 - Recover a dead terminal in place: the reconnect button rebuilds the PTY on the same session, keeping the tab, its working directory and its status cache.
 - Browse, preview, edit, upload, download, and delete files through SFTP.
@@ -97,9 +98,10 @@ src/
   components/
     ai/            # provider icons and shared AI UI
     app/           # app shell, AI dock, modal composition
-    layout/        # title bar, toolbar, notices
+    layout/        # title bar + session tabs, activity rail, status bar, notices
     panels/        # terminal, SFTP, status, AI assistant, file editor
     sidebar/       # SSH / script / AI / wallpaper settings
+    ui/            # shared Dialog, Button, SegmentedControl, PanelHeader
   hooks/
     useWorkbench.js
     workbench/     # sessions, operations, effects, errors, AI profiles
@@ -246,4 +248,5 @@ Persistence notes:
 - [SFTP Transfer Guide](docs/guides/features/sftp_transfer.md)
 - [Plugin Development](docs/guides/features/plugin_development.md)
 - [Unreleased Notes](docs/releases/unreleased.md)
+- [Release Notes 1.7.0](docs/releases/v1.7.0.md)
 - [Release Notes 1.6.0](docs/releases/v1.6.0.md)
