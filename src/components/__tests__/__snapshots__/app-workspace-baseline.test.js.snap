@@ -8,93 +8,95 @@ exports[`AppMainWorkspace bottom panel layout (pre-migration baseline) > nests t
         div .h-full.w-full
           div .h-full.w-full
             div .relative.flex.h-full.min-h-0.flex-col.bg-panel
-              div .flex.items-center.justify-between.border-b.border-border.px-2.py-2
-                div .inline-flex.items-center.gap-2.text-sm.font-semibold
-                  svg(...icons collapsed)
-                div .flex.gap-1.text-xs
-                  button .inline-flex.items-center.gap-1.rounded-md.border.border-border.px-2.py-1.transition-colors.hover:bg-accent-soft
+              header .flex.h-8.shrink-0.items-center.gap-2.border-b.border-border.bg-surface.px-2.5
+                svg(...icons collapsed)
+                h3 .shrink-0.text-xs.font-semibold.text-text
+                div .ml-auto.flex.shrink-0.items-center.gap-0.5
+                  button .inline-flex.shrink-0.items-center.justify-center.rounded-md.transition-colors.duration-150.disabled:cursor-not-allowed.disabled:opacity-40.h-6.w-6.text-muted.hover:bg-hover.hover:text-text
                     svg(...icons collapsed)
-                  button .inline-flex.items-center.gap-1.rounded-md.border.border-border.px-2.py-1.transition-colors.hover:bg-accent-soft
+                  button .inline-flex.shrink-0.items-center.justify-center.rounded-md.transition-colors.duration-150.disabled:cursor-not-allowed.disabled:opacity-40.h-6.w-6.text-muted.hover:bg-hover.hover:text-text
                     svg(...icons collapsed)
-                  button .inline-flex.items-center.gap-1.rounded-md.border.border-border.px-2.py-1.transition-colors.hover:bg-accent-soft
+                  button .inline-flex.shrink-0.items-center.justify-center.rounded-md.transition-colors.duration-150.disabled:cursor-not-allowed.disabled:opacity-40.h-6.w-6.text-muted.hover:bg-hover.hover:text-text
                     svg(...icons collapsed)
-                  button .inline-flex.items-center.gap-1.rounded-md.border.border-border.px-2.py-1.transition-colors.hover:bg-accent-soft
+                  button .inline-flex.shrink-0.items-center.justify-center.rounded-md.transition-colors.duration-150.disabled:cursor-not-allowed.disabled:opacity-40.h-6.w-6.text-muted.hover:bg-hover.hover:text-text
                     svg(...icons collapsed)
-                  button .inline-flex.items-center.gap-1.rounded-md.border.border-border.px-2.py-1.transition-colors.hover:bg-accent-soft
+                  span .mx-1.h-3.5.w-px.bg-border
+                  button .inline-flex.h-6.items-center.gap-1.rounded-md.px-1.5.text-[11px].transition-colors.duration-150.text-muted.hover:bg-hover.hover:text-text
                     svg(...icons collapsed)
               div .min-h-0.flex-1
                 div .flex.h-full.w-full.overflow-hidden.flex-row.
                   div .min-h-0.min-w-0.overflow-hidden {flexBasis:26.000%,flexGrow:0,flexShrink:0}
-                    div .h-full.overflow-auto.border-r.border-border.bg-surface/30.p-2.text-xs
+                    div .scroll-region.h-full.overflow-auto.bg-surface.px-1.5.py-1.5.text-xs
                       div
-                        div .flex.items-center.transition-colors.hover:bg-accent-soft/40
-                          button .inline-flex.h-7.w-7.items-center.justify-center.text-muted.transition-colors.hover:text-text
+                        div .flex.h-6.items-center.rounded-md.transition-colors.duration-150.text-text/90.hover:bg-hover
+                          button .inline-flex.h-6.w-5.shrink-0.items-center.justify-center.text-subtle.transition-colors.hover:text-text
                             svg(...icons collapsed)
-                          button .flex.min-w-0.flex-1.items-center.gap-1.5.px-1.py-1.text-left.text-xs
+                          button .flex.h-full.min-w-0.flex-1.items-center.gap-1.5.pr-1.5.text-left.text-xs
                             svg(...icons collapsed)
                             span .truncate
                         div
-                          div .flex.items-center.transition-colors.hover:bg-accent-soft/40
-                            button .inline-flex.h-7.w-7.items-center.justify-center.text-muted.transition-colors.hover:text-text
+                          div .flex.h-6.items-center.rounded-md.transition-colors.duration-150.text-text/90.hover:bg-hover
+                            button .inline-flex.h-6.w-5.shrink-0.items-center.justify-center.text-subtle.transition-colors.hover:text-text
                               svg(...icons collapsed)
-                            button .flex.min-w-0.flex-1.items-center.gap-1.5.px-1.py-1.text-left.text-xs
+                            button .flex.h-full.min-w-0.flex-1.items-center.gap-1.5.pr-1.5.text-left.text-xs
                               svg(...icons collapsed)
                               span .truncate
                         div
-                          div .flex.items-center.transition-colors.hover:bg-accent-soft/40
-                            button .inline-flex.h-7.w-7.items-center.justify-center.text-muted.transition-colors.hover:text-text
+                          div .flex.h-6.items-center.rounded-md.transition-colors.duration-150.text-text/90.hover:bg-hover
+                            button .inline-flex.h-6.w-5.shrink-0.items-center.justify-center.text-subtle.transition-colors.hover:text-text
                               svg(...icons collapsed)
-                            button .flex.min-w-0.flex-1.items-center.gap-1.5.px-1.py-1.text-left.text-xs
+                            button .flex.h-full.min-w-0.flex-1.items-center.gap-1.5.pr-1.5.text-left.text-xs
                               svg(...icons collapsed)
                               span .truncate
-                  button .relative.shrink-0.bg-border/80.transition-colors.w-px.cursor-col-resize.hover:bg-accent/80
+                  button .relative.z-10.shrink-0.transition-colors.duration-150.before:absolute.before:content-[''].hover:bg-accent/70.bg-border.w-px.cursor-col-resize.before:inset-y-0.before:-right-[3px].before:-left-[3px]
                   div .min-h-0.min-w-0.flex-1.overflow-hidden {flexBasis:74.000%,flexGrow:1,flexShrink:0}
-                    div .flex.h-full.flex-col.overflow-hidden.text-xs
-                      div .space-y-1.5.border-b.border-border.bg-surface/40.px-2.py-1.5
-                        div .truncate.text-muted
-                        div .flex.items-center.gap-1.5
-                          input .min-w-0.flex-1.rounded.border.border-border.bg-surface.px-1.5.py-0.5.text-xs.placeholder:text-muted/50.focus:outline-none.focus:ring-1.focus:ring-accent/40
-                          button .inline-flex.shrink-0.items-center.rounded.border.px-1.5.py-0.5.transition-colors.border-border.text-muted.hover:bg-accent-soft/60
-                            svg(...icons collapsed)
-                      div .flex.shrink-0.items-center.border-b.border-border.bg-surface/60.px-2.py-0.5
-                        button .flex.flex-1.items-center.gap-0.5.text-left.text-[10px].font-medium.text-muted.hover:text-foreground
+                    div .flex.h-full.flex-col.overflow-hidden.bg-panel.text-xs
+                      div .flex.h-8.shrink-0.items-center.gap-2.border-b.border-border.px-2
+                        div .min-w-0.flex-1.truncate.font-mono.text-[11px].text-muted
+                        div .relative.w-[42%].max-w-52.min-w-24
                           svg(...icons collapsed)
-                        button .flex.w-16.shrink-0.items-center.justify-end.gap-0.5.text-[10px].font-medium.text-muted.hover:text-foreground
+                          input .w-full.min-w-0.rounded-md.border.border-border-strong.bg-panel.text-text.outline-none.transition-colors.duration-150.placeholder:text-subtle.hover:border-muted/50.focus:border-accent.focus:ring-2.focus:ring-accent/20.disabled:cursor-not-allowed.disabled:opacity-55.h-7.px-2.text-xs.h-6.pl-6
+                        button .inline-flex.shrink-0.items-center.justify-center.rounded-md.transition-colors.duration-150.disabled:cursor-not-allowed.disabled:opacity-40.h-6.w-6.text-muted.hover:bg-hover.hover:text-text
                           svg(...icons collapsed)
-                        button .flex.w-20.shrink-0.items-center.justify-end.gap-0.5.text-[10px].font-medium.text-muted.hover:text-foreground
+                      div .flex.h-6.shrink-0.items-center.border-b.border-border.px-2.5
+                        button .flex.items-center.gap-0.5.text-[11px].font-medium.text-subtle.transition-colors.hover:text-text.flex-1.text-left
                           svg(...icons collapsed)
-                      div .min-h-0.flex-1.overflow-auto.bg-surface/20
-                        button .flex.w-full.items-center.border-b.border-border/60.px-2.py-1.5.text-left.transition-colors.hover:bg-accent-soft/60.
-                          span .flex.min-w-0.flex-1.items-center.gap-1.5
+                        button .flex.items-center.gap-0.5.text-[11px].font-medium.text-subtle.transition-colors.hover:text-text.w-16.shrink-0.justify-end
+                          svg(...icons collapsed)
+                        button .flex.items-center.gap-0.5.text-[11px].font-medium.text-subtle.transition-colors.hover:text-text.w-24.shrink-0.justify-end
+                          svg(...icons collapsed)
+                      div .scroll-region.min-h-0.flex-1.overflow-auto.px-1.py-1
+                        button .flex.h-[26px].w-full.items-center.rounded-md.px-1.5.text-left.transition-colors.duration-100.text-text/90.hover:bg-hover
+                          span .flex.min-w-0.flex-1.items-center.gap-2
                             svg(...icons collapsed)
                             span .truncate
-                          span .w-16.shrink-0.text-right.text-[10px].text-muted
-                          span .w-20.shrink-0.text-right.text-[10px].text-muted
-                        button .flex.w-full.items-center.border-b.border-border/60.px-2.py-1.5.text-left.transition-colors.hover:bg-accent-soft/60.
-                          span .flex.min-w-0.flex-1.items-center.gap-1.5
+                          span .w-16.shrink-0.text-right.text-[11px].text-muted.tabular-nums
+                          span .w-24.shrink-0.text-right.text-[11px].text-muted.tabular-nums
+                        button .flex.h-[26px].w-full.items-center.rounded-md.px-1.5.text-left.transition-colors.duration-100.text-text/90.hover:bg-hover
+                          span .flex.min-w-0.flex-1.items-center.gap-2
                             svg(...icons collapsed)
                             span .truncate
-                          span .w-16.shrink-0.text-right.text-[10px].text-muted
-                          span .w-20.shrink-0.text-right.text-[10px].text-muted
-                        button .flex.w-full.items-center.border-b.border-border/60.px-2.py-1.5.text-left.transition-colors.hover:bg-accent-soft/60.
-                          span .flex.min-w-0.flex-1.items-center.gap-1.5
+                          span .w-16.shrink-0.text-right.text-[11px].text-muted.tabular-nums
+                          span .w-24.shrink-0.text-right.text-[11px].text-muted.tabular-nums
+                        button .flex.h-[26px].w-full.items-center.rounded-md.px-1.5.text-left.transition-colors.duration-100.text-text/90.hover:bg-hover
+                          span .flex.min-w-0.flex-1.items-center.gap-2
                             svg(...icons collapsed)
                             span .truncate
-                          span .w-16.shrink-0.text-right.text-[10px].text-muted
-                          span .w-20.shrink-0.text-right.text-[10px].text-muted
-                        button .flex.w-full.items-center.border-b.border-border/60.px-2.py-1.5.text-left.transition-colors.hover:bg-accent-soft/60.
-                          span .flex.min-w-0.flex-1.items-center.gap-1.5
+                          span .w-16.shrink-0.text-right.text-[11px].text-muted.tabular-nums
+                          span .w-24.shrink-0.text-right.text-[11px].text-muted.tabular-nums
+                        button .flex.h-[26px].w-full.items-center.rounded-md.px-1.5.text-left.transition-colors.duration-100.text-text/90.hover:bg-hover
+                          span .flex.min-w-0.flex-1.items-center.gap-2
                             svg(...icons collapsed)
                             span .truncate
-                          span .w-16.shrink-0.text-right.text-[10px].text-muted
-                          span .w-20.shrink-0.text-right.text-[10px].text-muted
-                        button .flex.w-full.items-center.border-b.border-border/60.px-2.py-1.5.text-left.transition-colors.hover:bg-accent-soft/60.
-                          span .flex.min-w-0.flex-1.items-center.gap-1.5
+                          span .w-16.shrink-0.text-right.text-[11px].text-muted.tabular-nums
+                          span .w-24.shrink-0.text-right.text-[11px].text-muted.tabular-nums
+                        button .flex.h-[26px].w-full.items-center.rounded-md.px-1.5.text-left.transition-colors.duration-100.text-text/90.hover:bg-hover
+                          span .flex.min-w-0.flex-1.items-center.gap-2
                             svg(...icons collapsed)
                             span .truncate
-                          span .w-16.shrink-0.text-right.text-[10px].text-muted
-                          span .w-20.shrink-0.text-right.text-[10px].text-muted
-    button .relative.shrink-0.bg-border/80.transition-colors.w-px.cursor-col-resize.hover:bg-accent/80
+                          span .w-16.shrink-0.text-right.text-[11px].text-muted.tabular-nums
+                          span .w-24.shrink-0.text-right.text-[11px].text-muted.tabular-nums
+    button .relative.z-10.shrink-0.transition-colors.duration-150.before:absolute.before:content-[''].hover:bg-accent/70.bg-border.w-px.cursor-col-resize.before:inset-y-0.before:-right-[3px].before:-left-[3px]
     div .min-h-0.min-w-0.flex-1.overflow-hidden {flexBasis:42.000%,flexGrow:1,flexShrink:0}
       div .flex.h-full.w-full.overflow-hidden.flex-row.
         div .min-h-0.min-w-0.overflow-hidden {flexBasis:58.000%,flexGrow:0,flexShrink:0}
@@ -102,30 +104,32 @@ exports[`AppMainWorkspace bottom panel layout (pre-migration baseline) > nests t
             div .h-full.w-full
               div .h-full.w-full
                 div .flex.h-full.min-h-0.flex-col.bg-panel.text-xs
-                  div .flex.items-center.justify-between.border-b.border-border.px-2.py-2
-                    div .inline-flex.items-center.gap-2.text-sm.font-semibold
-                      svg(...icons collapsed)
-                    div .flex.items-center.gap-2
-                      div .inline-flex.rounded.border.border-border
-                        button .px-1.5.py-0.5.text-[10px].font-medium.transition-colors.first:rounded-l.last:rounded-r.text-muted.hover:bg-accent-soft/70
-                        button .px-1.5.py-0.5.text-[10px].font-medium.transition-colors.first:rounded-l.last:rounded-r.bg-accent.text-white
-                        button .px-1.5.py-0.5.text-[10px].font-medium.transition-colors.first:rounded-l.last:rounded-r.text-muted.hover:bg-accent-soft/70
+                  header .flex.h-8.shrink-0.items-center.gap-2.border-b.border-border.bg-surface.px-2.5
+                    svg(...icons collapsed)
+                    h3 .shrink-0.text-xs.font-semibold.text-text
+                    div .ml-auto.flex.shrink-0.items-center.gap-0.5
+                      div .flex.items-center.gap-2
+                        div .inline-flex.shrink-0.items-center.gap-0.5.rounded-md.border.border-border.bg-surface.p-0.5
+                          button .inline-flex.items-center.gap-1.5.rounded-[4px].whitespace-nowrap.transition-colors.duration-150.h-5.px-1.5.text-[11px].text-muted.hover:text-text
+                          button .inline-flex.items-center.gap-1.5.rounded-[4px].whitespace-nowrap.transition-colors.duration-150.h-5.px-1.5.text-[11px].bg-elevated.font-medium.text-text.shadow-[0_1px_2px_rgba(0,0,0,0.12)].ring-1.ring-border
+                          button .inline-flex.items-center.gap-1.5.rounded-[4px].whitespace-nowrap.transition-colors.duration-150.h-5.px-1.5.text-[11px].text-muted.hover:text-text
                   div .flex.flex-1.items-center.justify-center.text-muted
-        button .relative.shrink-0.bg-border/80.transition-colors.w-px.cursor-col-resize.hover:bg-accent/80
+        button .relative.z-10.shrink-0.transition-colors.duration-150.before:absolute.before:content-[''].hover:bg-accent/70.bg-border.w-px.cursor-col-resize.before:inset-y-0.before:-right-[3px].before:-left-[3px]
         div .min-h-0.min-w-0.flex-1.overflow-hidden {flexBasis:42.000%,flexGrow:1,flexShrink:0}
           div .h-full.w-full
             div .h-full.w-full
               div .h-full.w-full
                 div .flex.h-full.min-h-0.flex-col.bg-panel.text-xs
-                  div .flex.items-center.justify-between.border-b.border-border.px-2.py-2
-                    div .inline-flex.items-center.gap-2.text-sm.font-semibold
-                      svg(...icons collapsed)
-                    span .text-muted
-                  div .min-h-0.flex-1.p-2
-                    textarea .h-full.w-full.resize-none.border.border-transparent.bg-transparent.px-2.py-2.font-mono.text-sm.text-text.placeholder:text-muted.focus:outline-none
-                  div .flex.items-center.justify-between.gap-2.border-t.border-border.px-2.py-2
+                  header .flex.h-8.shrink-0.items-center.gap-2.border-b.border-border.bg-surface.px-2.5
+                    svg(...icons collapsed)
+                    h3 .shrink-0.text-xs.font-semibold.text-text
+                    div .ml-auto.flex.shrink-0.items-center.gap-0.5
+                      kbd .rounded.border.border-border.bg-surface.px-1.5.font-mono.text-[10.5px].leading-4.text-muted
+                  div .min-h-0.flex-1
+                    textarea .scroll-region.h-full.w-full.resize-none.bg-transparent.px-3.py-2.5.font-mono.text-[12.5px].leading-relaxed.text-text.placeholder:text-subtle.focus:outline-none.disabled:cursor-not-allowed
+                  div .flex.h-10.shrink-0.items-center.justify-between.gap-2.border-t.border-border.px-2.5
                     label .inline-flex.cursor-pointer.items-center.gap-1.5.text-muted.select-none
                       input .h-3.5.w-3.5.accent-accent
-                    button .inline-flex.items-center.gap-1.5.rounded-md.border.border-accent.bg-accent.px-4.py-1.5.text-sm.font-medium.text-white.disabled:opacity-40
+                    button .inline-flex.shrink-0.items-center.justify-center.rounded-md.border.whitespace-nowrap.transition-colors.duration-150.disabled:cursor-not-allowed.disabled:opacity-50.border-transparent.bg-accent.font-medium.text-on-accent.hover:bg-accent/88.h-7.gap-1.5.px-2.5.text-xs
                       svg(...icons collapsed)"
 `;
