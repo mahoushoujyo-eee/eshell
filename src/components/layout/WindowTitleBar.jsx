@@ -1,7 +1,8 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Copy, Minus, Plus, Sparkles, Square, X } from "lucide-react";
+import { Copy, Minus, Plus, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import EshellAiMark from "../ai/EshellAiMark";
 // Brand mark cropped from `docs/assets/Shell.png` (cube + `$`), text removed so
 // it can sit next to the wordmark without repeating "Shell".
 import eshellMark from "../../assets/eshell-mark.png";
@@ -153,12 +154,7 @@ function AiEntryButton({ active, busy, onClick }) {
       ].join(" ")}
       onClick={onClick}
     >
-      <span className="relative inline-flex">
-        <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-        {busy ? (
-          <span className="absolute -top-0.5 -right-1 h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-        ) : null}
-      </span>
+      <EshellAiMark busy={busy} className="h-4 w-4" />
       <span className="leading-none">AI</span>
     </button>
   );

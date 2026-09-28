@@ -1,5 +1,6 @@
-import { AlertTriangle, CircleCheck, FolderOpen, LoaderCircle, Sparkles } from "lucide-react";
+import { AlertTriangle, CircleCheck, FolderOpen, LoaderCircle } from "lucide-react";
 import { useI18n } from "../../lib/i18n";
+import EshellAiMark from "../ai/EshellAiMark";
 import { cx } from "../ui/cx";
 
 const TONE_TEXT = {
@@ -95,8 +96,11 @@ export default function StatusBar({
 
       <div className="ml-auto flex h-full min-w-0 items-center">
         {isAiStreaming ? (
-          <StatusItem icon={Sparkles} tone="accent">
-            {t("AI responding")}
+          <StatusItem tone="accent">
+            <span className="inline-flex items-center gap-1.5">
+              <EshellAiMark busy className="h-3.5 w-3.5 shrink-0" />
+              {t("AI responding")}
+            </span>
           </StatusItem>
         ) : null}
         <StatusItem

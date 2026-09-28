@@ -1,5 +1,6 @@
-import { Plus, Sparkles } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useI18n } from "../../../lib/i18n";
+import EshellAiMark from "../../ai/EshellAiMark";
 
 export default function XtermSelectionAction({ selectionLength, onClick }) {
   const { t } = useI18n();
@@ -11,7 +12,7 @@ export default function XtermSelectionAction({ selectionLength, onClick }) {
       onClick={onClick}
       title={t("Attach terminal selection to the agent")}
     >
-      <Sparkles className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+      <EshellAiMark className="h-4 w-4 text-muted" />
       <span>{t("Add To Agent")}</span>
       <span className="rounded bg-hover px-1.5 font-mono text-[10.5px] leading-5 text-muted">
         {selectionLength}
