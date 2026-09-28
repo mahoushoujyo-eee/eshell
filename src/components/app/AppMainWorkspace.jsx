@@ -88,16 +88,15 @@ export default function AppMainWorkspace({
   showStatusPanel,
   showCommandDraftPanel,
   onOpenFileEditor,
+  onOpenSshConfig,
 }) {
   const {
     activeSessionId,
-    setActiveSessionId,
     activeSession,
     commandDraft,
     setCommandDraft,
     sessions,
     wallpaper,
-    closeSession,
     reopenSessionPty,
     disconnectedSessions,
     sendCommandDraft,
@@ -140,9 +139,6 @@ export default function AppMainWorkspace({
   const terminalPanel = (
     <TerminalPanel
       sessions={sessions}
-      activeSessionId={activeSessionId}
-      onSelectSession={setActiveSessionId}
-      onCloseSession={closeSession}
       onReconnectSession={reopenSessionPty}
       disconnectedSessions={disconnectedSessions}
       activeSession={activeSession}
@@ -153,6 +149,7 @@ export default function AppMainWorkspace({
         setShowAiPanel(true);
       }}
       wallpaper={wallpaper}
+      onNewSession={onOpenSshConfig}
     />
   );
 

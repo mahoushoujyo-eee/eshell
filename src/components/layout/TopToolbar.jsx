@@ -1,9 +1,7 @@
 import {
   Activity,
-  AlertTriangle,
   Bot,
   Boxes,
-  CircleCheck,
   Cloud,
   Container,
   Cpu,
@@ -14,7 +12,6 @@ import {
   Globe,
   HardDrive,
   Layers,
-  LoaderCircle,
   Monitor,
   Network,
   NotebookPen,
@@ -31,14 +28,10 @@ import {
 import {
   panelVisibilityMarker,
   RailButton,
-  StatusIndicator,
   ToggleSidebarButton,
   ToolbarSection,
 } from "./top-toolbar/TopToolbarPrimitives";
 import { useI18n } from "../../lib/i18n";
-// Brand mark cropped from `docs/assets/Shell.png` (cube + `$`), text removed so
-// it can sit next to the wordmark without repeating "Shell".
-import eshellMark from "../../assets/eshell-mark.png";
 import { getPlugin, resolveToolbarContributions } from "../../plugins";
 import { useRegistryVersion } from "../../plugins/runtime/useRegistry";
 
@@ -51,10 +44,12 @@ const PANEL_TOOLBAR_ICONS = {
 
 const PANEL_TOOLBAR_LABELS = {
   sftp: {
+    name: "SFTP Browser",
     show: "Show SFTP panel",
     hide: "Hide SFTP panel",
   },
   status: {
+    name: "Server Status",
     show: "Show status panel",
     hide: "Hide status panel",
   },
@@ -181,8 +176,6 @@ export default function TopToolbar({
   onToggleStatusPanel,
   onToggleCommandDraftPanel,
   onOpenSettings,
-  busy,
-  error,
   extensions,
   workbench,
 }) {
@@ -190,23 +183,6 @@ export default function TopToolbar({
   // Re-resolve toolbar contributions when the registry changes (a late
   // external registration or a disable), not only on workbench re-renders.
   useRegistryVersion();
-  const hasError = Boolean(error && String(error).trim());
-  const normalizedError = hasError ? String(error).trim() : "";
-  const isWarning =
-    hasError &&
-    (/^warning/i.test(normalizedError) ||
-      normalizedError ===
-        t(
-          "Warning: Server status polling failed for this cycle due to a transient network fluctuation. The app will retry automatically.",
-        ));
-  const busyText = busy ? t("Running: {busy}", { busy }) : t("Idle");
-  const errorDetail = normalizedError;
-  const errorText = hasError
-    ? isWarning
-      ? t("Background warning")
-      : t("Recent issue")
-    : t("No issues");
-  const errorTitle = hasError ? errorDetail : errorText;
 
   // Plugin-contributed panel toggles, in manifest order (sftp, then status,
   // then externals). A disabled extension contributes nothing: the button
@@ -277,43 +253,21 @@ export default function TopToolbar({
   return (
     <aside
       className={[
-        "flex h-full shrink-0 flex-col border-r border-border bg-surface/95 py-2 transition-[width,padding] duration-300 ease-out",
-        collapsed ? "w-[78px] px-1.5" : "w-[248px] px-2",
+        "flex h-full shrink-0 flex-col overflow-hidden border-r border-border bg-bg transition-[width] duration-200 ease-out",
+        collapsed ? "w-[52px]" : "w-[220px]",
       ].join(" ")}
     >
-      <div
+      {/* `min-h-0` lets the Panels section shrink and scroll instead of
+          pushing the Quick section off the bottom of the rail. The collapsed
+          rail has no side padding so the active bar at the rail edge is not
+          clipped by the scrolling section. */}
+      <nav
+        aria-label={t("Workspace")}
         className={[
-          "rounded-[22px] border border-border/75 bg-panel/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]",
-          collapsed ? "px-2 py-2" : "px-3 py-3",
+          "flex min-h-0 flex-1 flex-col gap-3 pt-3",
+          collapsed ? "px-0" : "px-2",
         ].join(" ")}
       >
-        <div className={collapsed ? "flex flex-col items-center gap-2" : "flex items-start justify-between gap-3"}>
-          <div
-            className={
-              collapsed
-                ? "inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/75 bg-surface/85 text-accent"
-                : ""
-            }
-          >
-            <div className="inline-flex items-center gap-2 text-sm text-muted">
-              {/* Transparent-background mark, no wrapper of its own so it sits
-                  directly on whatever the rail's background happens to be. */}
-              <img
-                src={eshellMark}
-                alt=""
-                className={collapsed ? "h-6 w-6 shrink-0" : "h-[18px] w-[18px] shrink-0"}
-                draggable={false}
-              />
-              {!collapsed ? <span className="brand-wordmark">eShell</span> : null}
-            </div>
-          </div>
-          <ToggleSidebarButton collapsed={collapsed} onClick={onToggleCollapsed} />
-        </div>
-      </div>
-
-      {/* `min-h-0` lets the Panels section shrink and scroll instead of
-          pushing the Quick section off the bottom of the rail. */}
-      <div className="mt-2 flex min-h-0 flex-1 flex-col gap-2">
         <ToolbarSection title={t("Config")} collapsed={collapsed}>
           <RailButton icon={Server} label={t("SSH Profiles")} onClick={onOpenSshConfig} collapsed={collapsed} />
           <RailButton icon={FileText} label={t("Script Center")} onClick={onOpenScriptConfig} collapsed={collapsed} />
@@ -325,7 +279,8 @@ export default function TopToolbar({
             <RailButton
               key={panel.key}
               icon={panel.icon}
-              label={
+              label={panel.labels ? t(panel.labels.name) : panel.label}
+              title={
                 panel.actionOnly
                   ? panel.label
                   : panel.labels
@@ -344,48 +299,26 @@ export default function TopToolbar({
           ))}
           <RailButton
             icon={NotebookPen}
-            label={showCommandDraftPanel ? t("Hide command draft") : t("Show command draft")}
+            label={t("Command Draft")}
+            title={showCommandDraftPanel ? t("Hide command draft") : t("Show command draft")}
             active={showCommandDraftPanel}
             onClick={onToggleCommandDraftPanel}
             collapsed={collapsed}
             trailing={panelVisibilityMarker}
           />
         </ToolbarSection>
-      </div>
+      </nav>
 
-      <div className="shrink-0 pt-2">
-        <ToolbarSection title={t("Quick")} collapsed={collapsed}>
-          <RailButton
-            icon={Settings}
-            label={t("Settings")}
-            onClick={onOpenSettings}
-          />
-
-          <div
-            className={[
-              "rounded-2xl border border-border/75 bg-surface/90 text-xs",
-              collapsed ? "px-1 py-1" : "mt-2 px-3 py-2",
-            ].join(" ")}
-          >
-            <div className={collapsed ? "space-y-0.5" : ""}>
-              <StatusIndicator
-                collapsed={collapsed}
-                icon={LoaderCircle}
-                label={busyText}
-                title={busyText}
-                tone={busy ? "accent" : "muted"}
-                spin={busy}
-              />
-              <StatusIndicator
-                collapsed={collapsed}
-                icon={hasError ? AlertTriangle : CircleCheck}
-                label={errorText}
-                title={errorTitle}
-                tone={hasError ? (isWarning ? "warning" : "danger") : "success"}
-              />
-            </div>
-          </div>
-        </ToolbarSection>
+      <div
+        className={[
+          "flex shrink-0 gap-0.5 border-t border-border py-2",
+          collapsed ? "flex-col items-center px-0" : "items-center px-2",
+        ].join(" ")}
+      >
+        <div className={collapsed ? "w-full" : "min-w-0 flex-1"}>
+          <RailButton icon={Settings} label={t("Settings")} onClick={onOpenSettings} collapsed={collapsed} />
+        </div>
+        <ToggleSidebarButton collapsed={collapsed} onClick={onToggleCollapsed} />
       </div>
     </aside>
   );

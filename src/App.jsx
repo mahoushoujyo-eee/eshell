@@ -31,9 +31,9 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") {
-      return false;
+      return true;
     }
-    return window.localStorage.getItem("eshell:sidebar-collapsed") === "1";
+    return window.localStorage.getItem("eshell:sidebar-collapsed") !== "0";
   });
   const [aiPanelWidth, setAiPanelWidth] = useState(() => {
     if (typeof window === "undefined") {

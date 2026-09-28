@@ -1,7 +1,11 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Bot, Copy, Minus, Plus, Square, X } from "lucide-react";
+import { Copy, Minus, Plus, Sparkles, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+// Brand mark cropped from `docs/assets/Shell.png` (cube + `$`), text removed so
+// it can sit next to the wordmark without repeating "Shell".
+import eshellMark from "../../assets/eshell-mark.png";
+import SessionTabs from "./SessionTabs";
 
 const TITLEBAR_PLATFORM_OVERRIDE_KEY = "eshell:debug:titlebar-platform";
 const TITLEBAR_PLATFORM_OVERRIDE_EVENT = "eshell:titlebar-platform-override-change";
@@ -89,16 +93,17 @@ function setPlatformOverride(nextValue) {
   return normalized;
 }
 
+// Native-style caption buttons: full title-bar height, flat, with the
+// platform's red close hover.
 function WindowControlButton({ title, onClick, tone = "normal", children }) {
   return (
     <button
       type="button"
       title={title}
+      aria-label={title}
       className={[
-        "inline-flex h-7 w-9 items-center justify-center rounded-lg border border-border bg-panel/80 text-muted transition-colors",
-        tone === "danger"
-          ? "hover:border-danger/70 hover:bg-danger/10 hover:text-danger"
-          : "hover:border-accent/40 hover:bg-accent-soft hover:text-text",
+        "inline-flex h-10 w-[46px] items-center justify-center text-muted transition-colors duration-150",
+        tone === "danger" ? "hover:bg-[#c42b1c] hover:text-white" : "hover:bg-hover hover:text-text",
       ].join(" ")}
       onClick={onClick}
     >
@@ -132,36 +137,55 @@ function MacWindowControlButton({ title, tone = "danger", onClick, children }) {
 
 function AiEntryButton({ active, busy, onClick }) {
   const { t } = useI18n();
+  const label = active ? t("Hide AI chat") : t("Show AI chat");
 
   return (
     <button
       type="button"
-      title={active ? t("Hide AI chat") : t("Show AI chat")}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
       className={[
-        "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm font-medium transition-all",
+        "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors duration-150",
         active
-          ? "border-accent/60 bg-accent-soft text-text shadow-[0_12px_30px_rgba(16,24,32,0.2)]"
-          : "border-border/90 bg-panel/85 text-muted hover:border-accent/40 hover:bg-accent-soft hover:text-text",
+          ? "border-accent/35 bg-accent-soft text-accent"
+          : "border-border text-muted hover:bg-hover hover:text-text",
       ].join(" ")}
       onClick={onClick}
     >
-      <span
-        className={[
-          "relative inline-flex h-5 w-5 items-center justify-center rounded-full border",
-          active ? "border-accent/55 bg-accent text-white" : "border-border bg-surface text-accent",
-        ].join(" ")}
-      >
-        <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+      <span className="relative inline-flex">
+        <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
         {busy ? (
-          <span className="absolute -right-0.5 -bottom-0.5 h-2 w-2 rounded-full border border-panel bg-success" />
+          <span className="absolute -top-0.5 -right-1 h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
         ) : null}
       </span>
-      <span className="leading-none">eShell AI</span>
+      <span className="leading-none">AI</span>
     </button>
   );
 }
 
-export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStreaming = false }) {
+function BrandMark() {
+  return (
+    <div data-tauri-drag-region className="flex shrink-0 items-center gap-2 pr-3 select-none">
+      <img src={eshellMark} alt="" className="h-[18px] w-[18px] shrink-0" draggable={false} />
+      <span data-tauri-drag-region className="brand-wordmark text-[13px] text-text">
+        eShell
+      </span>
+    </div>
+  );
+}
+
+export default function WindowTitleBar({
+  showAiPanel,
+  onToggleAiPanel,
+  isAiStreaming = false,
+  sessions = [],
+  activeSessionId = null,
+  onSelectSession,
+  onCloseSession,
+  disconnectedSessions = {},
+  onNewSession,
+}) {
   const { t } = useI18n();
   const appWindow = getCurrentWindow();
   const [isMaximized, setIsMaximized] = useState(false);
@@ -313,37 +337,30 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
     return () => titleBarElement.removeEventListener("mousedown", handleMouseDown);
   }, [appWindow, handleToggleMaximize]);
 
-  const titleContent = (
-    <div
-      data-tauri-drag-region
-      className={[
-        "flex min-w-0 items-center gap-2 px-1 text-sm text-muted select-none",
-        isMacPlatform ? "mx-auto max-w-[48%] justify-center text-center" : "flex-1",
-      ].join(" ")}
-    >
-      <span data-tauri-drag-region className="brand-wordmark text-sm text-muted">
-        eShell
-      </span>
-    </div>
+  const tabs = (
+    <SessionTabs
+      sessions={sessions}
+      activeSessionId={activeSessionId}
+      onSelectSession={onSelectSession}
+      onCloseSession={onCloseSession}
+      disconnectedSessions={disconnectedSessions}
+      onNewSession={onNewSession}
+    />
   );
+
+  const dragSpacer = <div data-tauri-drag-region className="h-full min-w-6 flex-1" />;
 
   return (
     <header
       ref={titleBarRef}
       data-tauri-drag-region
-      className={[
-        "relative shrink-0 border-b border-border bg-surface/95",
-        isMacPlatform ? "flex h-10 items-center px-3" : "flex h-9 items-center px-2",
-      ].join(" ")}
+      className="relative flex h-10 shrink-0 items-center border-b border-border bg-bg"
     >
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 z-20 h-1" />
 
       {isMacPlatform ? (
         <>
-          <div
-            data-window-control
-            className="absolute left-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-2"
-          >
+          <div data-window-control className="flex shrink-0 items-center gap-2 pr-4 pl-3.5">
             <MacWindowControlButton
               title={t("Close")}
               tone="danger"
@@ -373,24 +390,28 @@ export default function WindowTitleBar({ showAiPanel, onToggleAiPanel, isAiStrea
             </MacWindowControlButton>
           </div>
 
-          {titleContent}
+          {tabs}
+          {dragSpacer}
 
-          <div
-            data-window-control
-            className="absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center"
-          >
+          <div data-window-control className="flex shrink-0 items-center pr-3">
             <AiEntryButton active={showAiPanel} busy={isAiStreaming} onClick={onToggleAiPanel} />
           </div>
         </>
       ) : (
         <>
-          {titleContent}
+          <div data-tauri-drag-region className="flex h-full shrink-0 items-center pl-3.5">
+            <BrandMark />
+            <span data-tauri-drag-region className="mr-2 h-4 w-px bg-border" aria-hidden="true" />
+          </div>
 
-          <div data-window-control className="ml-3 flex items-center gap-2">
+          {tabs}
+          {dragSpacer}
+
+          <div data-window-control className="flex shrink-0 items-center pr-2">
             <AiEntryButton active={showAiPanel} busy={isAiStreaming} onClick={onToggleAiPanel} />
           </div>
 
-          <div data-window-control className="ml-2 flex items-center gap-1">
+          <div data-window-control className="flex h-full shrink-0 items-stretch">
             <WindowControlButton
               title={t("Minimize")}
               onClick={() => safeWindowAction(() => appWindow.minimize(), "minimize")}

@@ -1,3 +1,4 @@
+import StatusBar from "../layout/StatusBar";
 import TopToolbar from "../layout/TopToolbar";
 import UiNoticeStack from "../layout/UiNoticeStack";
 import WindowTitleBar from "../layout/WindowTitleBar";
@@ -29,6 +30,13 @@ export default function AppWorkspace({
     openFileContent,
     handleOpenFileContentChange,
     extensions,
+    sessions,
+    activeSessionId,
+    setActiveSessionId,
+    activeSession,
+    closeSession,
+    disconnectedSessions,
+    sshConfigs,
   } = workbench;
   const {
     sidebarCollapsed,
@@ -53,6 +61,12 @@ export default function AppWorkspace({
         showAiPanel={showAiPanel}
         onToggleAiPanel={() => setShowAiPanel((current) => !current)}
         isAiStreaming={acp.turnActive}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={setActiveSessionId}
+        onCloseSession={closeSession}
+        disconnectedSessions={disconnectedSessions}
+        onNewSession={onOpenSshConfig}
       />
       <UiNoticeStack notices={uiNotices} onDismiss={dismissUiNotice} />
 
@@ -70,8 +84,6 @@ export default function AppWorkspace({
           onToggleSftpPanel={() => setShowSftpPanel((prev) => !prev)}
           onToggleStatusPanel={() => setShowStatusPanel((prev) => !prev)}
           onToggleCommandDraftPanel={() => setShowCommandDraftPanel((prev) => !prev)}
-          busy={busy}
-          error={error}
           extensions={extensions}
           workbench={workbench}
         />
@@ -85,6 +97,7 @@ export default function AppWorkspace({
               showStatusPanel={showStatusPanel}
               showCommandDraftPanel={showCommandDraftPanel}
               onOpenFileEditor={onOpenFileEditor}
+              onOpenSshConfig={onOpenSshConfig}
             />
           </div>
 
@@ -103,6 +116,15 @@ export default function AppWorkspace({
           />
         </div>
       </div>
+
+      <StatusBar
+        activeSession={activeSession}
+        sshConfigs={sshConfigs}
+        disconnectedSessions={disconnectedSessions}
+        busy={busy}
+        error={error}
+        isAiStreaming={acp.turnActive}
+      />
 
       <FileEditorModal
         open={isFileEditorOpen}

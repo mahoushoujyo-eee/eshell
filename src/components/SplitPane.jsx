@@ -114,15 +114,18 @@ export default function SplitPane({
         {primary}
       </div>
 
+      {/* A 1px line with a 7px hit area: the pseudo-element overhangs both
+          neighbours, and z-10 keeps it above them. */}
       <button
         type="button"
         aria-label={isHorizontal ? "Resize columns" : "Resize rows"}
         className={[
-          "relative shrink-0 bg-border/80 transition-colors",
+          "relative z-10 shrink-0 transition-colors duration-150 before:absolute before:content-[''] hover:bg-accent/70",
+          dragging ? "bg-accent/70" : "bg-border",
           collapsed || collapseSecondary ? "pointer-events-none opacity-0" : "",
           isHorizontal
-            ? "w-px cursor-col-resize hover:bg-accent/80"
-            : "h-px cursor-row-resize hover:bg-accent/80",
+            ? "w-px cursor-col-resize before:inset-y-0 before:-right-[3px] before:-left-[3px]"
+            : "h-px cursor-row-resize before:inset-x-0 before:-top-[3px] before:-bottom-[3px]",
         ].join(" ")}
         onMouseDown={() => {
           if (!collapsed && !collapseSecondary) {

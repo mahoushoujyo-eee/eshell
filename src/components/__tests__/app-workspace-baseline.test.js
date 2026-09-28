@@ -168,7 +168,12 @@ describe("AppMainWorkspace bottom panel layout (pre-migration baseline)", () => 
       expect(stashMarkers.some((text) => text.includes("Command Draft"))).toBe(true);
 
       // 4. The terminal still renders and the bottom area collapses.
-      expect(mounted.container.textContent).toContain("prod-box");
+      expect(
+        findElement(
+          mounted.container,
+          (node) => typeof node.className === "string" && node.className.includes("terminal-host"),
+        ),
+      ).toBeTruthy();
       const rowsButtons = findElements(
         mounted.container,
         (node) => node.nodeName === "BUTTON" && node.getAttribute("aria-label") === "Resize rows",

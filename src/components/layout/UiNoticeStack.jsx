@@ -4,39 +4,15 @@ import { useI18n } from "../../lib/i18n";
 
 const noticeToneClass = (tone) => {
   if (tone === "success") {
-    return {
-      frame:
-        "border-[#6fcb95] bg-[#e9fff1] text-[#184c28] shadow-[0_18px_48px_rgba(36,136,74,0.18)]",
-      icon: "text-[#238245]",
-      button:
-        "border-[#75c896]/60 bg-white/80 text-[#238245] hover:border-[#5db883] hover:bg-white",
-    };
+    return { bar: "bg-success", icon: "text-success" };
   }
   if (tone === "warning") {
-    return {
-      frame:
-        "border-[#efc77a] bg-[#fff3d8] text-[#5f3e00] shadow-[0_18px_48px_rgba(138,90,0,0.2)]",
-      icon: "text-[#8a5a00]",
-      button:
-        "border-[#e1b95d]/80 bg-[#ffecc3] text-[#8a5a00] hover:border-[#d2a84a] hover:bg-[#ffe3af]",
-    };
+    return { bar: "bg-warning", icon: "text-warning" };
   }
   if (tone === "info") {
-    return {
-      frame:
-        "border-accent/45 bg-accent-soft/95 text-text shadow-[0_18px_48px_rgba(28,122,103,0.2)]",
-      icon: "text-accent",
-      button:
-        "border-accent/30 bg-white/65 text-accent hover:border-accent/45 hover:bg-white/80",
-    };
+    return { bar: "bg-info", icon: "text-info" };
   }
-  return {
-    frame:
-      "border-danger/55 bg-[#ffe9e4] text-[#6e2b20] shadow-[0_18px_48px_rgba(194,72,50,0.22)]",
-    icon: "text-danger",
-    button:
-      "border-danger/30 bg-white/75 text-danger hover:border-danger/45 hover:bg-white",
-  };
+  return { bar: "bg-danger", icon: "text-danger" };
 };
 
 const NoticeIcon = ({ tone }) => {
@@ -117,56 +93,45 @@ export default function UiNoticeStack({ notices, onDismiss }) {
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-14 z-80 flex justify-center px-3 sm:px-6">
-      <div className="w-full max-w-2xl space-y-2">
-        {notices.map((notice) => {
-          const tone = notice?.tone || "danger";
-          const text = String(notice?.message || "").trim();
-          if (!notice?.id || !text) {
-            return null;
-          }
+    <div className="pointer-events-none fixed right-3 bottom-9 z-80 flex w-[min(380px,calc(100vw-1.5rem))] flex-col gap-2">
+      {notices.map((notice) => {
+        const tone = notice?.tone || "danger";
+        const text = String(notice?.message || "").trim();
+        if (!notice?.id || !text) {
+          return null;
+        }
 
-          const toneClass = noticeToneClass(tone);
-          return (
-            <section
-              key={notice.id}
-              className={[
-                "pointer-events-auto rounded-2xl border px-3 py-2.5 backdrop-blur-[2px]",
-                toneClass.frame,
-              ].join(" ")}
-              role={tone === "danger" || tone === "warning" ? "alert" : "status"}
-            >
-              <div className="flex items-start gap-2">
-                <span
-                  className={[
-                    "mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-current/20 bg-white/45",
-                    toneClass.icon,
-                  ].join(" ")}
-                >
-                  <NoticeIcon tone={tone} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-80">
-                    {titleByTone[tone] || titleByTone.danger}
-                  </div>
-                  <p className="mt-1 break-words text-sm leading-5">{text}</p>
+        const toneClass = noticeToneClass(tone);
+        return (
+          <section
+            key={notice.id}
+            className="pointer-events-auto relative overflow-hidden rounded-lg border border-border bg-elevated py-2.5 pr-2 pl-4 text-text shadow-overlay animate-[es-dialog-in_160ms_ease-out]"
+            role={tone === "danger" || tone === "warning" ? "alert" : "status"}
+          >
+            <span className={["absolute inset-y-0 left-0 w-[3px]", toneClass.bar].join(" ")} aria-hidden="true" />
+            <div className="flex items-start gap-2.5">
+              <span className={["mt-0.5 shrink-0", toneClass.icon].join(" ")}>
+                <NoticeIcon tone={tone} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold text-text">
+                  {titleByTone[tone] || titleByTone.danger}
                 </div>
-                <button
-                  type="button"
-                  className={[
-                    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border transition-colors",
-                    toneClass.button,
-                  ].join(" ")}
-                  onClick={() => onDismiss(notice.id)}
-                  title={t("Dismiss")}
-                >
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </button>
+                <p className="mt-0.5 break-words text-xs leading-5 text-muted">{text}</p>
               </div>
-            </section>
-          );
-        })}
-      </div>
+              <button
+                type="button"
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-hover hover:text-text"
+                onClick={() => onDismiss(notice.id)}
+                title={t("Dismiss")}
+                aria-label={t("Dismiss")}
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

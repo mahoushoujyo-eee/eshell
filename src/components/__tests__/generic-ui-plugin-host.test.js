@@ -81,6 +81,19 @@ import {
 } from "../../test/fake-dom.js";
 import { fireClick, render } from "../../test/react-render.js";
 import { makeAcp, makeUi, makeWorkbench } from "../../test/workbench-fixtures.js";
+
+/** Rail buttons show the panel name; the show/hide action is their tooltip. */
+const buttonTitles = (root) =>
+  findElements(root, (node) => node.nodeName === "BUTTON")
+    .map((node) => node.getAttribute("title") || "")
+    .join("|");
+
+/** The terminal frame, present whether or not a session is connected. */
+const terminalHost = (root) =>
+  findElement(
+    root,
+    (node) => typeof node.className === "string" && node.className.includes("terminal-host"),
+  );
 import { registerBuiltinPlugins } from "../../plugins/index.jsx";
 import { setPluginHostContext } from "../../plugins/context.js";
 import {
@@ -486,8 +499,8 @@ describe("generic UI: toolbar contributions", () => {
       expect(thirdButton).toBeTruthy();
 
       // SFTP keeps the original label; the draft toggle stays app chrome.
-      expect(mounted.container.textContent).toContain("SFTP panel");
-      expect(mounted.container.textContent).toContain("Show command draft");
+      expect(buttonTitles(mounted.container)).toContain("SFTP panel");
+      expect(buttonTitles(mounted.container)).toContain("Show command draft");
 
       // Clicking the new button toggles through the generic map.
       fireClick(thirdButton);
@@ -533,8 +546,8 @@ describe("generic UI: toolbar contributions", () => {
       );
       expect(mounted.container.textContent.includes("com.example.third panel")).toBe(false);
       // Builtin buttons stay.
-      expect(mounted.container.textContent).toContain("SFTP panel");
-      expect(mounted.container.textContent).toContain("status panel");
+      expect(buttonTitles(mounted.container)).toContain("SFTP panel");
+      expect(buttonTitles(mounted.container)).toContain("status panel");
       await mounted.unmount();
     } finally {
       uninstallFakeDom();
@@ -708,7 +721,7 @@ describe("generic UI: controller hosts and stores", () => {
 
       // The terminal and builtin dock survive; the crashed panel shows the
       // placeholder instead of blanking the workspace.
-      expect(mounted.container.textContent).toContain("prod-box");
+      expect(terminalHost(mounted.container)).toBeTruthy();
       expect(mounted.container.textContent).toContain("Crash Panel");
 
       cleanups.forEach((fn) => fn());
@@ -1134,15 +1147,9 @@ describe("generic UI: activation generations (StrictMode, rapid off/on)", () => 
       await act(async () => {});
       expect(container.textContent).toContain("clicks:0");
 
-      // The terminal is identified by the active session's config name ("box"
-      // from the mocked list_shell_sessions) on the terminal root section.
-      const terminalCount = () =>
-        findElements(
-          container,
-          (node) => node.textContent.includes("box") && node.className?.includes("bg-panel"),
-        ).length;
-      const terminalBefore = terminalCount();
-      expect(terminalBefore).toBeGreaterThanOrEqual(1);
+      // The terminal frame node: a remount would replace it with a new one.
+      const terminalBefore = terminalHost(container);
+      expect(terminalBefore).toBeTruthy();
 
       // Rapid off/on inside one act batch. The registry's contract: the id
       // must be released before it can be re-registered (a second
@@ -1183,8 +1190,8 @@ describe("generic UI: activation generations (StrictMode, rapid off/on)", () => 
       expect(container.textContent).toContain("clicks:0");
       expect(container.textContent).toContain("api:com.example.third");
 
-      // The core terminal did not remount: the same terminal host count.
-      expect(terminalCount()).toBe(terminalBefore);
+      // The core terminal did not remount: the very same terminal host node.
+      expect(terminalHost(container)).toBe(terminalBefore);
 
       // Teardown order (see the StrictMode test above): unregister inside
       // this turn, flush the registry notifications' scheduled React work
