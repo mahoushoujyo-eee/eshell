@@ -1,6 +1,8 @@
 import { cx } from "./cx";
 
 const SIZES = {
+  // Fits inside the 32px panel header.
+  "2xs": "h-5 px-1.5 text-[11px]",
   xs: "h-6 px-2 text-[11px]",
   sm: "h-7 px-2.5 text-xs",
 };
@@ -39,8 +41,8 @@ export default function SegmentedControl({
                 ? "bg-elevated font-medium text-text shadow-[0_1px_2px_rgba(0,0,0,0.12)] ring-1 ring-border"
                 : "text-muted hover:text-text",
             )}
-            title={option.title}
             aria-pressed={active}
+            title={option.title}
             onClick={() => onChange?.(option.id)}
           >
             {OptionIcon ? <OptionIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}

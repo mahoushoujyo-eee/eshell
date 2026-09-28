@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { NotebookPen, Send } from "lucide-react";
 import { useI18n } from "../../lib/i18n";
+import Button from "../ui/Button";
+import PanelHeader from "../ui/PanelHeader";
 
 export default function CommandDraftPanel({
   activeSessionId,
@@ -31,17 +33,19 @@ export default function CommandDraftPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-panel text-xs">
-      <div className="flex items-center justify-between border-b border-border px-2 py-2">
-        <div className="inline-flex items-center gap-2 text-sm font-semibold">
-          <NotebookPen className="h-4 w-4 text-accent" aria-hidden="true" />
-          {t("Command Draft")}
-        </div>
-        <span className="text-muted">Ctrl+Enter</span>
-      </div>
+      <PanelHeader
+        icon={NotebookPen}
+        title={t("Command Draft")}
+        actions={
+          <kbd className="rounded border border-border bg-surface px-1.5 font-mono text-[10.5px] leading-4 text-muted">
+            Ctrl+Enter
+          </kbd>
+        }
+      />
 
-      <div className="min-h-0 flex-1 p-2">
+      <div className="min-h-0 flex-1">
         <textarea
-          className="h-full w-full resize-none border border-transparent bg-transparent px-2 py-2 font-mono text-sm text-text placeholder:text-muted focus:outline-none"
+          className="scroll-region h-full w-full resize-none bg-transparent px-3 py-2.5 font-mono text-[12.5px] leading-relaxed text-text placeholder:text-subtle focus:outline-none disabled:cursor-not-allowed"
           placeholder={
             activeSessionId
               ? t("Draft commands here, one line per command...")
@@ -55,7 +59,7 @@ export default function CommandDraftPanel({
         />
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-border px-2 py-2">
+      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-t border-border px-2.5">
         <label className="inline-flex cursor-pointer items-center gap-1.5 text-muted select-none">
           <input
             type="checkbox"
@@ -65,15 +69,10 @@ export default function CommandDraftPanel({
           />
           {t("Clear after send")}
         </label>
-        <button
-          type="button"
-          disabled={!canSend}
-          className="inline-flex items-center gap-1.5 rounded-md border border-accent bg-accent px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40"
-          onClick={handleSend}
-        >
-          <Send className="h-4 w-4" aria-hidden="true" />
+        <Button variant="primary" size="sm" disabled={!canSend} onClick={handleSend}>
+          <Send className="h-3.5 w-3.5" aria-hidden="true" />
           {t("Send")}
-        </button>
+        </Button>
       </div>
     </div>
   );

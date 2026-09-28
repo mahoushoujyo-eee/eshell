@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Clock3, Gpu, HardDrive, List } from "lucide-react";
 import { useI18n } from "../../lib/i18n";
+import PanelHeader from "../../components/ui/PanelHeader";
+import SegmentedControl from "../../components/ui/SegmentedControl";
 import StatusResourceBars from "./components/StatusResourceBars";
 import StatusTrafficPanel from "./components/StatusTrafficPanel";
 
@@ -25,53 +27,38 @@ const parsePercent = (value) => {
   return Math.min(100, Math.max(0, numeric));
 };
 
-function DetailSwitchButton({ active, icon: Icon, label, count, onClick }) {
-  return (
-    <button
-      type="button"
-      className={[
-        "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
-        active
-          ? "border-accent bg-accent text-white"
-          : "border-border bg-surface text-muted hover:bg-accent-soft hover:text-text",
-      ].join(" ")}
-      onClick={onClick}
-    >
-      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-      <span>{label}</span>
-      <span className={active ? "text-white/80" : "text-muted/80"}>{count}</span>
-    </button>
-  );
-}
+const PROCESS_GRID = "grid grid-cols-[64px_60px_92px_minmax(0,1fr)] gap-2";
 
 function ProcessesView({ rows = [] }) {
   const { t } = useI18n();
 
   if (!rows.length) {
-    return <div className="px-3 py-4 text-sm text-muted">{t("No process data")}</div>;
+    return <div className="px-3 py-4 text-xs text-muted">{t("No process data")}</div>;
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <div className="sticky top-0 z-10 grid grid-cols-[72px_64px_96px_minmax(0,1fr)] gap-2 border-b border-border bg-panel px-3 py-2 text-[10px] font-semibold tracking-[0.14em] text-muted uppercase">
+    <div className="scroll-region min-h-0 flex-1 overflow-auto">
+      <div
+        className={`${PROCESS_GRID} sticky top-0 z-10 h-6 items-center border-b border-border bg-panel px-3 text-[11px] font-medium text-subtle`}
+      >
         <span>PID</span>
         <span>{t("CPU")}</span>
         <span>{t("Memory (MB)")}</span>
         <span>{t("Command")}</span>
       </div>
 
-      <div className="px-2 py-2">
+      <div className="px-1 py-1">
         {rows.map((proc) => (
           <div
             key={`${proc.pid}-${proc.command}`}
-            className="grid grid-cols-[72px_64px_96px_minmax(0,1fr)] gap-2 rounded-md border-b border-border/45 px-1 py-2 text-sm"
+            className={`${PROCESS_GRID} h-7 items-center rounded-md px-2 text-xs transition-colors hover:bg-hover`}
           >
-            <span className="tabular-nums text-text">{proc.pid}</span>
-            <span className="tabular-nums text-muted">{proc.cpuPercent}%</span>
-            <span className="tabular-nums text-muted">
+            <span className="font-mono text-[11px] text-muted tabular-nums">{proc.pid}</span>
+            <span className="text-text tabular-nums">{proc.cpuPercent}%</span>
+            <span className="text-muted tabular-nums">
               {Number.isFinite(Number(proc.memoryMb)) ? `${Number(proc.memoryMb).toFixed(1)} MB` : "-"}
             </span>
-            <span className="truncate font-medium text-text" title={proc.command}>
+            <span className="truncate text-text" title={proc.command}>
               {proc.command}
             </span>
           </div>
@@ -81,46 +68,47 @@ function ProcessesView({ rows = [] }) {
   );
 }
 
+const usageTone = (percent) => (percent >= 90 ? "bg-danger" : percent >= 75 ? "bg-warning" : "bg-accent");
+
 function DisksView({ rows = [] }) {
   const { t } = useI18n();
 
   if (!rows.length) {
-    return <div className="px-3 py-4 text-sm text-muted">{t("No disk data")}</div>;
+    return <div className="px-3 py-4 text-xs text-muted">{t("No disk data")}</div>;
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
-      <div className="space-y-2">
-        {rows.map((disk) => {
-          const usedPercent = parsePercent(disk.usedPercent);
-          const toneClass =
-            usedPercent >= 90 ? "bg-danger" : usedPercent >= 75 ? "bg-warning" : "bg-accent";
+    <div className="scroll-region min-h-0 flex-1 overflow-auto px-1 py-1">
+      {rows.map((disk) => {
+        const usedPercent = parsePercent(disk.usedPercent);
 
-          return (
-            <div key={`${disk.filesystem}-${disk.mountPoint}`} className="rounded-lg border border-border/70 bg-surface/20 px-3 py-2">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{disk.mountPoint}</div>
-                  <div className="truncate text-[10px] text-muted">{disk.filesystem}</div>
-                </div>
-
-                <div className="shrink-0 text-right">
-                  <div className="text-sm font-medium tabular-nums">
-                    {disk.used}/{disk.total}
-                  </div>
-                  <div className="text-[10px] text-muted">
-                    {disk.usedPercent} {t("used")}
-                  </div>
-                </div>
+        return (
+          <div
+            key={`${disk.filesystem}-${disk.mountPoint}`}
+            className="rounded-md px-2 py-2 transition-colors hover:bg-hover"
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span className="truncate font-mono text-xs font-medium text-text">{disk.mountPoint}</span>
+                <span className="truncate text-[11px] text-subtle">{disk.filesystem}</span>
               </div>
-
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-warm">
-                <div className={["h-full rounded-full", toneClass].join(" ")} style={{ width: `${usedPercent}%` }} />
+              <div className="shrink-0 text-xs text-muted tabular-nums">
+                <span className="text-text">
+                  {disk.used}/{disk.total}
+                </span>{" "}
+                · {disk.usedPercent} {t("used")}
               </div>
             </div>
-          );
-        })}
-      </div>
+
+            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-warm">
+              <div
+                className={["h-full rounded-full", usageTone(usedPercent)].join(" ")}
+                style={{ width: `${usedPercent}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -131,10 +119,10 @@ function MetricBar({ label, value, percent, tone = "bg-accent" }) {
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[10px] text-muted">{label}</span>
-        <span className="text-[11px] font-medium tabular-nums text-text">{value}</span>
+        <span className="text-[11px] text-muted">{label}</span>
+        <span className="text-[11px] font-medium text-text tabular-nums">{value}</span>
       </div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-warm">
+      <div className="mt-1 h-1 overflow-hidden rounded-full bg-warm">
         {safePercent === null ? null : (
           <div className={["h-full rounded-full", tone].join(" ")} style={{ width: `${safePercent}%` }} />
         )}
@@ -148,7 +136,7 @@ function GpusView({ rows = [], formatMemoryGb }) {
 
   if (!rows.length) {
     return (
-      <div className="px-3 py-4 text-sm text-muted">
+      <div className="px-3 py-4 text-xs text-muted">
         {t("No NVIDIA GPU detected on this host.")}
       </div>
     );
@@ -158,7 +146,7 @@ function GpusView({ rows = [], formatMemoryGb }) {
     Number.isFinite(Number(value)) ? `${Number(value).toFixed(digits)}${unit}` : "-";
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
+    <div className="scroll-region min-h-0 flex-1 overflow-auto px-2 py-2">
       <div className="space-y-2">
         {rows.map((gpu) => {
           const usedMb = Number(gpu.memoryUsedMb);
@@ -187,13 +175,13 @@ function GpusView({ rows = [], formatMemoryGb }) {
           const processes = Array.isArray(gpu.processes) ? gpu.processes : [];
 
           return (
-            <div key={gpu.index} className="rounded-lg border border-border/70 bg-surface/20 px-3 py-2">
+            <div key={gpu.index} className="rounded-lg border border-border bg-surface px-3 py-2">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold" title={gpu.name}>
+                  <div className="truncate text-xs font-semibold" title={gpu.name}>
                     {gpu.name}
                   </div>
-                  <div className="text-[10px] text-muted">
+                  <div className="text-[11px] text-muted">
                     GPU {gpu.index}
                     {Number.isFinite(Number(gpu.temperatureC))
                       ? ` · ${formatNumber(gpu.temperatureC, "°C")}`
@@ -234,7 +222,7 @@ function GpusView({ rows = [], formatMemoryGb }) {
                 />
               </div>
 
-              <div className="mt-2 border-t border-border/45 pt-2">
+              <div className="mt-2 border-t border-border pt-2">
                 {processes.length ? (
                   <div className="space-y-1">
                     {processes.map((proc) => (
@@ -242,7 +230,7 @@ function GpusView({ rows = [], formatMemoryGb }) {
                         key={`${gpu.index}-${proc.pid}-${proc.command}`}
                         className="grid grid-cols-[64px_84px_minmax(0,1fr)] items-baseline gap-2 text-[11px]"
                       >
-                        <span className="tabular-nums text-text">{proc.pid}</span>
+                        <span className="font-mono text-muted tabular-nums">{proc.pid}</span>
                         <span className="tabular-nums text-muted">
                           {Number.isFinite(Number(proc.memoryMb))
                             ? `${Number(proc.memoryMb).toFixed(0)} MB`
@@ -360,41 +348,33 @@ export default function StatusPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-panel text-xs">
-      <div className="flex items-center justify-between border-b border-border px-2 py-2">
-        <div className="inline-flex items-center gap-2 text-sm font-semibold">
-          <Activity className="h-4 w-4 text-accent" aria-hidden="true" />
-          {t("Server Status")}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded border border-border">
-            {INTERVAL_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                className={[
-                  "px-1.5 py-0.5 text-[10px] font-medium transition-colors first:rounded-l last:rounded-r",
-                  refreshInterval === opt.value
-                    ? "bg-accent text-white"
-                    : "text-muted hover:bg-accent-soft/70",
-                ].join(" ")}
-                onClick={() => {
-                  onRefreshIntervalChange?.(opt.value);
-                  window.localStorage?.setItem("eshell:status-refresh-interval", String(opt.value));
-                }}
-                title={t("Refresh every {interval}", { interval: opt.label })}
-              >
-                {opt.label}
-              </button>
-            ))}
+      <PanelHeader
+        icon={Activity}
+        title={t("Server Status")}
+        actions={
+          <div className="flex items-center gap-2">
+            {currentStatus?.fetchedAt && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-muted tabular-nums">
+                <Clock3 className="h-3 w-3" aria-hidden="true" />
+                {new Date(currentStatus.fetchedAt).toLocaleTimeString(localeTag)}
+              </span>
+            )}
+            <SegmentedControl
+              size="2xs"
+              value={refreshInterval}
+              onChange={(value) => {
+                onRefreshIntervalChange?.(value);
+                window.localStorage?.setItem("eshell:status-refresh-interval", String(value));
+              }}
+              options={INTERVAL_OPTIONS.map((opt) => ({
+                id: opt.value,
+                label: opt.label,
+                title: t("Refresh every {interval}", { interval: opt.label }),
+              }))}
+            />
           </div>
-          {currentStatus?.fetchedAt && (
-            <span className="inline-flex items-center gap-1 text-muted">
-              <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
-              {new Date(currentStatus.fetchedAt).toLocaleTimeString(localeTag)}
-            </span>
-          )}
-        </div>
-      </div>
+        }
+      />
 
       {!currentStatus && (
         <div className="flex flex-1 items-center justify-center text-muted">{t("No status data")}</div>
@@ -413,35 +393,37 @@ export default function StatusPanel({
             formatBytes={formatBytes}
           />
 
-          <div className="flex min-h-0 flex-1 flex-col border-t border-border/40">
-            <div className="flex items-center justify-between border-b border-border bg-surface/20 px-2 py-2">
-              <div className="text-[11px] font-semibold tracking-[0.18em] text-muted uppercase">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
+              <div className="text-[11px] font-semibold tracking-[0.08em] text-subtle uppercase">
                 {t("Detail Focus")}
               </div>
 
-              <div className="inline-flex items-center gap-1">
-                <DetailSwitchButton
-                  active={detailView === DETAIL_VIEW.processes}
-                  icon={List}
-                  label={t("Processes")}
-                  count={currentStatus.topProcesses?.length || 0}
-                  onClick={() => setDetailView(DETAIL_VIEW.processes)}
-                />
-                <DetailSwitchButton
-                  active={detailView === DETAIL_VIEW.disks}
-                  icon={HardDrive}
-                  label={t("Disks")}
-                  count={currentStatus.disks?.length || 0}
-                  onClick={() => setDetailView(DETAIL_VIEW.disks)}
-                />
-                <DetailSwitchButton
-                  active={detailView === DETAIL_VIEW.gpus}
-                  icon={Gpu}
-                  label={t("GPU")}
-                  count={currentStatus.gpus?.length || 0}
-                  onClick={() => setDetailView(DETAIL_VIEW.gpus)}
-                />
-              </div>
+              <SegmentedControl
+                size="xs"
+                value={detailView}
+                onChange={setDetailView}
+                options={[
+                  {
+                    id: DETAIL_VIEW.processes,
+                    label: t("Processes"),
+                    icon: List,
+                    trailing: currentStatus.topProcesses?.length || 0,
+                  },
+                  {
+                    id: DETAIL_VIEW.disks,
+                    label: t("Disks"),
+                    icon: HardDrive,
+                    trailing: currentStatus.disks?.length || 0,
+                  },
+                  {
+                    id: DETAIL_VIEW.gpus,
+                    label: t("GPU"),
+                    icon: Gpu,
+                    trailing: currentStatus.gpus?.length || 0,
+                  },
+                ]}
+              />
             </div>
 
             {detailView === DETAIL_VIEW.disks ? (

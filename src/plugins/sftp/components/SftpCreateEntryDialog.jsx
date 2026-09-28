@@ -1,7 +1,11 @@
-import { Loader2 } from "lucide-react";
+import { File, Folder, FolderPlus, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../../lib/i18n";
 import { joinPath } from "../../../utils/path";
+import Button from "../../../components/ui/Button";
+import Dialog, { DialogBody, DialogFooter, DialogHeader } from "../../../components/ui/Dialog";
+import SegmentedControl from "../../../components/ui/SegmentedControl";
+import { inputClass } from "../../../components/ui/fieldClasses";
 
 const isValidRemoteEntryName = (value) => {
   const name = String(value || "").trim();
@@ -37,22 +41,6 @@ export default function SftpCreateEntryDialog({
     }, 0);
   }, [entryType, open]);
 
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape" && !busy) {
-        event.preventDefault();
-        onCancel?.();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, onCancel, open]);
-
   // Switching type swaps the suggested name, but never discards a name the user
   // typed themselves.
   const selectType = (nextType) => {
@@ -71,10 +59,6 @@ export default function SftpCreateEntryDialog({
     [currentPath, trimmedName],
   );
 
-  if (!open) {
-    return null;
-  }
-
   const submit = (event) => {
     event.preventDefault();
     if (busy || !isValidRemoteEntryName(trimmedName)) {
@@ -83,91 +67,66 @@ export default function SftpCreateEntryDialog({
     onConfirm?.(trimmedName, type);
   };
 
-  const typeButtonClass = (buttonType) =>
-    [
-      "rounded border px-2 py-1.5 text-xs transition-colors disabled:opacity-60",
-      type === buttonType ? "border-accent bg-accent-soft text-accent" : "border-border",
-    ].join(" ");
-
   return (
-    <div
-      className="fixed inset-0 z-60 flex items-center justify-center bg-black/45 p-4"
-      onClick={busy ? undefined : onCancel}
+    <Dialog
+      open={open}
+      onClose={onCancel}
+      dismissible={!busy}
+      layer="stacked"
+      size="sm"
+      labelledBy="sftp-create-entry-title"
     >
-      <form
-        className="w-full max-w-md rounded-2xl border border-border/80 bg-panel p-4 shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-        onSubmit={submit}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="sftp-create-entry-title"
-      >
-        <h3 id="sftp-create-entry-title" className="text-base font-semibold text-text">
-          {t("New")}
-        </h3>
-
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            className={typeButtonClass("file")}
-            onClick={() => selectType("file")}
-            disabled={busy}
-            aria-pressed={type === "file"}
-          >
-            {t("File")}
-          </button>
-          <button
-            type="button"
-            className={typeButtonClass("directory")}
-            onClick={() => selectType("directory")}
-            disabled={busy}
-            aria-pressed={type === "directory"}
-          >
-            {t("Folder")}
-          </button>
-        </div>
-
-        <input
-          ref={inputRef}
-          className={[
-            "mt-2 w-full rounded border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent",
-            invalidName ? "border-danger" : "border-border",
-          ].join(" ")}
-          placeholder={type === "directory" ? t("Folder name") : t("File name")}
-          aria-label={type === "directory" ? t("Folder name") : t("File name")}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          disabled={busy}
-          aria-invalid={invalidName}
+      <form className="flex min-h-0 flex-col" onSubmit={submit}>
+        <DialogHeader
+          icon={FolderPlus}
+          tone="accent"
+          title={t("New")}
+          titleId="sftp-create-entry-title"
+          onClose={onCancel}
+          closeDisabled={busy}
         />
-
-        <div className="mt-1.5 min-h-4 break-all text-xs">
-          {invalidName ? (
-            <span className="text-danger">{t("Use a name without slashes.")}</span>
-          ) : (
-            <span className="text-muted">{t("Remote path: {path}", { path: targetPath })}</span>
-          )}
-        </div>
-
-        <div className="mt-3 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            className="rounded border border-border px-2 py-1 text-xs text-muted transition-colors hover:bg-accent-soft disabled:opacity-60"
-            onClick={onCancel}
-            disabled={busy}
-          >
+        <DialogBody className="space-y-3">
+          <SegmentedControl
+            size="sm"
+            value={type}
+            onChange={selectType}
+            options={[
+              { id: "file", label: t("File"), icon: File },
+              { id: "directory", label: t("Folder"), icon: Folder },
+            ]}
+          />
+          <div className="space-y-1.5">
+            <input
+              ref={inputRef}
+              className={[inputClass, invalidName ? "border-danger focus:border-danger focus:ring-danger/20" : ""].join(" ")}
+              placeholder={type === "directory" ? t("Folder name") : t("File name")}
+              aria-label={type === "directory" ? t("Folder name") : t("File name")}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              disabled={busy}
+              aria-invalid={invalidName}
+            />
+            <div className="min-h-4 text-xs break-all">
+              {invalidName ? (
+                <span className="text-danger">{t("Use a name without slashes.")}</span>
+              ) : (
+                <span className="font-mono text-[11px] text-muted">
+                  {t("Remote path: {path}", { path: targetPath })}
+                </span>
+              )}
+            </div>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>
             {t("Cancel")}
-          </button>
-          <button
-            type="submit"
-            className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-            disabled={busy || !isValidRemoteEntryName(trimmedName)}
-          >
+          </Button>
+          <Button type="submit" variant="primary" disabled={busy || !isValidRemoteEntryName(trimmedName)}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
             {busy ? t("Creating...") : t("Create")}
-          </button>
-        </div>
+          </Button>
+        </DialogFooter>
       </form>
-    </div>
+    </Dialog>
   );
 }

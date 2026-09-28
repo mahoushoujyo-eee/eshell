@@ -8,22 +8,28 @@ import {
   FileQuestion,
   Folder,
   Link2,
+  Search,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../lib/i18n";
+import { IconButton } from "../../../components/ui/Button";
+import { inputSmClass } from "../../../components/ui/fieldClasses";
 
 const renderEntryIcon = (entryType) => {
   switch (entryType) {
     case "directory":
-      return <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />;
+      return <Folder className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />;
     case "symlink":
-      return <Link2 className="h-3.5 w-3.5 shrink-0 text-sky-500" aria-hidden="true" />;
+      return <Link2 className="h-3.5 w-3.5 shrink-0 text-info" aria-hidden="true" />;
     case "file":
-      return <File className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />;
+      return <File className="h-3.5 w-3.5 shrink-0 text-subtle" aria-hidden="true" />;
     default:
-      return <FileQuestion className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />;
+      return <FileQuestion className="h-3.5 w-3.5 shrink-0 text-subtle" aria-hidden="true" />;
   }
 };
+
+const HEADER_CELL =
+  "flex items-center gap-0.5 text-[11px] font-medium text-subtle transition-colors hover:text-text";
 
 const formatModifiedAt = (modifiedAt) => {
   if (!modifiedAt) return "-";
@@ -99,48 +105,41 @@ export default function SftpEntriesPane({
   }, [sftpEntries, showHidden, filterText, sortField, sortAsc]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden text-xs">
-      <div className="space-y-1.5 border-b border-border bg-surface/40 px-2 py-1.5">
-        <div className="truncate text-muted" title={currentPath}>
+    <div className="flex h-full flex-col overflow-hidden bg-panel text-xs">
+      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2">
+        <div className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted" title={currentPath}>
           {t("Path: {path}", { path: currentPath })}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="relative w-[42%] max-w-52 min-w-24">
+          <Search
+            className="pointer-events-none absolute top-1/2 left-2 h-3 w-3 -translate-y-1/2 text-subtle"
+            aria-hidden="true"
+          />
           <input
-            className="min-w-0 flex-1 rounded border border-border bg-surface px-1.5 py-0.5 text-xs placeholder:text-muted/50 focus:outline-none focus:ring-1 focus:ring-accent/40"
+            className={`${inputSmClass} h-6 pl-6`}
             placeholder={t("Filter...")}
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
           />
-          <button
-            type="button"
-            className={[
-              "inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 transition-colors",
-              showHidden
-                ? "border-accent bg-accent-soft text-accent"
-                : "border-border text-muted hover:bg-accent-soft/60",
-            ].join(" ")}
-            onClick={() => setShowHidden((prev) => !prev)}
-            title={showHidden ? t("Hide dotfiles") : t("Show dotfiles")}
-          >
-            {showHidden
-              ? <Eye className="h-3 w-3" aria-hidden="true" />
-              : <EyeOff className="h-3 w-3" aria-hidden="true" />}
-          </button>
         </div>
+        <IconButton
+          label={showHidden ? t("Hide dotfiles") : t("Show dotfiles")}
+          size="xs"
+          active={showHidden}
+          onClick={() => setShowHidden((prev) => !prev)}
+        >
+          {showHidden ? <Eye className="h-3.5 w-3.5" aria-hidden="true" /> : <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />}
+        </IconButton>
       </div>
 
-      <div className="flex shrink-0 items-center border-b border-border bg-surface/60 px-2 py-0.5">
-        <button
-          type="button"
-          className="flex flex-1 items-center gap-0.5 text-left text-[10px] font-medium text-muted hover:text-foreground"
-          onClick={() => handleSortClick("name")}
-        >
+      <div className="flex h-6 shrink-0 items-center border-b border-border px-2.5">
+        <button type="button" className={`${HEADER_CELL} flex-1 text-left`} onClick={() => handleSortClick("name")}>
           {t("Name")}
           <SortIcon active={sortField === "name"} asc={sortAsc} />
         </button>
         <button
           type="button"
-          className="flex w-16 shrink-0 items-center justify-end gap-0.5 text-[10px] font-medium text-muted hover:text-foreground"
+          className={`${HEADER_CELL} w-16 shrink-0 justify-end`}
           onClick={() => handleSortClick("size")}
         >
           {t("Size")}
@@ -148,7 +147,7 @@ export default function SftpEntriesPane({
         </button>
         <button
           type="button"
-          className="flex w-20 shrink-0 items-center justify-end gap-0.5 text-[10px] font-medium text-muted hover:text-foreground"
+          className={`${HEADER_CELL} w-24 shrink-0 justify-end`}
           onClick={() => handleSortClick("modifiedAt")}
         >
           {t("Modified")}
@@ -156,9 +155,9 @@ export default function SftpEntriesPane({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto bg-surface/20">
+      <div className="scroll-region min-h-0 flex-1 overflow-auto px-1 py-1">
         {displayedEntries.length === 0 && (
-          <div className="py-8 text-center text-[10px] text-muted/50">
+          <div className="py-8 text-center text-[11px] text-subtle">
             {filterText.trim()
               ? t("No entries match the filter")
               : t("Empty directory")}
@@ -169,22 +168,22 @@ export default function SftpEntriesPane({
             key={entry.path}
             type="button"
             className={[
-              "flex w-full items-center border-b border-border/60 px-2 py-1.5 text-left transition-colors hover:bg-accent-soft/60",
-              selectedEntry?.path === entry.path ? "bg-accent-soft/70" : "",
+              "flex h-[26px] w-full items-center rounded-md px-1.5 text-left transition-colors duration-100",
+              selectedEntry?.path === entry.path ? "bg-accent-soft text-text" : "text-text/90 hover:bg-hover",
             ].join(" ")}
             onClick={() => selectSftpEntry?.(entry)}
             onDoubleClick={() => void openSftpEntry(entry)}
             onContextMenu={(event) => openEntryContextMenu?.(entry, event)}
             title={`${entry.path}\n${t("Double-click to open")}`}
           >
-            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="flex min-w-0 flex-1 items-center gap-2">
               {renderEntryIcon(entry.entryType)}
               <span className="truncate">{entry.name}</span>
             </span>
-            <span className="w-16 shrink-0 text-right text-[10px] text-muted">
+            <span className="w-16 shrink-0 text-right text-[11px] text-muted tabular-nums">
               {entry.entryType === "directory" ? "-" : formatBytes(entry.size)}
             </span>
-            <span className="w-20 shrink-0 text-right text-[10px] text-muted">
+            <span className="w-24 shrink-0 text-right text-[11px] text-muted tabular-nums">
               {formatModifiedAt(entry.modifiedAt)}
             </span>
           </button>

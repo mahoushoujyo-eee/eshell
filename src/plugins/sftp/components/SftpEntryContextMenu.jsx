@@ -3,8 +3,12 @@ import { useEffect, useMemo, useRef } from "react";
 import { useI18n } from "../../../lib/i18n";
 
 const MENU_WIDTH = 204;
-const MENU_HEIGHT = 244;
+const MENU_HEIGHT = 228;
 const VIEWPORT_PADDING = 12;
+
+const MENU_ITEM =
+  "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-text transition-colors duration-100 hover:bg-hover";
+const MENU_ICON = "h-3.5 w-3.5 text-muted";
 
 export default function SftpEntryContextMenu({
   open,
@@ -87,69 +91,49 @@ export default function SftpEntryContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 w-[204px] rounded-[22px] border border-border/85 bg-panel/98 p-2 shadow-[0_22px_60px_rgba(34,26,16,0.22)] ring-1 ring-white/45 backdrop-blur-[6px]"
+      className="fixed z-50 w-[204px] rounded-lg border border-border bg-elevated p-1 shadow-overlay animate-[es-fade-in_100ms_ease-out]"
       style={style}
       role="menu"
       aria-label={t("Actions for {name}", { name: fileLabel })}
     >
-      <div className="border-b border-border/70 px-2 pb-2">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted/80">
+      <div className="px-2 pt-1 pb-1.5">
+        <div className="text-[10.5px] font-medium text-subtle">
           {isDirectory ? t("Folder Actions") : t("File Actions")}
         </div>
-        <div className="mt-1 truncate text-sm font-medium text-text" title={entry.path}>
+        <div className="truncate text-xs font-medium text-text" title={entry.path}>
           {fileLabel}
         </div>
       </div>
+      <div className="mx-1 mb-1 h-px bg-border" aria-hidden="true" />
 
-      <div className="mt-2 space-y-1">
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-accent-soft/70"
-          onClick={() => onOpen?.(entry)}
-          role="menuitem"
-        >
-          <FilePenLine className="h-4 w-4 text-accent" aria-hidden="true" />
-          {isDirectory ? t("Open Folder") : t("Open")}
+      <button type="button" className={MENU_ITEM} onClick={() => onOpen?.(entry)} role="menuitem">
+        <FilePenLine className={MENU_ICON} aria-hidden="true" />
+        {isDirectory ? t("Open Folder") : t("Open")}
+      </button>
+      {!isDirectory ? (
+        <button type="button" className={MENU_ITEM} onClick={() => onDownload?.(entry)} role="menuitem">
+          <Download className={MENU_ICON} aria-hidden="true" />
+          {t("Download")}
         </button>
-        {!isDirectory ? (
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-accent-soft/70"
-            onClick={() => onDownload?.(entry)}
-            role="menuitem"
-          >
-            <Download className="h-4 w-4 text-accent" aria-hidden="true" />
-            {t("Download")}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-accent-soft/70"
-          onClick={() => onCopyPath?.(entry)}
-          role="menuitem"
-        >
-          <ClipboardCopy className="h-4 w-4 text-accent" aria-hidden="true" />
-          {t("Copy Path")}
-        </button>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm text-text transition-colors hover:bg-accent-soft/70"
-          onClick={() => onRename?.(entry)}
-          role="menuitem"
-        >
-          <PencilLine className="h-4 w-4 text-accent" aria-hidden="true" />
-          {t("Rename")}
-        </button>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left text-sm text-danger transition-colors hover:bg-danger/10"
-          onClick={() => onDelete?.(entry)}
-          role="menuitem"
-        >
-          <Trash2 className="h-4 w-4" aria-hidden="true" />
-          {t("Delete")}
-        </button>
-      </div>
+      ) : null}
+      <button type="button" className={MENU_ITEM} onClick={() => onCopyPath?.(entry)} role="menuitem">
+        <ClipboardCopy className={MENU_ICON} aria-hidden="true" />
+        {t("Copy Path")}
+      </button>
+      <button type="button" className={MENU_ITEM} onClick={() => onRename?.(entry)} role="menuitem">
+        <PencilLine className={MENU_ICON} aria-hidden="true" />
+        {t("Rename")}
+      </button>
+      <div className="mx-1 my-1 h-px bg-border" aria-hidden="true" />
+      <button
+        type="button"
+        className={`${MENU_ITEM} text-danger hover:bg-danger/12 hover:text-danger`}
+        onClick={() => onDelete?.(entry)}
+        role="menuitem"
+      >
+        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+        {t("Delete")}
+      </button>
     </div>
   );
 }

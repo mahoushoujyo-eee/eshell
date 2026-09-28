@@ -148,8 +148,8 @@ describe("StatusPanel static markup (pre-migration baseline)", () => {
     expect(markup).toContain("3s");
     expect(markup).toContain("10s");
     expect(markup).toContain('title="Refresh every 5s">5s');
-    // 5s is the active interval: accent background, white text.
-    expect(markup).toContain('bg-accent text-white" title="Refresh every 5s">5s');
+    // 5s is the active interval: the pressed segment.
+    expect(markup).toContain('aria-pressed="true" title="Refresh every 5s">5s');
     expect(markup).toMatchSnapshot();
   });
 

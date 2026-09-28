@@ -7,6 +7,7 @@ import {
   X,
 } from "lucide-react";
 import { useI18n } from "../../../lib/i18n";
+import Button, { IconButton } from "../../../components/ui/Button";
 import {
   transferDirectionLabel,
   transferStageColor,
@@ -27,9 +28,9 @@ const renderTransferIcon = (transfer) => {
     return <Loader2 className="h-3.5 w-3.5 animate-spin text-warning" aria-hidden="true" />;
   }
   if (transfer.direction === "upload") {
-    return <ArrowUpToLine className="h-3.5 w-3.5 text-accent" aria-hidden="true" />;
+    return <ArrowUpToLine className="h-3.5 w-3.5 text-info" aria-hidden="true" />;
   }
-  return <ArrowDownToLine className="h-3.5 w-3.5 text-accent" aria-hidden="true" />;
+  return <ArrowDownToLine className="h-3.5 w-3.5 text-info" aria-hidden="true" />;
 };
 
 export default function SftpTransferQueue({
@@ -48,85 +49,65 @@ export default function SftpTransferQueue({
   }
 
   return (
-    <section className="absolute right-2 top-[3rem] z-20 w-[360px] max-w-[calc(100%-1rem)] rounded-lg border border-border bg-panel/95 p-2 shadow-xl backdrop-blur-sm">
-      <div className="mb-2 flex items-center justify-between gap-2">
+    <section className="absolute top-9 right-2 z-20 flex max-h-[calc(100%-2.75rem)] w-[360px] max-w-[calc(100%-1rem)] flex-col overflow-hidden rounded-lg border border-border bg-elevated shadow-overlay animate-[es-dialog-in_140ms_ease-out]">
+      <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border pr-1.5 pl-3">
         <div className="inline-flex items-center gap-1.5 text-xs font-semibold">
-          <ArrowDownToLine className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+          <ArrowDownToLine className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
           {t("Transfer Queue")}
         </div>
-        <button
-          type="button"
-          className="rounded-md border border-border px-2 py-0.5 text-[10px] transition-colors hover:bg-accent-soft"
-          onClick={onClose}
-        >
-          {t("Close")}
-        </button>
+        <IconButton label={t("Close")} size="xs" onClick={onClose}>
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
+        </IconButton>
       </div>
 
-      <div className="mb-2 rounded-md border border-border/70 bg-surface/50 px-2 py-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <div className="truncate text-[10px] text-muted">
-            {t("Download Dir: {path}", { path: downloadDirectory || t("(not set)") })}
-          </div>
-          <button
-            type="button"
-            className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] transition-colors hover:bg-accent-soft"
-            onClick={onConfigureDownloadDirectory}
-          >
-            {t("Change")}
-          </button>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-1.5">
+        <div className="min-w-0 truncate text-[11px] text-muted" title={downloadDirectory || ""}>
+          {t("Download Dir: {path}", { path: downloadDirectory || t("(not set)") })}
         </div>
+        <Button variant="ghost" size="xs" onClick={onConfigureDownloadDirectory}>
+          {t("Change")}
+        </Button>
       </div>
 
-      <div className="max-h-72 overflow-auto pr-0.5">
+      <div className="scroll-region min-h-0 flex-1 overflow-auto p-1.5">
         {transferRows.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border/70 bg-surface/40 px-2 py-2 text-[11px] text-muted">
-            {t("No transfer tasks yet.")}
-          </div>
+          <div className="px-2 py-4 text-center text-[11px] text-subtle">{t("No transfer tasks yet.")}</div>
         ) : (
           transferRows.map((transfer) => (
-            <div
-              key={transfer.transferId}
-              className="mb-1.5 rounded-md border border-border/70 bg-panel/80 px-2 py-2"
-            >
+            <div key={transfer.transferId} className="rounded-md px-2 py-2 transition-colors hover:bg-hover">
               <div className="flex items-start justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-1.5">
+                <div className="flex min-w-0 items-center gap-2">
                   {renderTransferIcon(transfer)}
                   <div className="min-w-0">
                     <div className="truncate text-xs font-medium">{transfer.fileName}</div>
-                    <div className="truncate text-[10px] text-muted">
+                    <div className="truncate font-mono text-[10.5px] text-muted">
                       {t(transferDirectionLabel(transfer.direction))}: {transfer.remotePath}
                     </div>
                   </div>
                 </div>
-                <span className={`text-[10px] font-medium ${transferStageColor(transfer.stage)}`}>
-                  {t(transferStageLabel(transfer.stage))}
-                </span>
+                <div className="flex shrink-0 items-center gap-1">
+                  <span className={`text-[11px] font-medium ${transferStageColor(transfer.stage)}`}>
+                    {t(transferStageLabel(transfer.stage))}
+                  </span>
+                  {["queued", "started", "progress"].includes(transfer.stage) ? (
+                    <Button variant="ghost" size="xs" onClick={() => cancelTransfer?.(transfer.transferId)}>
+                      <X className="h-3 w-3" aria-hidden="true" />
+                      {t("Cancel")}
+                    </Button>
+                  ) : null}
+                </div>
               </div>
 
-              {["queued", "started", "progress"].includes(transfer.stage) ? (
-                <div className="mt-1 flex justify-end">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] transition-colors hover:bg-accent-soft"
-                    onClick={() => cancelTransfer?.(transfer.transferId)}
-                  >
-                    <X className="h-3 w-3" aria-hidden="true" />
-                    {t("Cancel")}
-                  </button>
-                </div>
-              ) : null}
-
-              <div className="mt-1.5">
-                <div className="h-1.5 overflow-hidden rounded-full bg-border/60">
+              <div className="mt-1.5 pl-5.5">
+                <div className="h-1 overflow-hidden rounded-full bg-warm">
                   <div
-                    className={`h-full transition-all ${
+                    className={`h-full rounded-full transition-all ${
                       transfer.stage === "failed" ? "bg-danger" : "bg-accent"
                     }`}
                     style={{ width: `${Math.max(0, Math.min(100, transfer.percent || 0))}%` }}
                   />
                 </div>
-                <div className="mt-1 flex items-center justify-between text-[10px] text-muted">
+                <div className="mt-1 flex items-center justify-between text-[10.5px] text-muted tabular-nums">
                   <span>
                     {formatBytes(transfer.transferredBytes || 0)}
                     {transfer.totalBytes ? ` / ${formatBytes(transfer.totalBytes)}` : ""}
@@ -134,12 +115,12 @@ export default function SftpTransferQueue({
                   <span>{Math.round(transfer.percent || 0)}%</span>
                 </div>
                 {transfer.localPath ? (
-                  <div className="mt-1 truncate text-[10px] text-muted">
+                  <div className="mt-0.5 truncate text-[10.5px] text-subtle" title={transfer.localPath}>
                     {t("Local: {path}", { path: transfer.localPath })}
                   </div>
                 ) : null}
                 {transfer.message ? (
-                  <div className="mt-1 truncate text-[10px] text-danger">{t(transfer.message)}</div>
+                  <div className="mt-0.5 truncate text-[10.5px] text-danger">{t(transfer.message)}</div>
                 ) : null}
               </div>
             </div>

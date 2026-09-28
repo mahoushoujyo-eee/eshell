@@ -17,14 +17,14 @@ function TreeRow({
     <div>
       <div
         className={[
-          "flex items-center transition-colors",
-          isSelected ? "bg-accent-soft/70" : "hover:bg-accent-soft/40",
+          "flex h-6 items-center rounded-md transition-colors duration-150",
+          isSelected ? "bg-accent-soft text-text" : "text-text/90 hover:bg-hover",
         ].join(" ")}
-        style={{ paddingLeft: `${Math.max(0, depth * 14)}px` }}
+        style={{ paddingLeft: `${Math.max(0, depth * 12)}px` }}
       >
         <button
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center text-muted transition-colors hover:text-text"
+          className="inline-flex h-6 w-5 shrink-0 items-center justify-center text-subtle transition-colors hover:text-text"
           aria-label={
             expanded
               ? t("Collapse {name}", { name: node.name })
@@ -36,25 +36,25 @@ function TreeRow({
           }}
         >
           {isLoading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
           ) : expanded ? (
-            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+            <ChevronDown className="h-3 w-3" aria-hidden="true" />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+            <ChevronRight className="h-3 w-3" aria-hidden="true" />
           )}
         </button>
 
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1 text-left text-xs"
+          className="flex h-full min-w-0 flex-1 items-center gap-1.5 pr-1.5 text-left text-xs"
           onClick={() => void onSelect(node.path)}
           onContextMenu={(event) => onContextMenu?.(node, event)}
           title={node.path}
         >
           {expanded ? (
-            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
+            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
           ) : (
-            <Folder className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
+            <Folder className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
           )}
           <span className="truncate">{node.name}</span>
         </button>
@@ -102,14 +102,14 @@ export default function SftpTreePane({
 
   return (
     <div
-      className="h-full overflow-auto border-r border-border bg-surface/30 p-2 text-xs"
+      className="scroll-region h-full overflow-auto bg-surface px-1.5 py-1.5 text-xs"
       onContextMenu={(event) => {
         event.preventDefault();
         void onReloadRoot();
       }}
     >
       {!activeSessionId ? (
-        <div className="px-2 py-1 text-muted">{t("Connect SSH first")}</div>
+        <div className="px-2 py-1.5 text-muted">{t("Connect SSH first")}</div>
       ) : (
         <>
           <TreeRow

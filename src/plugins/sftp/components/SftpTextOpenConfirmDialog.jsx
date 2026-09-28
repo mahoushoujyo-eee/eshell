@@ -1,6 +1,7 @@
 import { AlertTriangle, FileQuestion, Loader2 } from "lucide-react";
-import { useEffect } from "react";
 import { useI18n } from "../../../lib/i18n";
+import Button from "../../../components/ui/Button";
+import Dialog, { DialogBody, DialogFooter, DialogHeader } from "../../../components/ui/Dialog";
 
 export default function SftpTextOpenConfirmDialog({
   open,
@@ -12,116 +13,84 @@ export default function SftpTextOpenConfirmDialog({
   onConfirm,
 }) {
   const { t } = useI18n();
+  const visible = Boolean(open && entry && guard);
 
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape" && !busy) {
-        event.preventDefault();
-        onCancel?.();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [busy, onCancel, open]);
-
-  if (!open || !entry || !guard) {
-    return null;
-  }
-
-  const fileLabel = entry.name?.trim() || entry.path || t("Selected file");
-  const sizeLabel =
-    typeof formatBytes === "function" ? formatBytes(guard.size || entry.size || 0) : `${guard.size || 0} B`;
+  const fileLabel = entry?.name?.trim() || entry?.path || t("Selected file");
+  const sizeLabel = visible
+    ? typeof formatBytes === "function"
+      ? formatBytes(guard.size || entry.size || 0)
+      : `${guard.size || 0} B`
+    : "";
 
   return (
-    <div
-      className="fixed inset-0 z-60 flex items-center justify-center bg-[rgba(26,20,14,0.28)] p-4 backdrop-blur-[2px]"
-      onClick={busy ? undefined : onCancel}
+    <Dialog
+      open={visible}
+      onClose={onCancel}
+      dismissible={!busy}
+      layer="stacked"
+      size="md"
+      labelledBy="sftp-open-confirm-title"
     >
-      <div
-        className="w-full max-w-lg rounded-[26px] border border-border/85 bg-panel/98 p-5 shadow-[0_28px_80px_rgba(34,26,16,0.22)] ring-1 ring-white/45"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="sftp-open-confirm-title"
-      >
-        <div className="flex items-start gap-3">
-          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-warning/25 bg-warning/10 text-warning">
-            <AlertTriangle className="h-5 w-5" aria-hidden="true" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div
-              id="sftp-open-confirm-title"
-            className="text-[10px] font-semibold uppercase tracking-[0.22em] text-warning/80"
-          >
-              {t("Text Editor Check")}
-            </div>
-            <h3 className="mt-1 text-lg font-semibold text-text">{t("Open file as text?")}</h3>
-            <p className="mt-2 text-sm leading-6 text-muted">
+      {visible ? (
+        <>
+          <DialogHeader
+            icon={AlertTriangle}
+            tone="warning"
+            title={t("Open file as text?")}
+            titleId="sftp-open-confirm-title"
+            description={t("Text Editor Check")}
+          />
+          <DialogBody className="space-y-3">
+            <p className="text-[13px] leading-6 text-muted">
               <span className="font-medium text-text">{fileLabel}</span>{" "}
               {t("may not be a good fit for the built-in text editor.")}
             </p>
-          </div>
-        </div>
 
-        <div className="mt-4 rounded-2xl border border-border/70 bg-surface/75 p-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-text">
-            <FileQuestion className="h-4 w-4 text-accent" aria-hidden="true" />
-            {t("File details")}
-          </div>
-          <div className="mt-2 space-y-1 text-xs text-muted">
-            <div>{t("Path: {path}", { path: entry.path })}</div>
-            <div>{t("Size: {size}", { size: sizeLabel })}</div>
-          </div>
+            <div className="rounded-md border border-border bg-panel px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-text">
+                <FileQuestion className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
+                {t("File details")}
+              </div>
+              <div className="mt-1.5 space-y-0.5 font-mono text-[11px] text-muted">
+                <div className="break-all">{t("Path: {path}", { path: entry.path })}</div>
+                <div>{t("Size: {size}", { size: sizeLabel })}</div>
+              </div>
+            </div>
 
-          <div className="mt-3 space-y-2 text-sm text-muted">
-            {guard.isLarge ? (
-              <p className="leading-6">
-                {t("This file is larger than 50 MB and may be slow to load in the text editor.")}
-              </p>
+            {guard.isLarge || guard.isBinaryLike ? (
+              <div className="space-y-1.5 text-[13px] leading-6 text-muted">
+                {guard.isLarge ? (
+                  <p>{t("This file is larger than 50 MB and may be slow to load in the text editor.")}</p>
+                ) : null}
+                {guard.isBinaryLike ? (
+                  <p>
+                    {guard.extension
+                      ? t(".{extension} is a common binary format, so the content may be unreadable as text.", {
+                          extension: guard.extension,
+                        })
+                      : t(
+                          "This file looks like a common binary format, so the content may be unreadable as text.",
+                        )}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
-            {guard.isBinaryLike ? (
-              <p className="leading-6">
-                {guard.extension
-                  ? t(".{extension} is a common binary format, so the content may be unreadable as text.", {
-                      extension: guard.extension,
-                    })
-                  : t(
-                      "This file looks like a common binary format, so the content may be unreadable as text.",
-                    )}
-              </p>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="mt-5 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-2xl border border-border/80 bg-surface px-4 py-2 text-sm text-muted transition-colors hover:bg-warm disabled:cursor-not-allowed disabled:opacity-55"
-            onClick={onCancel}
-            disabled={busy}
-          >
-            {t("Cancel")}
-          </button>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-2xl border border-warning/60 bg-warning px-4 py-2 text-sm font-medium text-white shadow-[0_12px_28px_rgba(210,146,42,0.22)] transition-colors hover:bg-[#c98a18] disabled:cursor-not-allowed disabled:opacity-60"
-            onClick={onConfirm}
-            disabled={busy}
-          >
-            {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <FileQuestion className="h-4 w-4" aria-hidden="true" />
-            )}
-            {busy ? t("Opening...") : t("Open Anyway")}
-          </button>
-        </div>
-      </div>
-    </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" onClick={onCancel} disabled={busy}>
+              {t("Cancel")}
+            </Button>
+            <Button variant="primary" onClick={onConfirm} disabled={busy}>
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              ) : (
+                <FileQuestion className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {busy ? t("Opening...") : t("Open Anyway")}
+            </Button>
+          </DialogFooter>
+        </>
+      ) : null}
+    </Dialog>
   );
 }

@@ -1,5 +1,7 @@
-import { ArrowUpToLine, Download, FolderOpen, Plus, RefreshCw, Upload } from "lucide-react";
+import { ArrowDownUp, Download, FolderOpen, Plus, RefreshCw, Upload } from "lucide-react";
 import { useI18n } from "../../../lib/i18n";
+import { IconButton } from "../../../components/ui/Button";
+import PanelHeader from "../../../components/ui/PanelHeader";
 
 export default function SftpToolbar({
   activeSessionId,
@@ -16,72 +18,59 @@ export default function SftpToolbar({
   const { t } = useI18n();
 
   return (
-    <div className="flex items-center justify-between border-b border-border px-2 py-2">
-      <div className="inline-flex items-center gap-2 text-sm font-semibold">
-        <FolderOpen className="h-4 w-4 text-accent" aria-hidden="true" />
-        {t("SFTP Browser")}
-      </div>
-
-      <div className="flex gap-1 text-xs">
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
-          onClick={() => refreshSftp(currentPath)}
-          disabled={!activeSessionId}
-        >
-          <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("Refresh")}
-        </button>
-
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
-          onClick={() => createSftpEntry?.("file")}
-          disabled={!activeSessionId}
-          title={t("New")}
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("New")}
-        </button>
-
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
-          onClick={uploadFile}
-          disabled={!activeSessionId}
-        >
-          <Upload className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("Upload")}
-        </button>
-
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors hover:bg-accent-soft"
-          onClick={downloadFile}
-          disabled={!activeSessionId || !selectedEntry || selectedEntry.entryType === "directory"}
-        >
-          <Download className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("Download")}
-        </button>
-
-        <button
-          type="button"
-          className={[
-            "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 transition-colors",
-            showTransferPanel ? "bg-accent-soft" : "hover:bg-accent-soft",
-          ].join(" ")}
-          onClick={onToggleTransferPanel}
-          title={t("Toggle transfer queue")}
-        >
-          <ArrowUpToLine className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("Transfers")}
-          {activeTransferCount > 0 ? (
-            <span className="rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white">
-              {activeTransferCount}
-            </span>
-          ) : null}
-        </button>
-      </div>
-    </div>
+    <PanelHeader
+      icon={FolderOpen}
+      title={t("SFTP Browser")}
+      actions={
+        <>
+          <IconButton
+            label={t("Refresh")}
+            size="xs"
+            onClick={() => refreshSftp(currentPath)}
+            disabled={!activeSessionId}
+          >
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+          </IconButton>
+          <IconButton
+            label={t("New")}
+            size="xs"
+            onClick={() => createSftpEntry?.("file")}
+            disabled={!activeSessionId}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          </IconButton>
+          <IconButton label={t("Upload")} size="xs" onClick={uploadFile} disabled={!activeSessionId}>
+            <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+          </IconButton>
+          <IconButton
+            label={t("Download")}
+            size="xs"
+            onClick={downloadFile}
+            disabled={!activeSessionId || !selectedEntry || selectedEntry.entryType === "directory"}
+          >
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+          </IconButton>
+          <span className="mx-1 h-3.5 w-px bg-border" aria-hidden="true" />
+          <button
+            type="button"
+            className={[
+              "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] transition-colors duration-150",
+              showTransferPanel ? "bg-accent-soft text-accent" : "text-muted hover:bg-hover hover:text-text",
+            ].join(" ")}
+            onClick={onToggleTransferPanel}
+            title={t("Toggle transfer queue")}
+            aria-pressed={showTransferPanel}
+          >
+            <ArrowDownUp className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("Transfers")}
+            {activeTransferCount > 0 ? (
+              <span className="rounded bg-accent px-1 text-[10px] leading-4 font-semibold text-on-accent tabular-nums">
+                {activeTransferCount}
+              </span>
+            ) : null}
+          </button>
+        </>
+      }
+    />
   );
 }
