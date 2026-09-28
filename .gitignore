@@ -9,6 +9,7 @@ lerna-debug.log*
 /src-tauri/.eshell-data/
 /docs/refer_proj/claude-code-main/
 /docs/refer_proj/oxideterm/
+/garbage
 
 node_modules
 dist

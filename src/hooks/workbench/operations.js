@@ -459,7 +459,7 @@ export function useWorkbenchOperations({
     async (configId, requestId = null) => {
       const targetConfig = sshConfigs.find((item) => item.id === configId) || null;
       const targetLabel =
-        targetConfig?.name || targetConfig?.host || tRef.current("SSH Servers");
+        targetConfig?.name || targetConfig?.host || tRef.current("Server Management");
       const connectionRequestId =
         requestId ||
         globalThis.crypto?.randomUUID?.() ||

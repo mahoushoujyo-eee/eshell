@@ -143,9 +143,8 @@ export default function SshConfigModal({
           <DialogHeader
             icon={Server}
             tone="accent"
-            title={t("SSH Servers")}
+            title={t("Server Management")}
             titleId="ssh-config-title"
-            description={t("Manage server profiles and connect quickly.")}
             actions={
               <Button variant="primary" onClick={openCreateForm} disabled={isConnecting}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />

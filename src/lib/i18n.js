@@ -13,13 +13,10 @@ const zhMessages = {
   "Agent mode": "助手模式",
   "Agent typing": "助手正在输入",
   "Agent Config": "Agent 配置",
-  "Agent context is stored as editable AGENTS.md files under .eshell-data/agent/.":
-    "Agent 上下文以可编辑的 AGENTS.md 文件保存在 .eshell-data/agent/ 下。",
   "Exists": "已存在",
   "Empty": "空",
   "Saved {target}": "已保存 {target}",
   "Deleted {target}": "已删除 {target}",
-  "Select a server and Save to create its context file.": "选择一台服务器并保存即可创建其上下文文件。",
   "Agent instructions, preferences, policies...": "Agent 指令、偏好、策略...",
   "AI config": "AI 配置",
   "AI response": "AI 回复",
@@ -364,9 +361,6 @@ const zhMessages = {
     "管理 API 服务商、密钥、模型和当前启用配置。",
   "Manage scripts and execute them in the active SSH session.":
     "管理脚本，并在当前 SSH 会话中执行。",
-  "Manage scripts as callable functions with parameters.":
-    "把脚本封装成可填写参数执行的函数。",
-  "Manage server profiles and connect quickly.": "管理服务器配置并快速连接。",
   "Missing required script parameter: {name}":
     "缺少必填脚本参数：{name}",
   "Commands outside the safe read-only allowlist will pause for approval.":
@@ -518,7 +512,7 @@ const zhMessages = {
   "SSH host fingerprint changed": "SSH 主机指纹已变化",
   "SSH host fingerprint trusted": "已信任 SSH 主机指纹",
   "SSH host fingerprint was not trusted": "未信任 SSH 主机指纹",
-  "SSH Servers": "SSH 服务器",
+  "Server Management": "服务器管理",
   "Start a conversation about ops troubleshooting, diagnostics, or safe command planning.":
     "开始一段关于运维排障、诊断分析或安全命令规划的对话。",
   "Stop": "停止",

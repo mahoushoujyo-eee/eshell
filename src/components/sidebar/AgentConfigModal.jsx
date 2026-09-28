@@ -155,7 +155,6 @@ export default function AgentConfigModal({
         tone="accent"
         title={t("Agent Config")}
         titleId="agent-config-title"
-        description={t("Agent context is stored as editable AGENTS.md files under .eshell-data/agent/.")}
         onClose={onClose}
       />
       <div className="flex min-h-0 flex-1">
@@ -214,9 +213,6 @@ export default function AgentConfigModal({
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="truncate text-[13px] font-semibold text-text">{contentTargetLabel}</div>
-              <div className="truncate text-[11px] text-muted">
-                {t("Select a server and Save to create its context file.")}
-              </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {!isGlobal ? (

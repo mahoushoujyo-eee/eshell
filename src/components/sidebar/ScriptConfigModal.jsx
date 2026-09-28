@@ -172,7 +172,6 @@ export default function ScriptConfigModal({
             tone="accent"
             title={t("Scripts")}
             titleId="script-config-title"
-            description={t("Manage scripts as callable functions with parameters.")}
             actions={
               <Button variant="primary" onClick={openCreateForm}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
