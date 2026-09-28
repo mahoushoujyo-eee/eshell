@@ -37,10 +37,10 @@ export const MARKDOWN_COMPONENTS = {
 };
 
 export const actionButtonClass =
-  "inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border/75 bg-surface/75 text-muted transition-colors hover:border-accent/45 hover:bg-accent-soft hover:text-text";
+  "inline-flex h-8 w-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-hover hover:text-text";
 
 export const messageActionButtonClass =
-  "inline-flex items-center gap-1.5 rounded-xl border border-border/75 bg-surface/70 px-2.5 py-1.5 text-[11px] font-medium text-muted transition-colors hover:border-accent/45 hover:bg-accent-soft hover:text-text";
+  "inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2.5 text-[11px] font-medium text-muted transition-colors hover:bg-hover hover:text-text";
 
 export const copyText = async (value) => {
   const text = String(value || "");

@@ -13,8 +13,8 @@ export default function AcpAgentLogo({ agent, className = "", title }) {
   return (
     <span
       className={[
-        "inline-flex shrink-0 items-center justify-center rounded-[9px] border shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]",
-        brand ? `${brand.chipClass} ${brand.markClass}` : "border-border/70 bg-surface/90 text-muted",
+        "inline-flex shrink-0 items-center justify-center rounded-md border",
+        brand ? `${brand.chipClass} ${brand.markClass}` : "border-border bg-hover text-muted",
         className,
       ].join(" ")}
       title={label || undefined}

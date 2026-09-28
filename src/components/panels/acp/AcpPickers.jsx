@@ -22,31 +22,25 @@ import { useI18n } from "../../../lib/i18n";
 
 const triggerClass = (open, disabled) =>
   [
-    "inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[12px]",
-    "shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors",
+    "inline-flex h-7 min-w-0 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors duration-150",
     disabled
-      ? "cursor-default border-border/40 bg-surface/50 text-muted"
+      ? "cursor-default border-transparent text-muted"
       : open
-        ? "border-accent/40 bg-surface text-text"
-        : "border-border/55 bg-surface/82 text-text hover:border-accent/30 hover:bg-surface",
+        ? "border-border-strong bg-hover text-text"
+        : "border-transparent text-text hover:bg-hover",
   ].join(" ");
 
 const optionClass = (selected) =>
   [
-    "flex w-full items-center gap-2.5 rounded-[12px] px-2 py-1.5 text-left transition-colors",
+    "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors",
     "focus:outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
-    selected
-      ? "bg-surface/92 text-text shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-      : "text-text/88 hover:bg-surface/72",
+    selected ? "bg-accent-soft text-text" : "text-text/90 hover:bg-hover",
   ].join(" ");
 
 // Small green dot marking an agent whose process is already running.
 function RunningDot({ title }) {
   return (
-    <span
-      title={title}
-      className="h-1.5 w-1.5 shrink-0 rounded-full bg-success shadow-[0_0_0_2px_rgba(62,143,87,0.18)]"
-    />
+    <span title={title} className="h-1.5 w-1.5 shrink-0 rounded-full bg-success ring-2 ring-success/20" />
   );
 }
 
@@ -114,18 +108,17 @@ function MenuPanel({ label, className = "", autoFocus = true, children }) {
   return (
     <div
       className={[
-        "overflow-hidden rounded-[16px] border border-border/70 bg-panel/97",
-        "shadow-[0_18px_42px_rgba(0,0,0,0.22)] backdrop-blur-xl",
+        "overflow-hidden rounded-lg border border-border bg-elevated shadow-overlay",
         className,
       ].join(" ")}
     >
-      <div className="px-3 pb-1 pt-2.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
+      <div className="px-3 pt-2.5 pb-1 text-[10.5px] font-medium tracking-[0.08em] text-subtle uppercase">
         {label}
       </div>
       <div
         ref={listRef}
         onKeyDown={handleKeyDown}
-        className="max-h-72 space-y-0.5 overflow-y-auto px-1.5 pb-1.5"
+        className="scroll-region max-h-72 space-y-0.5 overflow-y-auto px-1 pb-1"
       >
         {children}
       </div>

@@ -50,9 +50,16 @@ import { useI18n } from "../../lib/i18n";
 
 const TOOL_STATUS_META = {
   pending: { labelKey: "Pending", className: "text-muted" },
-  in_progress: { labelKey: "Running", className: "text-amber-500" },
-  completed: { labelKey: "Completed", className: "text-emerald-500" },
-  failed: { labelKey: "Failed", className: "text-red-500" },
+  in_progress: { labelKey: "Running", className: "text-warning" },
+  completed: { labelKey: "Completed", className: "text-success" },
+  failed: { labelKey: "Failed", className: "text-danger" },
+};
+
+const TOOL_STATUS_RAIL = {
+  pending: "border-border-strong",
+  in_progress: "border-warning/70",
+  completed: "border-success/60",
+  failed: "border-danger/70",
 };
 
 // Reads one image file into a prompt attachment (base64 payload + preview URL).
@@ -114,13 +121,13 @@ const readImageFile = (file) =>
 
 function ToolStatusIcon({ status }) {
   if (status === "completed") {
-    return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" aria-hidden="true" />;
+    return <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />;
   }
   if (status === "failed") {
-    return <XCircle className="h-3.5 w-3.5 text-red-500" aria-hidden="true" />;
+    return <XCircle className="h-3.5 w-3.5 text-danger" aria-hidden="true" />;
   }
   if (status === "in_progress") {
-    return <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-500" aria-hidden="true" />;
+    return <Loader2 className="h-3.5 w-3.5 animate-spin text-warning" aria-hidden="true" />;
   }
   return <CircleDashed className="h-3.5 w-3.5 text-muted" aria-hidden="true" />;
 }
@@ -137,16 +144,16 @@ function Markdown({ text }) {
 
 function DiffBlock({ diff, t }) {
   return (
-    <div className="overflow-hidden rounded-md border border-border/60">
-      <div className="border-b border-border/60 bg-surface/80 px-2 py-1 font-mono text-[10px] text-muted">
+    <div className="overflow-hidden rounded-md border border-border">
+      <div className="border-b border-border bg-hover px-2 py-1 font-mono text-[10px] text-muted">
         {diff.path}
       </div>
       {diff.oldText ? (
-        <pre className="max-h-40 overflow-auto whitespace-pre-wrap bg-red-500/10 px-2 py-1 font-mono text-[11px] leading-snug text-red-600 dark:text-red-400">
+        <pre className="max-h-40 overflow-auto whitespace-pre-wrap bg-danger/10 px-2 py-1 font-mono text-[11px] leading-snug text-danger">
           {diff.oldText}
         </pre>
       ) : null}
-      <pre className="max-h-40 overflow-auto whitespace-pre-wrap bg-emerald-500/10 px-2 py-1 font-mono text-[11px] leading-snug text-emerald-700 dark:text-emerald-400">
+      <pre className="max-h-40 overflow-auto whitespace-pre-wrap bg-success/10 px-2 py-1 font-mono text-[11px] leading-snug text-success">
         {diff.newText || t("(empty)")}
       </pre>
     </div>
@@ -176,7 +183,7 @@ function ToolContentBlocks({ content, t }) {
         return (
           <pre
             key={index}
-            className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-surface/70 px-2 py-1.5 font-mono text-[11px] leading-snug text-text/88"
+            className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-panel px-2 py-1.5 font-mono text-[11px] leading-snug text-text/88"
           >
             {block.text}
           </pre>
@@ -194,7 +201,7 @@ function ToolContentBlocks({ content, t }) {
 function ToolCallSummary({ tool }) {
   return (
     <>
-      <span className="relative top-px inline-flex h-[18px] shrink-0 items-center rounded bg-surface px-1.5 font-mono text-[10px] uppercase leading-none tracking-wide text-muted">
+      <span className="relative top-px inline-flex h-[18px] shrink-0 items-center rounded bg-hover px-1.5 font-mono text-[10px] uppercase leading-none tracking-wide text-muted">
         {tool.kind || "tool"}
       </span>
       <span className="min-w-0 flex-1 truncate text-left text-text/88">{tool.title}</span>
@@ -212,13 +219,13 @@ function ToolCallCard({ tool }) {
     tool.rawInput != null;
 
   return (
-    <div className="rounded-lg border border-border/60 bg-surface/50 text-xs">
+    <div className={`border-l-2 text-xs ${TOOL_STATUS_RAIL[tool.status] || TOOL_STATUS_RAIL.pending}`}>
       <button
         type="button"
         onClick={() => hasDetails && setExpanded((prev) => !prev)}
         className={[
-          "flex w-full items-center gap-2 px-2.5 py-1.5",
-          hasDetails ? "cursor-pointer hover:bg-accent/5" : "cursor-default",
+          "flex w-full items-center gap-2 rounded-r-md py-1.5 pr-2 pl-2.5",
+          hasDetails ? "cursor-pointer hover:bg-hover" : "cursor-default",
         ].join(" ")}
       >
         <ToolStatusIcon status={tool.status} />
@@ -235,7 +242,7 @@ function ToolCallCard({ tool }) {
         ) : null}
       </button>
       {expanded ? (
-        <div className="space-y-2 border-t border-border/60 px-2.5 py-2">
+        <div className="space-y-2 px-2.5 pt-1 pb-2">
           {tool.locations && tool.locations.length > 0 ? (
             <div className="space-y-0.5">
               {tool.locations.map((location, index) => (
@@ -250,7 +257,7 @@ function ToolCallCard({ tool }) {
           {tool.rawInput != null ? (
             <details className="text-[11px] text-muted">
               <summary className="cursor-pointer select-none">{t("Raw input")}</summary>
-              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-surface/70 px-2 py-1 font-mono text-[10px]">
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-panel px-2 py-1 font-mono text-[10px]">
                 {JSON.stringify(tool.rawInput, null, 2)}
               </pre>
             </details>
@@ -266,8 +273,8 @@ function ToolCallCard({ tool }) {
 function AcpAuthCard({ methods, authenticating, onAuthenticate, onCancel }) {
   const { t } = useI18n();
   return (
-    <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2.5 text-xs">
-      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+    <div className="rounded-lg border border-warning/35 bg-warning/8 px-3 py-2.5 text-xs">
+      <div className="flex items-center gap-2 text-warning">
         <KeyRound className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="text-sm font-semibold">{t("Sign-in required")}</span>
       </div>
@@ -283,7 +290,7 @@ function AcpAuthCard({ methods, authenticating, onAuthenticate, onCancel }) {
           <button
             type="button"
             onClick={onCancel}
-            className="shrink-0 rounded-md border border-border bg-surface px-2 py-1 font-medium text-text/88 hover:bg-red-500/10 hover:text-red-500"
+            className="shrink-0 rounded-md border border-border-strong bg-transparent px-2 py-1 font-medium text-text/88 hover:bg-danger/10 hover:text-danger"
           >
             {t("Cancel")}
           </button>
@@ -297,7 +304,7 @@ function AcpAuthCard({ methods, authenticating, onAuthenticate, onCancel }) {
                 type="button"
                 onClick={() => onAuthenticate(method.id)}
                 title={method.description || undefined}
-                className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+                className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-on-accent hover:bg-accent/88"
               >
                 {method.name}
               </button>
@@ -308,7 +315,7 @@ function AcpAuthCard({ methods, authenticating, onAuthenticate, onCancel }) {
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md border border-border bg-surface px-2.5 py-1 font-medium text-text/88 hover:bg-accent/10"
+            className="rounded-md border border-border-strong bg-transparent px-2.5 py-1 font-medium text-text/88 hover:bg-hover"
           >
             {t("Cancel")}
           </button>
@@ -334,8 +341,8 @@ function AcpAuthCard({ methods, authenticating, onAuthenticate, onCancel }) {
 function OrphanedSessionCard({ agent, busy, onReclaim, onStop }) {
   const { t } = useI18n();
   return (
-    <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2.5 text-xs">
-      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+    <div className="rounded-lg border border-warning/35 bg-warning/8 px-3 py-2.5 text-xs">
+      <div className="flex items-center gap-2 text-warning">
         <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="text-sm font-semibold">{t("Orphaned session")}</span>
       </div>
@@ -349,7 +356,7 @@ function OrphanedSessionCard({ agent, busy, onReclaim, onStop }) {
           type="button"
           disabled={busy}
           onClick={onReclaim}
-          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-xs font-medium text-on-accent hover:bg-accent/88 disabled:opacity-50"
         >
           {busy ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -362,7 +369,7 @@ function OrphanedSessionCard({ agent, busy, onReclaim, onStop }) {
           type="button"
           disabled={busy}
           onClick={onStop}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 font-medium text-text/88 hover:bg-red-500/10 hover:text-red-500 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-transparent px-2.5 py-1 font-medium text-text/88 hover:bg-danger/10 hover:text-danger disabled:opacity-50"
         >
           <CircleStop className="h-3.5 w-3.5" aria-hidden="true" />
           {t("Stop session")}
@@ -381,9 +388,9 @@ function permissionButtonClass(kind, resolving) {
   const base =
     "rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50";
   if (kind === "allow_once" || kind === "allow_always") {
-    return `${base} bg-accent text-white hover:opacity-90 ${resolving ? "" : ""}`;
+    return `${base} bg-accent text-on-accent hover:bg-accent/88 ${resolving ? "" : ""}`;
   }
-  return `${base} border border-red-500/50 text-red-500 hover:bg-red-500/10`;
+  return `${base} border border-danger/50 text-danger hover:bg-danger/10`;
 }
 
 function PermissionCard({ entry, onRespond }) {
@@ -394,8 +401,8 @@ function PermissionCard({ entry, onRespond }) {
     : null;
 
   return (
-    <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs">
-      <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+    <div className="rounded-lg border border-warning/35 bg-warning/8 px-3 py-2 text-xs">
+      <div className="flex items-center gap-2 text-warning">
         <ShieldQuestion className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="font-semibold">{t("Permission request")}</span>
       </div>
@@ -419,7 +426,7 @@ function PermissionCard({ entry, onRespond }) {
               </>
             ) : (
               <>
-                <Check className="h-3.5 w-3.5 text-emerald-500" aria-hidden="true" />
+                <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" />
                 {chosen ? chosen.name : t("Resolved")}
               </>
             )}
@@ -446,11 +453,11 @@ function ThoughtEntry({ text }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="rounded-lg border border-border/40 bg-surface/30 text-xs">
+    <div className="border-l-2 border-border-strong text-xs">
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-muted hover:bg-accent/5"
+        className="flex w-full items-center gap-2 rounded-r-md py-1.5 pr-2 pl-2.5 text-muted hover:bg-hover"
       >
         <Brain className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span className="flex-1 truncate text-left">
@@ -463,7 +470,7 @@ function ThoughtEntry({ text }) {
         )}
       </button>
       {expanded ? (
-        <div className="whitespace-pre-wrap border-t border-border/40 px-2.5 py-2 italic leading-relaxed text-muted">
+        <div className="px-2.5 pt-0.5 pb-2 leading-relaxed whitespace-pre-wrap text-muted italic">
           {text}
         </div>
       ) : null}
@@ -528,7 +535,7 @@ function NoticeRow({ entry }) {
   }
   if (entry.tone === "error") {
     return (
-      <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500">
+      <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
         {text}
       </div>
     );
@@ -541,7 +548,7 @@ function PlanCard({ plan }) {
   const [expanded, setExpanded] = useState(true);
   const completed = plan.filter((entry) => entry.status === "completed").length;
   return (
-    <div className="shrink-0 border-t border-border/60 bg-surface/40 px-3 py-1.5 text-xs">
+    <div className="shrink-0 border-t border-border bg-panel px-3 py-1.5 text-xs">
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
@@ -585,7 +592,7 @@ function TranscriptEntry({ entry, onRespondPermission }) {
     const images = Array.isArray(entry.images) ? entry.images : [];
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-lg bg-accent/10 px-3 py-2 text-sm leading-relaxed text-text">
+        <div className="max-w-[85%] rounded-xl rounded-br-sm bg-accent-soft px-3 py-2 text-[13.5px] leading-relaxed text-text">
           {images.length > 0 ? (
             <div className="mb-1.5 flex flex-wrap gap-1.5">
               {images.map((image, index) =>
@@ -594,12 +601,12 @@ function TranscriptEntry({ entry, onRespondPermission }) {
                     key={index}
                     src={image.previewUrl}
                     alt=""
-                    className="h-16 w-16 rounded-md border border-border/60 object-cover"
+                    className="h-16 w-16 rounded-md border border-border object-cover"
                   />
                 ) : (
                   <span
                     key={index}
-                    className="rounded border border-border/60 bg-surface px-1.5 py-0.5 font-mono text-[10px] text-muted"
+                    className="rounded border border-border-strong bg-transparent px-1.5 py-0.5 font-mono text-[10px] text-muted"
                   >
                     {image.mimeType || "image"}
                   </span>
@@ -614,7 +621,7 @@ function TranscriptEntry({ entry, onRespondPermission }) {
                 <TerminalSquare className="mr-1 inline h-3 w-3 align-[-2px]" aria-hidden="true" />
                 {t("Terminal selection")} · {entry.context.sessionName}
               </summary>
-              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-black/10 px-2 py-1 font-mono text-[11px] leading-snug dark:bg-black/30">
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-panel px-2 py-1 font-mono text-[11px] leading-snug">
                 {entry.context.content}
               </pre>
             </details>
@@ -625,7 +632,7 @@ function TranscriptEntry({ entry, onRespondPermission }) {
   }
   if (entry.type === "assistant") {
     return (
-      <div className="rounded-lg bg-surface/70 px-3 py-2 text-sm leading-relaxed text-text">
+      <div className="px-0.5 py-0.5 text-text">
         <Markdown text={entry.text} />
       </div>
     );
@@ -677,7 +684,7 @@ function AcpSessionRow({ row, active, canResume, onView, onResume, onDelete }) {
     <div
       className={[
         "group flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs",
-        active ? "bg-accent/10" : "hover:bg-surface/70",
+        active ? "bg-accent-soft" : "hover:bg-hover",
       ].join(" ")}
     >
       <button
@@ -699,7 +706,7 @@ function AcpSessionRow({ row, active, canResume, onView, onResume, onDelete }) {
         disabled={!canResume}
         onClick={() => onResume(row)}
         title={canResume ? t("Resume session") : t("Stop the current session first")}
-        className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-accent/10 hover:text-text group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
+        className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-hover hover:text-text group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
       >
         <Play className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
@@ -707,7 +714,7 @@ function AcpSessionRow({ row, active, canResume, onView, onResume, onDelete }) {
         type="button"
         onClick={() => onDelete(row)}
         title={t("Delete")}
-        className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 focus:opacity-100"
+        className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger group-hover:opacity-100 focus:opacity-100"
       >
         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
@@ -741,7 +748,7 @@ function AcpProjectGroup({
 
   return (
     <div className="space-y-0.5">
-      <div className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-surface/70">
+      <div className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-hover">
         <button
           type="button"
           onClick={() => setExpanded((prev) => !prev)}
@@ -761,7 +768,7 @@ function AcpProjectGroup({
           disabled={busy}
           onClick={() => onNewSession(project)}
           title={t("New session in this project")}
-          className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-accent/10 hover:text-text group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
+          className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-hover hover:text-text group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
         >
           <Plus className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
@@ -771,7 +778,7 @@ function AcpProjectGroup({
             disabled={busy}
             onClick={() => onDeleteProject(project)}
             title={t("Remove project")}
-            className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
+            className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
           >
             <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
@@ -854,7 +861,7 @@ function AcpProjectBrowser({
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text/88 hover:bg-accent/10"
+          className="inline-flex items-center gap-1 rounded-md border border-border-strong bg-transparent px-2 py-1 text-xs text-text/88 hover:bg-hover"
         >
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           {t("Back")}
@@ -867,7 +874,7 @@ function AcpProjectBrowser({
           disabled={busy}
           onClick={() => void onAddProject()}
           title={t("Add a local folder as a project")}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs font-medium text-on-accent hover:bg-accent/88 disabled:opacity-50"
         >
           <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
           {t("New project")}
@@ -915,7 +922,7 @@ function AcpProjectBrowser({
       ))}
 
       {projects.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border/70 px-3 py-3 text-center text-[11px] leading-relaxed text-muted">
+        <p className="rounded-lg border border-dashed border-border px-3 py-3 text-center text-[11px] leading-relaxed text-muted">
           {t("No projects yet. Add a local folder to keep its sessions together.")}
         </p>
       ) : null}
@@ -933,7 +940,7 @@ function AcpHistoryRecordView({ record, phase, onBack, onResume }) {
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text/88 hover:bg-accent/10"
+          className="inline-flex items-center gap-1 rounded-md border border-border-strong bg-transparent px-2 py-1 text-xs text-text/88 hover:bg-hover"
         >
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           {t("Back")}
@@ -945,14 +952,14 @@ function AcpHistoryRecordView({ record, phase, onBack, onResume }) {
           <button
             type="button"
             onClick={() => onResume(record)}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white hover:opacity-90"
+            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent hover:bg-accent/88"
           >
             <Play className="h-3.5 w-3.5" aria-hidden="true" />
             {t("Resume session")}
           </button>
         ) : null}
       </div>
-      <div className="rounded-md border border-border/40 bg-surface/30 px-2 py-1 text-[11px] text-muted">
+      <div className="rounded-md border border-border bg-panel px-2 py-1 text-[11px] text-muted">
         {t("Read-only transcript. Resuming reopens the session with the agent when it supports session/load.")}
       </div>
       {entries.map((entry, index) => (
@@ -1161,8 +1168,8 @@ export default function AcpAgentPanel({ acp }) {
     usage && usage.size > 0 ? Math.min(100, Math.round((usage.used / usage.size) * 100)) : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-panel">
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border/80 px-3 py-2.5">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface">
+      <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-2.5">
         {/* The agent picker carries the panel's visible identity (brand mark +
             name), so the heading only needs to exist for assistive tech. */}
         <h2 className="sr-only">{t("ACP Agent")}</h2>
@@ -1186,7 +1193,7 @@ export default function AcpAgentPanel({ acp }) {
         <div className="flex shrink-0 items-center gap-1.5">
           {usagePercent != null ? (
             <span
-              className="rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] text-muted"
+              className="rounded bg-hover px-1.5 py-0.5 font-mono text-[10px] text-muted tabular-nums"
               title={`${usage.used} / ${usage.size}`}
             >
               {usagePercent}%
@@ -1202,7 +1209,7 @@ export default function AcpAgentPanel({ acp }) {
               }}
               disabled={turnActive}
               title={t("New session")}
-              className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text/88 hover:bg-accent/10 disabled:opacity-40"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-hover hover:text-text disabled:opacity-40"
             >
               <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
@@ -1215,8 +1222,8 @@ export default function AcpAgentPanel({ acp }) {
             }}
             title={t("Projects")}
             className={[
-              "rounded-md border border-border bg-surface px-2 py-1 text-xs",
-              historyOpen ? "text-accent" : "text-text/88 hover:bg-accent/10",
+              "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+              historyOpen ? "bg-accent-soft text-accent" : "text-muted hover:bg-hover hover:text-text",
             ].join(" ")}
           >
             <FolderKanban className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1227,10 +1234,8 @@ export default function AcpAgentPanel({ acp }) {
               onClick={() => stop(stopTargetId)}
               title={orphanedSession ? t("Stop session") : t("Stop agent")}
               className={[
-                "rounded-md border bg-surface px-2 py-1 text-xs font-medium hover:bg-red-500/10 hover:text-red-500",
-                orphanedSession
-                  ? "border-amber-500/50 text-amber-600 dark:text-amber-400"
-                  : "border-border text-text/88",
+                "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-danger/10 hover:text-danger",
+                orphanedSession ? "text-warning" : "text-muted",
               ].join(" ")}
             >
               <CircleStop className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1242,7 +1247,7 @@ export default function AcpAgentPanel({ acp }) {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        className="scroll-region min-h-0 flex-1 overflow-y-auto px-3 py-3"
       >
         {historyOpen ? (
           viewingRecord ? (
@@ -1293,7 +1298,7 @@ export default function AcpAgentPanel({ acp }) {
         ) : !ready && transcript.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-muted">
             {activeAgent ? (
-              <AcpAgentLogo agent={activeAgent} className="h-12 w-12 rounded-[14px]" />
+              <AcpAgentLogo agent={activeAgent} className="h-12 w-12 rounded-xl" />
             ) : (
               <Bot className="h-8 w-8 opacity-40" aria-hidden="true" />
             )}
@@ -1324,7 +1329,7 @@ export default function AcpAgentPanel({ acp }) {
                   type="button"
                   onClick={start}
                   disabled={starting || !activeAgentId}
-                  className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent/88 disabled:opacity-50"
                 >
                   {starting ? (
                     <span className="inline-flex items-center gap-1.5">
@@ -1354,7 +1359,7 @@ export default function AcpAgentPanel({ acp }) {
                     type="button"
                     onClick={start}
                     disabled={starting || !activeAgentId}
-                    className="rounded-md border border-border bg-surface px-3 py-1 text-xs font-medium text-text/88 hover:bg-accent/10 disabled:opacity-50"
+                    className="rounded-md border border-border-strong bg-transparent px-3 py-1 text-xs font-medium text-text/88 hover:bg-hover disabled:opacity-50"
                   >
                     {starting ? t("Starting…") : t("Restart agent")}
                   </button>
@@ -1385,15 +1390,15 @@ export default function AcpAgentPanel({ acp }) {
 
       {plan && plan.length > 0 ? <PlanCard plan={plan} /> : null}
 
-      <div className="relative shrink-0 border-t border-border/80">
+      <div className="relative shrink-0 border-t border-border">
         {commandSuggestions.length > 0 ? (
-          <div className="absolute inset-x-3 bottom-full z-10 mb-1 overflow-hidden rounded-lg border border-border bg-panel shadow-lg">
+          <div className="absolute inset-x-3 bottom-full z-10 mb-1 overflow-hidden rounded-lg border border-border bg-elevated p-1 shadow-overlay">
             {commandSuggestions.map((command) => (
               <button
                 key={command.name}
                 type="button"
                 onClick={() => setQuestion(`/${command.name} `)}
-                className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-xs hover:bg-accent/10"
+                className="flex w-full items-baseline gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-hover"
               >
                 <span className="shrink-0 font-mono font-medium text-accent">
                   /{command.name}
@@ -1406,9 +1411,9 @@ export default function AcpAgentPanel({ acp }) {
             ))}
           </div>
         ) : null}
-        <form onSubmit={handleSend} className="px-3 py-3">
+        <form onSubmit={handleSend} className="px-3 pt-2.5 pb-3">
           {shellContext ? (
-            <div className="mb-2 flex items-center gap-2 rounded-md border border-border/60 bg-surface/60 px-2 py-1.5 text-xs">
+            <div className="mb-2 flex items-center gap-2 rounded-md border border-border bg-panel px-2 py-1.5 text-xs">
               <TerminalSquare className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
               <span className="shrink-0 font-medium text-text/88">
                 {shellContext.sessionName}
@@ -1423,7 +1428,7 @@ export default function AcpAgentPanel({ acp }) {
                 type="button"
                 onClick={clearShellContext}
                 aria-label={t("Remove terminal selection")}
-                className="shrink-0 rounded p-0.5 text-muted hover:text-red-500"
+                className="shrink-0 rounded p-0.5 text-muted hover:text-danger"
               >
                 <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
@@ -1436,7 +1441,7 @@ export default function AcpAgentPanel({ acp }) {
                   <img
                     src={image.previewUrl}
                     alt=""
-                    className="h-12 w-12 rounded-md border border-border/60 object-cover"
+                    className="h-12 w-12 rounded-md border border-border object-cover"
                   />
                   <button
                     type="button"
@@ -1444,7 +1449,7 @@ export default function AcpAgentPanel({ acp }) {
                       setAttachments((prev) => prev.filter((item) => item.id !== image.id))
                     }
                     aria-label={t("Remove image")}
-                    className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-panel p-0.5 text-muted hover:text-red-500"
+                    className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-panel p-0.5 text-muted hover:text-danger"
                   >
                     <X className="h-3 w-3" aria-hidden="true" />
                   </button>
@@ -1455,7 +1460,7 @@ export default function AcpAgentPanel({ acp }) {
           {/* One bordered box holding the textarea and a footer strip, so the
               session-mode picker and send button read as part of the composer
               (images arrive by paste only — there is no attach button). */}
-          <div className="overflow-visible rounded-[18px] border border-border/55 bg-surface/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-colors focus-within:border-accent/45">
+          <div className="overflow-visible rounded-lg border border-border-strong bg-panel transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
             <textarea
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
@@ -1481,11 +1486,11 @@ export default function AcpAgentPanel({ acp }) {
                     ? t("Sign in to continue")
                     : t("Start the agent first")
               }
-              className="min-h-0 w-full resize-none border-0 bg-transparent px-3 py-2.5 text-sm leading-6 text-text outline-none placeholder:text-muted"
+              className="min-h-0 w-full resize-none border-0 bg-transparent px-3 py-2.5 text-[13px] leading-6 text-text outline-none placeholder:text-subtle"
             />
             <div
               ref={composerMenuRef}
-              className="relative flex items-end gap-1.5 border-t border-border/45 px-2 py-1.5"
+              className="relative flex items-end gap-1.5 px-2 pb-1.5"
             >
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                 {ready && modes?.availableModes?.length ? (
@@ -1518,7 +1523,7 @@ export default function AcpAgentPanel({ acp }) {
                   type="button"
                   onClick={cancelTurn}
                   title={t("Cancel turn")}
-                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-surface text-text/88 transition-colors hover:bg-red-500/10 hover:text-red-500"
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border-strong text-text transition-colors hover:bg-danger/10 hover:text-danger"
                 >
                   <Square className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -1527,9 +1532,9 @@ export default function AcpAgentPanel({ acp }) {
                   type="submit"
                   disabled={!canSend}
                   title={t("Send")}
-                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent text-on-accent transition-colors hover:bg-accent/88 disabled:opacity-40"
                 >
-                  <Send className="h-4 w-4" aria-hidden="true" />
+                  <Send className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               )}
             </div>
