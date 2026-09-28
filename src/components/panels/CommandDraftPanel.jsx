@@ -32,12 +32,12 @@ export default function CommandDraftPanel({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-panel text-xs">
+    <div className="@container flex h-full min-h-0 flex-col bg-panel text-xs">
       <PanelHeader
         icon={NotebookPen}
         title={t("Command Draft")}
         actions={
-          <kbd className="rounded border border-border bg-surface px-1.5 font-mono text-[10.5px] leading-4 text-muted">
+          <kbd className="hidden rounded border border-border bg-surface px-1.5 font-mono text-[10.5px] leading-4 text-muted @2xs:inline">
             Ctrl+Enter
           </kbd>
         }
@@ -60,14 +60,17 @@ export default function CommandDraftPanel({
       </div>
 
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-t border-border px-2.5">
-        <label className="inline-flex cursor-pointer items-center gap-1.5 text-muted select-none">
+        <label
+          className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 text-muted select-none"
+          title={t("Clear after send")}
+        >
           <input
             type="checkbox"
-            className="h-3.5 w-3.5 accent-accent"
+            className="h-3.5 w-3.5 shrink-0 accent-accent"
             checked={clearAfterSend}
             onChange={(event) => setClearAfterSend(event.target.checked)}
           />
-          {t("Clear after send")}
+          <span className="truncate">{t("Clear after send")}</span>
         </label>
         <Button variant="primary" size="sm" disabled={!canSend} onClick={handleSend}>
           <Send className="h-3.5 w-3.5" aria-hidden="true" />

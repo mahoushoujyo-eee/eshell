@@ -347,14 +347,14 @@ export default function StatusPanel({
   }, [currentStatus?.disks?.length, currentStatus?.topProcesses?.length, detailView]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-panel text-xs">
+    <div className="@container flex h-full min-h-0 flex-col bg-panel text-xs">
       <PanelHeader
         icon={Activity}
         title={t("Server Status")}
         actions={
           <div className="flex items-center gap-2">
             {currentStatus?.fetchedAt && (
-              <span className="inline-flex items-center gap-1 text-[11px] text-muted tabular-nums">
+              <span className="hidden items-center gap-1 text-[11px] text-muted tabular-nums @xs:inline-flex">
                 <Clock3 className="h-3 w-3" aria-hidden="true" />
                 {new Date(currentStatus.fetchedAt).toLocaleTimeString(localeTag)}
               </span>
@@ -394,8 +394,8 @@ export default function StatusPanel({
           />
 
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border px-3">
-              <div className="text-[11px] font-semibold tracking-[0.08em] text-subtle uppercase">
+            <div className="tab-strip flex h-9 shrink-0 items-center justify-between gap-2 overflow-x-auto border-b border-border px-3">
+              <div className="hidden shrink-0 text-[11px] font-semibold tracking-[0.08em] whitespace-nowrap text-subtle uppercase @sm:block">
                 {t("Detail Focus")}
               </div>
 

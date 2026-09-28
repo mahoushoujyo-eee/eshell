@@ -24,31 +24,32 @@ export default function StatusTrafficPanel({
   return (
     <div className="shrink-0 border-b border-border px-3 py-2.5">
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-1.5 text-muted">
+        <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted">
           <Network className="h-3.5 w-3.5" aria-hidden="true" />
           {t("Network")}
         </span>
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="inline-flex items-center gap-1 font-medium whitespace-nowrap text-info tabular-nums">
-            <ArrowUp className="h-3 w-3" aria-hidden="true" />
-            {formatRate(trafficRate.tx, formatBytes)}
-          </span>
-          <span className="inline-flex items-center gap-1 font-medium whitespace-nowrap text-accent tabular-nums">
-            <ArrowDown className="h-3 w-3" aria-hidden="true" />
-            {formatRate(trafficRate.rx, formatBytes)}
-          </span>
-          <select
-            className={`${selectSmClass} h-6 w-auto`}
-            value={currentNic || ""}
-            onChange={(event) => onNicChange(event.target.value || null)}
-          >
-            {(currentStatus.networkInterfaces || []).map((networkInterface) => (
-              <option key={networkInterface.interface} value={networkInterface.interface}>
-                {networkInterface.interface}
-              </option>
-            ))}
-          </select>
-        </div>
+        <select
+          className={`${selectSmClass} h-6`}
+          value={currentNic || ""}
+          onChange={(event) => onNicChange(event.target.value || null)}
+        >
+          {(currentStatus.networkInterfaces || []).map((networkInterface) => (
+            <option key={networkInterface.interface} value={networkInterface.interface}>
+              {networkInterface.interface}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="mb-1.5 flex items-center gap-3">
+        <span className="inline-flex items-center gap-1 font-medium whitespace-nowrap text-info tabular-nums">
+          <ArrowUp className="h-3 w-3" aria-hidden="true" />
+          {formatRate(trafficRate.tx, formatBytes)}
+        </span>
+        <span className="inline-flex items-center gap-1 font-medium whitespace-nowrap text-accent tabular-nums">
+          <ArrowDown className="h-3 w-3" aria-hidden="true" />
+          {formatRate(trafficRate.rx, formatBytes)}
+        </span>
       </div>
 
       <div className="relative h-12 overflow-hidden rounded-md border border-border bg-surface px-1 pt-1">
