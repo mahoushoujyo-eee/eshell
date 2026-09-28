@@ -1,7 +1,7 @@
 // Class tokens shared by the UI primitives.
 //
 // Only eShell's own theme colours are used (`bg-panel`, `border-border`,
-// `text-muted`, `text-accent`, `bg-accent-soft`, `text-success`,
+// `text-muted`, `text-accent`, `text-on-accent`, `bg-accent-soft`, `text-success`,
 // `text-warning`, `text-danger`, `bg-warm`, `bg-surface`). No hardcoded
 // colours and no global styles: the panel follows the app's light/dark theme,
 // and nothing here leaks outside the panel's own subtree.
@@ -26,7 +26,7 @@ export const TONE_DOT = {
 
 export const BUTTON_TONES = {
   default: "border-border bg-surface text-text hover:bg-accent-soft",
-  primary: "border-accent bg-accent text-white hover:opacity-90",
+  primary: "border-accent bg-accent text-on-accent hover:opacity-90",
   danger: "border-danger text-danger hover:bg-danger/10",
   ghost: "border-transparent text-muted hover:bg-accent-soft hover:text-text",
 };

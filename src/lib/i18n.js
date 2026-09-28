@@ -634,6 +634,14 @@ const zhMessages = {
   "think": "思考",
   "English": "English",
   "简体中文": "简体中文",
+  "AI responding": "AI 正在回复",
+  "Hide": "隐藏",
+  "Loading": "加载中",
+  "New connection": "新建连接",
+  "Panel failed to render": "面板渲染失败",
+  "Server": "服务器",
+  "Show": "显示",
+  "Workspace": "工作区",
 };
 
 zhMessages["Approval"] = "审批";
