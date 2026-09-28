@@ -13,9 +13,11 @@ import { useRegistryVersion } from "../../plugins/runtime/useRegistry";
 import ExternalPanelHost from "../../plugins/runtime/ExternalPanelHost";
 
 // Builtin panel keys get their original render props (the compat adapter):
-// the workbench values mapped per builtin plugin, unchanged. External panels
-// render through ExternalPanelHost with `{ api, context, controller }`.
-const builtinPanelProps = (panel, workbench, onOpenFileEditor) => {
+// the workbench values mapped per builtin plugin, plus the plugin's own API
+// for what the panel does through the facade (the SFTP download-folder
+// picker). External panels render through ExternalPanelHost with
+// `{ api, context, controller }`.
+const builtinPanelProps = (panel, plugin, workbench, onOpenFileEditor) => {
   const {
     activeSessionId,
     currentPath,
@@ -65,6 +67,7 @@ const builtinPanelProps = (panel, workbench, onOpenFileEditor) => {
       selectSftpEntry,
       onOpenFileEditor,
       formatBytes,
+      api: plugin.api,
     };
   }
   if (panel.pluginId === STATUS_EXTENSION_ID) {
@@ -180,7 +183,7 @@ export default function AppMainWorkspace({
           node: <ExternalPanelHost panel={panel} plugin={plugin} />,
         };
       }
-      const props = builtinPanelProps(panel, workbench, onOpenFileEditor);
+      const props = builtinPanelProps(panel, plugin, workbench, onOpenFileEditor);
       if (!props) {
         // An unknown builtin panel (manifest drift) renders nothing; it is
         // skipped, not thrown, so the rest of the dock still lays out.
