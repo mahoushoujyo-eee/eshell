@@ -1,6 +1,7 @@
-import { X } from "lucide-react";
+import { Crop } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import Dialog, { DialogBody, DialogHeader } from "../ui/Dialog";
 import WallpaperCropControls from "./wallpaper/WallpaperCropControls";
 import WallpaperCropPreview from "./wallpaper/WallpaperCropPreview";
 import {
@@ -180,55 +181,54 @@ export default function WallpaperCropModal({ open, source, onCancel, onApply }) 
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/65 p-4">
-      <div
-        className="flex max-h-[85vh] w-full max-w-6xl flex-col rounded-3xl border border-border/80 bg-panel p-4 shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold">{t("Crop And Scale")}</div>
-            <div className="text-xs text-muted">
-              {t("Source {width} x {height} | Export {outWidth} x {outHeight}", {
-                width: source.image.naturalWidth,
-                height: source.image.naturalHeight,
-                outWidth: CROP_OUTPUT_WIDTH,
-                outHeight: CROP_OUTPUT_HEIGHT,
-              })}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded-xl border border-border px-2.5 py-1.5 text-xs text-muted hover:bg-accent-soft"
-            onClick={handleCancel}
-          >
-            <X className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("Cancel")}
-          </button>
-        </div>
+    <Dialog
+      open
+      onClose={handleCancel}
+      closeOnOverlay={false}
+      layer="stacked"
+      size="custom"
+      className="max-w-6xl"
+      labelledBy="wallpaper-crop-title"
+    >
+      <DialogHeader
+        icon={Crop}
+        tone="accent"
+        title={t("Crop And Scale")}
+        titleId="wallpaper-crop-title"
+        description={
+          <span className="font-mono text-[11px]">
+            {t("Source {width} x {height} | Export {outWidth} x {outHeight}", {
+              width: source.image.naturalWidth,
+              height: source.image.naturalHeight,
+              outWidth: CROP_OUTPUT_WIDTH,
+              outHeight: CROP_OUTPUT_HEIGHT,
+            })}
+          </span>
+        }
+        onClose={handleCancel}
+      />
 
-        <div className="scroll-region grid min-h-0 flex-1 gap-4 overflow-y-auto pr-1 lg:grid-cols-[1.7fr_1fr]">
-          <WallpaperCropPreview
-            previewCanvasRef={previewCanvasRef}
-            onPointerDown={handlePreviewPointerDown}
-            onPointerMove={handlePreviewPointerMove}
-            onPointerRelease={handlePreviewPointerRelease}
-          />
+      <DialogBody className="grid gap-4 lg:grid-cols-[1.7fr_1fr]">
+        <WallpaperCropPreview
+          previewCanvasRef={previewCanvasRef}
+          onPointerDown={handlePreviewPointerDown}
+          onPointerMove={handlePreviewPointerMove}
+          onPointerRelease={handlePreviewPointerRelease}
+        />
 
-          <WallpaperCropControls
-            cropZoom={cropZoom}
-            cropPan={cropPan}
-            onZoomChange={handleZoomChange}
-            onHorizontalChange={handleHorizontalChange}
-            onVerticalChange={handleVerticalChange}
-            onReset={resetCropAdjustments}
-            onCancel={handleCancel}
-            onApply={handleApply}
-            applying={applying}
-            cropError={cropError}
-          />
-        </div>
-      </div>
-    </div>
+        <WallpaperCropControls
+          cropZoom={cropZoom}
+          cropPan={cropPan}
+          onZoomChange={handleZoomChange}
+          onHorizontalChange={handleHorizontalChange}
+          onVerticalChange={handleVerticalChange}
+          onReset={resetCropAdjustments}
+          onCancel={handleCancel}
+          onApply={handleApply}
+          applying={applying}
+          cropError={cropError}
+        />
+      </DialogBody>
+    </Dialog>
   );
 }

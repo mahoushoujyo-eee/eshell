@@ -1,6 +1,10 @@
 import { ArrowLeft, Link2, LoaderCircle, Pencil, Plus, Save, Server, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import Button, { IconButton } from "../ui/Button";
+import Dialog, { DialogBody, DialogFooter, DialogHeader } from "../ui/Dialog";
+import SegmentedControl from "../ui/SegmentedControl";
+import { inputClass, sectionLabelClass, selectClass } from "../ui/fieldClasses";
 
 const EMPTY_SSH_FORM = {
   id: null,
@@ -32,7 +36,7 @@ function RequiredField({ children }) {
       {children}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-sm leading-none text-danger"
+        className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-sm leading-none text-danger"
       >
         *
       </span>
@@ -127,266 +131,232 @@ export default function SshConfigModal({
   };
 
   const isConnecting = Boolean(connectingId);
+  const authType = sshForm.authType || "password";
+  const authLabel = (type) =>
+    type === "privateKey" ? t("Private key") : type === "keyboardInteractive" ? t("Keyboard Interactive") : t("Password");
+  const setField = (key) => (event) => setSshForm((prev) => ({ ...prev, [key]: event.target.value }));
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-      onClick={isConnecting ? undefined : onClose}
-    >
-      <div
-        className="w-full max-w-xl rounded-2xl border border-border/80 bg-panel p-4 shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h3 className="inline-flex items-center gap-2 text-base font-semibold">
-              <Server className="h-4 w-4 text-accent" aria-hidden="true" />
-              {t("SSH Servers")}
-            </h3>
-            <p className="text-xs text-muted">{t("Manage server profiles and connect quickly.")}</p>
-          </div>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted hover:bg-accent-soft disabled:opacity-60"
-            onClick={onClose}
-            disabled={isConnecting}
-          >
-            <X className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("Close")}
-          </button>
-        </div>
-
-        {mode === "list" ? (
-          <div>
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">
-                {t("Configured: {count}", { count: sshConfigs.length })}
-              </span>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white disabled:cursor-wait disabled:opacity-70"
-                onClick={openCreateForm}
-                disabled={isConnecting}
-              >
+    <Dialog open={open} onClose={onClose} dismissible={!isConnecting} size="md" labelledBy="ssh-config-title">
+      {mode === "list" ? (
+        <>
+          <DialogHeader
+            icon={Server}
+            tone="accent"
+            title={t("SSH Servers")}
+            titleId="ssh-config-title"
+            description={t("Manage server profiles and connect quickly.")}
+            actions={
+              <Button variant="primary" onClick={openCreateForm} disabled={isConnecting}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                 {t("New Server")}
-              </button>
+              </Button>
+            }
+            onClose={onClose}
+            closeDisabled={isConnecting}
+          />
+          <DialogBody className="px-2 py-2">
+            <div className="px-2 pt-1 pb-2 text-[11px] font-medium text-subtle">
+              {t("Configured: {count}", { count: sshConfigs.length })}
             </div>
-            <div className="max-h-96 space-y-2 overflow-auto pr-1">
-              {sshConfigs.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border/80 bg-surface p-4 text-center text-sm text-muted">
-                  {t("No server profiles yet.")}
-                </div>
-              ) : (
-                sshConfigs.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-border/70 bg-surface px-3 py-2 text-xs">
-                    <div className="font-medium">{item.name}</div>
-                    <div className="text-muted">
-                      {item.username}@{item.host}:{item.port}
-                    </div>
-                    <div className="text-muted">
-                      {item.authType === "privateKey" ? t("Private key") : item.authType === "keyboardInteractive" ? t("Keyboard Interactive") : t("Password")}
-                      {item.jumpHostId ? (
-                        <span className="ml-2 rounded bg-accent-soft px-1 text-[10px] text-accent">{t("via jump host")}</span>
-                      ) : null}
-                    </div>
-                    <div className="mt-2 flex gap-1">
-                      <button
-                        type="button"
-                        className={[
-                          "inline-flex items-center gap-1 rounded px-2 py-1 text-white disabled:cursor-wait disabled:opacity-70",
-                          connectingId === item.id ? "bg-danger" : "bg-accent",
-                        ].join(" ")}
-                        onClick={() =>
-                          connectingId === item.id ? handleCancelConnect() : handleConnect(item.id)
-                        }
-                        disabled={(isConnecting && connectingId !== item.id) || cancelingConnection}
-                      >
-                        {connectingId === item.id ? (
-                          cancelingConnection ? (
-                            <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                          ) : (
-                            <X className="h-3.5 w-3.5" aria-hidden="true" />
-                          )
-                        ) : (
-                          <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        )}
-                        {connectingId === item.id
-                          ? cancelingConnection
-                            ? t("Cancelling...")
-                            : t("Cancel")
-                          : t("Connect")}
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 disabled:opacity-60"
-                        onClick={() => openEditForm(item)}
-                        disabled={isConnecting}
-                      >
-                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                        {t("Edit")}
-                      </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 rounded border border-danger/40 px-2 py-1 text-danger disabled:opacity-60"
-                        onClick={() => onDeleteSsh(item.id)}
-                        disabled={isConnecting}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                        {t("Delete")}
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        ) : (
-          <div>
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-sm text-muted">
-                {sshForm.id ? t("Edit server") : t("New server")}
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted">
-                  <span aria-hidden="true" className="text-danger">
-                    *
-                  </span>{" "}
-                  {t("Required")}
-                </span>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs disabled:opacity-60"
-                  onClick={() => setMode("list")}
-                  disabled={isConnecting}
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t("Back")}
-                </button>
+            {sshConfigs.length === 0 ? (
+              <div className="mx-2 mb-2 rounded-lg border border-dashed border-border-strong px-4 py-8 text-center text-[13px] text-muted">
+                {t("No server profiles yet.")}
               </div>
-            </div>
-            <form className="space-y-2" onSubmit={submitSsh}>
+            ) : (
+              <div className="space-y-0.5">
+                {sshConfigs.map((item) => {
+                  const connectingThis = connectingId === item.id;
+                  return (
+                    <div
+                      key={item.id}
+                      className={[
+                        "group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors duration-150",
+                        connectingThis ? "bg-accent-soft" : "hover:bg-hover",
+                      ].join(" ")}
+                    >
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-panel text-accent">
+                        <Server className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-[13px] font-medium text-text">{item.name}</span>
+                          <span className="shrink-0 rounded border border-border px-1 text-[10px] leading-4 text-muted">
+                            {authLabel(item.authType)}
+                          </span>
+                          {item.jumpHostId ? (
+                            <span className="shrink-0 rounded bg-accent-soft px-1 text-[10px] leading-4 text-accent">
+                              {t("via jump host")}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="truncate font-mono text-[11px] text-muted">
+                          {item.username}@{item.host}:{item.port}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          <IconButton label={t("Edit")} onClick={() => openEditForm(item)} disabled={isConnecting}>
+                            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                          </IconButton>
+                          <IconButton
+                            label={t("Delete")}
+                            tone="danger"
+                            onClick={() => onDeleteSsh(item.id)}
+                            disabled={isConnecting}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          </IconButton>
+                        </div>
+                        <Button
+                          variant={connectingThis ? "danger" : "primary"}
+                          className="ml-1 min-w-[76px]"
+                          onClick={() => (connectingThis ? handleCancelConnect() : handleConnect(item.id))}
+                          disabled={(isConnecting && !connectingThis) || cancelingConnection}
+                        >
+                          {connectingThis ? (
+                            cancelingConnection ? (
+                              <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <X className="h-3.5 w-3.5" aria-hidden="true" />
+                            )
+                          ) : (
+                            <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+                          )}
+                          {connectingThis
+                            ? cancelingConnection
+                              ? t("Cancelling...")
+                              : t("Cancel")
+                            : t("Connect")}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </DialogBody>
+        </>
+      ) : (
+        <form className="flex min-h-0 flex-col" onSubmit={submitSsh}>
+          <DialogHeader
+            icon={sshForm.id ? Pencil : Plus}
+            tone="accent"
+            title={sshForm.id ? t("Edit server") : t("New server")}
+            titleId="ssh-config-title"
+            description={
+              <span>
+                <span aria-hidden="true" className="text-danger">
+                  *
+                </span>{" "}
+                {t("Required")}
+              </span>
+            }
+            actions={
+              <Button variant="ghost" onClick={() => setMode("list")} disabled={isConnecting}>
+                <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                {t("Back")}
+              </Button>
+            }
+            onClose={onClose}
+            closeDisabled={isConnecting}
+          />
+          <DialogBody className="space-y-4">
+            <section className="space-y-2">
+              <div className={sectionLabelClass}>{t("Server")}</div>
               <div className="grid grid-cols-2 gap-2">
                 <RequiredField>
                   <input
-                    className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                    className={`${inputClass} pr-6`}
                     placeholder={t("Name")}
                     aria-required="true"
                     value={sshForm.name}
-                    onChange={(event) => setSshForm((prev) => ({ ...prev, name: event.target.value }))}
+                    onChange={setField("name")}
                   />
                 </RequiredField>
                 <RequiredField>
                   <input
-                    className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                    className={`${inputClass} pr-6`}
                     placeholder={t("Host")}
                     aria-required="true"
                     value={sshForm.host}
-                    onChange={(event) => setSshForm((prev) => ({ ...prev, host: event.target.value }))}
+                    onChange={setField("host")}
                   />
                 </RequiredField>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-[1fr_2fr] gap-2">
                 <RequiredField>
                   <input
-                    className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                    className={`${inputClass} pr-6`}
                     placeholder={t("Port")}
                     aria-required="true"
                     value={sshForm.port}
-                    onChange={(event) => setSshForm((prev) => ({ ...prev, port: event.target.value }))}
+                    onChange={setField("port")}
                   />
                 </RequiredField>
                 <RequiredField>
                   <input
-                    className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                    className={`${inputClass} pr-6`}
                     placeholder={t("Username")}
                     aria-required="true"
                     value={sshForm.username}
-                    onChange={(event) => setSshForm((prev) => ({ ...prev, username: event.target.value }))}
+                    onChange={setField("username")}
                   />
                 </RequiredField>
               </div>
               <input
-                className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+                className={inputClass}
                 placeholder={t("Description")}
                 value={sshForm.description}
-                onChange={(event) => setSshForm((prev) => ({ ...prev, description: event.target.value }))}
+                onChange={setField("description")}
               />
-              <div className="rounded border border-border/80 bg-surface/60 p-2">
-                <div className="mb-2 text-xs font-medium text-muted">{t("Authentication")}</div>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    className={[
-                      "rounded border px-2 py-1.5 text-xs",
-                      (sshForm.authType || "password") === "password"
-                        ? "border-accent bg-accent-soft text-accent"
-                        : "border-border",
-                    ].join(" ")}
-                    onClick={() => setSshForm((prev) => ({ ...prev, authType: "password" }))}
-                  >
-                    {t("Password")}
-                  </button>
-                  <button
-                    type="button"
-                    className={[
-                      "rounded border px-2 py-1.5 text-xs",
-                      sshForm.authType === "privateKey"
-                        ? "border-accent bg-accent-soft text-accent"
-                        : "border-border",
-                    ].join(" ")}
-                    onClick={() => setSshForm((prev) => ({ ...prev, authType: "privateKey" }))}
-                  >
-                    {t("Private key")}
-                  </button>
-                  <button
-                    type="button"
-                    className={[
-                      "rounded border px-2 py-1.5 text-xs",
-                      sshForm.authType === "keyboardInteractive"
-                        ? "border-accent bg-accent-soft text-accent"
-                        : "border-border",
-                    ].join(" ")}
-                    onClick={() => setSshForm((prev) => ({ ...prev, authType: "keyboardInteractive" }))}
-                  >
-                    {t("2FA / KI")}
-                  </button>
-                </div>
-              </div>
-              {(sshForm.authType || "password") === "password" ? (
+            </section>
+
+            <section className="space-y-2">
+              <div className={sectionLabelClass}>{t("Authentication")}</div>
+              <SegmentedControl
+                size="sm"
+                value={authType}
+                onChange={(value) => setSshForm((prev) => ({ ...prev, authType: value }))}
+                options={[
+                  { id: "password", label: t("Password") },
+                  { id: "privateKey", label: t("Private key") },
+                  { id: "keyboardInteractive", label: t("2FA / KI") },
+                ]}
+              />
+              {authType === "password" ? (
                 <RequiredField>
                   <input
                     type="password"
-                    className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                    className={`${inputClass} pr-6`}
                     placeholder={t("Password")}
                     aria-required="true"
                     value={sshForm.password}
-                    onChange={(event) => setSshForm((prev) => ({ ...prev, password: event.target.value }))}
+                    onChange={setField("password")}
                   />
                 </RequiredField>
-              ) : sshForm.authType === "keyboardInteractive" ? null : (
+              ) : authType === "keyboardInteractive" ? null : (
                 <div className="space-y-2">
                   <RequiredField>
                     <input
-                      className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                      className={`${inputClass} pr-6 font-mono text-xs`}
                       placeholder={t("Private key path")}
                       aria-required="true"
                       value={sshForm.privateKeyPath}
-                      onChange={(event) => setSshForm((prev) => ({ ...prev, privateKeyPath: event.target.value }))}
+                      onChange={setField("privateKeyPath")}
                     />
                   </RequiredField>
                   <input
                     type="password"
-                    className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
+                    className={inputClass}
                     placeholder={t("Private key passphrase (optional)")}
                     value={sshForm.privateKeyPassphrase}
-                    onChange={(event) =>
-                      setSshForm((prev) => ({ ...prev, privateKeyPassphrase: event.target.value }))
-                    }
+                    onChange={setField("privateKeyPassphrase")}
                   />
                   <label className="flex items-center gap-2 text-xs text-muted">
                     <input
                       type="checkbox"
+                      className="h-3.5 w-3.5 accent-accent"
                       checked={Boolean(sshForm.usePasswordFallback)}
                       onChange={(event) =>
                         setSshForm((prev) => ({ ...prev, usePasswordFallback: event.target.checked }))
@@ -398,43 +368,44 @@ export default function SshConfigModal({
                     <RequiredField>
                       <input
                         type="password"
-                        className="w-full rounded border border-border bg-surface px-2 py-1.5 pr-6 text-sm"
+                        className={`${inputClass} pr-6`}
                         placeholder={t("Fallback password")}
                         aria-required="true"
                         value={sshForm.password}
-                        onChange={(event) => setSshForm((prev) => ({ ...prev, password: event.target.value }))}
+                        onChange={setField("password")}
                       />
                     </RequiredField>
                   ) : null}
                 </div>
               )}
-              <div className="rounded border border-border/80 bg-surface/60 p-2">
-                <div className="mb-2 text-xs font-medium text-muted">{t("Jump Host (optional)")}</div>
-                <select
-                  className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                  value={sshForm.jumpHostId || ""}
-                  onChange={(event) =>
-                    setSshForm((prev) => ({ ...prev, jumpHostId: event.target.value || null }))
-                  }
-                >
-                  <option value="">{t("None (direct connection)")}</option>
-                  {(sshConfigs || []).filter((c) => c.id !== sshForm.id).map((c) => (
+            </section>
+
+            <section className="space-y-2">
+              <div className={sectionLabelClass}>{t("Jump Host (optional)")}</div>
+              <select
+                className={selectClass}
+                value={sshForm.jumpHostId || ""}
+                onChange={(event) => setSshForm((prev) => ({ ...prev, jumpHostId: event.target.value || null }))}
+              >
+                <option value="">{t("None (direct connection)")}</option>
+                {(sshConfigs || [])
+                  .filter((c) => c.id !== sshForm.id)
+                  .map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} ({c.username}@{c.host}:{c.port})
                     </option>
                   ))}
-                </select>
-              </div>
-              <div className="flex justify-end">
-                <button type="submit" className="inline-flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-xs text-white">
-                  <Save className="h-3.5 w-3.5" aria-hidden="true" />
-                  {sshForm.id ? t("Update Server") : t("Create Server")}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-      </div>
-    </div>
+              </select>
+            </section>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="submit" variant="primary">
+              <Save className="h-3.5 w-3.5" aria-hidden="true" />
+              {sshForm.id ? t("Update Server") : t("Create Server")}
+            </Button>
+          </DialogFooter>
+        </form>
+      )}
+    </Dialog>
   );
 }

@@ -14,6 +14,7 @@ const LAYERS = {
   critical: "z-[70]",
 };
 
+// Any other `size` (e.g. "custom") leaves the width to `className`.
 const SIZES = {
   sm: "max-w-md",
   md: "max-w-xl",
@@ -27,12 +28,14 @@ const SIZES = {
  * It imposes no inner layout or scrolling — compose `DialogHeader`,
  * `DialogBody` and `DialogFooter`, or lay the panel out directly. With
  * `dismissible={false}` (a request in flight, a decision that must be made
- * explicitly) neither Escape nor the overlay closes it.
+ * explicitly) neither Escape nor the overlay closes it; `closeOnOverlay={false}`
+ * keeps Escape but ignores stray overlay clicks.
  */
 export default function Dialog({
   open,
   onClose,
   dismissible = true,
+  closeOnOverlay = true,
   layer = "modal",
   size = "md",
   labelledBy,
@@ -111,7 +114,7 @@ export default function Dialog({
         "fixed inset-0 flex items-center justify-center bg-black/45 p-4 animate-[es-fade-in_120ms_ease-out] dark:bg-black/60",
         LAYERS[layer] || LAYERS.modal,
       )}
-      onClick={dismissible ? () => onCloseRef.current?.() : undefined}
+      onClick={dismissible && closeOnOverlay ? () => onCloseRef.current?.() : undefined}
     >
       <div
         ref={panelRef}

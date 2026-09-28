@@ -1,5 +1,7 @@
-import { Image as ImageIcon, X } from "lucide-react";
+import { Image as ImageIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import Dialog, { DialogBody, DialogHeader } from "../ui/Dialog";
+import { sectionLabelClass } from "../ui/fieldClasses";
 import {
   WALLPAPER_PRESETS,
   getWallpaperPreviewStyle,
@@ -105,68 +107,50 @@ export default function WallpaperModal({ open, onClose, wallpaper, onChangeWallp
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={handleClose}>
-        <div
-          className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-3xl border border-border/80 bg-panel p-5 shadow-2xl"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div className="mb-4 flex shrink-0 items-center justify-between gap-4">
-            <div>
-              <h3 className="inline-flex items-center gap-2 text-base font-semibold">
-              <ImageIcon className="h-4 w-4 text-accent" aria-hidden="true" />
-                {t("Terminal Wallpaper")}
-              </h3>
-              <p className="text-xs text-muted">
-                {t("Pick a preset or upload your own background for the PTY terminal.")}
-              </p>
+      <Dialog open onClose={handleClose} size="custom" className="max-w-4xl" labelledBy="wallpaper-title">
+        <DialogHeader
+          icon={ImageIcon}
+          tone="accent"
+          title={t("Terminal Wallpaper")}
+          titleId="wallpaper-title"
+          description={t("Pick a preset or upload your own background for the PTY terminal.")}
+          onClose={handleClose}
+        />
+
+        <DialogBody className="space-y-5">
+          <WallpaperCurrentPreview
+            normalized={normalized}
+            onChangeWallpaper={onChangeWallpaper}
+            onClose={onClose}
+            onCancelPendingCrop={cancelPendingCrop}
+          />
+
+          <section>
+            <div className={`mb-2 ${sectionLabelClass}`}>{t("Presets")}</div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {WALLPAPER_PRESETS.map((preset) => (
+                <WallpaperPresetCard
+                  key={preset.id}
+                  active={normalized.type === "preset" && normalized.id === preset.id}
+                  title={t(preset.name)}
+                  style={getWallpaperPreviewStyle({ type: "preset", id: preset.id })}
+                  onClick={() => choosePreset(preset.id)}
+                />
+              ))}
             </div>
+          </section>
 
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-xl border border-border px-2.5 py-1.5 text-xs text-muted hover:bg-accent-soft"
-              onClick={handleClose}
-            >
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("Close")}
-            </button>
-          </div>
-
-          <div className="scroll-region min-h-0 flex-1 overflow-y-auto pr-1">
-            <WallpaperCurrentPreview
-              normalized={normalized}
-              onChangeWallpaper={onChangeWallpaper}
-              onClose={onClose}
-              onCancelPendingCrop={cancelPendingCrop}
-            />
-
-            <div className="mb-4">
-              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-                {t("Presets")}
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {WALLPAPER_PRESETS.map((preset) => (
-                  <WallpaperPresetCard
-                    key={preset.id}
-                    active={normalized.type === "preset" && normalized.id === preset.id}
-                    title={t(preset.name)}
-                    style={getWallpaperPreviewStyle({ type: "preset", id: preset.id })}
-                    onClick={() => choosePreset(preset.id)}
-                  />
-                ))}
-              </div>
-            </div>
-            <WallpaperUploadSection
-              normalized={normalized}
-              onChangeWallpaper={onChangeWallpaper}
-              fileInputRef={fileInputRef}
-              handleFileChange={handleFileChange}
-              uploading={uploading}
-              pendingCrop={pendingCrop}
-              uploadError={uploadError}
-            />
-          </div>
-        </div>
-      </div>
+          <WallpaperUploadSection
+            normalized={normalized}
+            onChangeWallpaper={onChangeWallpaper}
+            fileInputRef={fileInputRef}
+            handleFileChange={handleFileChange}
+            uploading={uploading}
+            pendingCrop={pendingCrop}
+            uploadError={uploadError}
+          />
+        </DialogBody>
+      </Dialog>
 
       <WallpaperCropModal
         open={Boolean(pendingCrop)}

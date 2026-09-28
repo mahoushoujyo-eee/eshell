@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { KeyRound, X } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { useI18n } from "../../lib/i18n";
 import { api } from "../../lib/tauri-api";
+import Button from "../ui/Button";
+import Dialog, { DialogBody, DialogFooter, DialogHeader } from "../ui/Dialog";
+import { inputClass, labelClass } from "../ui/fieldClasses";
 
 export default function SshKiPromptDialog({ prompt, onDismiss }) {
   const { t } = useI18n();
@@ -19,10 +22,6 @@ export default function SshKiPromptDialog({ prompt, onDismiss }) {
       firstInputRef.current?.focus();
     }, 50);
   }, [prompt]);
-
-  if (!prompt) {
-    return null;
-  }
 
   const handleChange = (index, value) => {
     setResponses((prev) => {
@@ -58,82 +57,52 @@ export default function SshKiPromptDialog({ prompt, onDismiss }) {
     }
   };
 
-  const title = prompt.name || t("Keyboard Interactive Auth");
-  const instructions = prompt.instructions || "";
+  const title = prompt?.name || t("Keyboard Interactive Auth");
+  const instructions = prompt?.instructions || "";
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-      <div
-        className="w-full max-w-md rounded-2xl border border-border/80 bg-panel p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <KeyRound className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
-            <div>
-              <div className="text-sm font-semibold">{title}</div>
-              {prompt.username && (
-                <div className="text-xs text-muted">
-                  {t("User")}: {prompt.username}
-                </div>
-              )}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="inline-flex items-center rounded border border-border px-2 py-1 text-xs text-muted hover:bg-accent-soft disabled:opacity-60"
-            onClick={handleCancel}
-            disabled={busy}
-          >
-            <X className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
-        </div>
-
-        {instructions && (
-          <p className="mb-4 rounded border border-border/50 bg-surface/60 px-3 py-2 text-xs text-muted whitespace-pre-wrap">
-            {instructions}
-          </p>
-        )}
-
-        <form className="space-y-3" onSubmit={handleSubmit}>
-          {(prompt.prompts || []).map((item, index) => (
-            <div key={index}>
-              {item.text && (
-                <label className="mb-1 block text-xs font-medium text-muted">
-                  {item.text}
-                </label>
-              )}
-              <input
-                ref={index === 0 ? firstInputRef : undefined}
-                type={item.echo ? "text" : "password"}
-                className="w-full rounded border border-border bg-surface px-2 py-1.5 text-sm"
-                value={responses[index] || ""}
-                onChange={(e) => handleChange(index, e.target.value)}
-                autoComplete={item.echo ? "off" : "current-password"}
-                disabled={busy}
-              />
-            </div>
-          ))}
-
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              className="inline-flex items-center rounded border border-border px-3 py-1.5 text-xs disabled:opacity-60"
-              onClick={handleCancel}
-              disabled={busy}
-            >
+    <Dialog open={Boolean(prompt)} onClose={handleCancel} dismissible={false} layer="stacked" size="sm">
+      {prompt ? (
+        <form className="flex min-h-0 flex-col" onSubmit={handleSubmit}>
+          <DialogHeader
+            icon={KeyRound}
+            tone="accent"
+            title={title}
+            description={prompt.username ? `${t("User")}: ${prompt.username}` : null}
+            onClose={handleCancel}
+            closeDisabled={busy}
+          />
+          <DialogBody className="space-y-3">
+            {instructions ? (
+              <p className="rounded-md border border-border bg-panel px-3 py-2 text-xs whitespace-pre-wrap text-muted">
+                {instructions}
+              </p>
+            ) : null}
+            {(prompt.prompts || []).map((item, index) => (
+              <div key={index} className="space-y-1">
+                {item.text ? <label className={`block ${labelClass}`}>{item.text}</label> : null}
+                <input
+                  ref={index === 0 ? firstInputRef : undefined}
+                  type={item.echo ? "text" : "password"}
+                  className={inputClass}
+                  value={responses[index] || ""}
+                  onChange={(e) => handleChange(index, e.target.value)}
+                  autoComplete={item.echo ? "off" : "current-password"}
+                  disabled={busy}
+                />
+              </div>
+            ))}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" onClick={handleCancel} disabled={busy}>
               {t("Cancel")}
-            </button>
-            <button
-              type="submit"
-              className="inline-flex items-center rounded bg-accent px-3 py-1.5 text-xs text-white disabled:opacity-70"
-              disabled={busy}
-            >
+            </Button>
+            <Button type="submit" variant="primary" disabled={busy}>
               {busy ? t("Sending...") : t("Confirm")}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      ) : null}
+    </Dialog>
   );
 }

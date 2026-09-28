@@ -1,4 +1,5 @@
 import { useI18n } from "../../../lib/i18n";
+import Button from "../../ui/Button";
 
 function WallpaperCropSlider({
   label,
@@ -11,9 +12,9 @@ function WallpaperCropSlider({
 }) {
   return (
     <div>
-      <div className="mb-1 flex items-center justify-between text-xs text-muted">
+      <div className="mb-1.5 flex items-center justify-between text-xs text-muted">
         <span>{label}</span>
-        <span>{valueLabel}</span>
+        <span className="font-mono text-[11px] text-text tabular-nums">{valueLabel}</span>
       </div>
       <input
         type="range"
@@ -43,7 +44,7 @@ export default function WallpaperCropControls({
   const { t } = useI18n();
 
   return (
-    <div className="space-y-3 rounded-2xl border border-border/70 bg-surface/60 p-3">
+    <div className="space-y-4 rounded-lg border border-border bg-panel p-4">
       <WallpaperCropSlider
         label={t("Zoom")}
         valueLabel={`${cropZoom.toFixed(2)}x`}
@@ -75,28 +76,15 @@ export default function WallpaperCropControls({
       />
 
       <div className="flex flex-wrap gap-2 pt-1">
-        <button
-          type="button"
-          className="rounded-xl border border-border px-3 py-1.5 text-xs text-muted hover:bg-accent-soft"
-          onClick={onReset}
-        >
+        <Button variant="ghost" onClick={onReset}>
           {t("Reset")}
-        </button>
-        <button
-          type="button"
-          className="rounded-xl border border-border px-3 py-1.5 text-xs text-muted hover:bg-accent-soft"
-          onClick={onCancel}
-        >
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>
           {t("Discard")}
-        </button>
-        <button
-          type="button"
-          disabled={applying}
-          className="rounded-xl border border-accent bg-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-          onClick={onApply}
-        >
+        </Button>
+        <Button variant="primary" disabled={applying} onClick={onApply}>
           {applying ? t("Applying...") : t("Apply Wallpaper")}
-        </button>
+        </Button>
       </div>
       {cropError ? <div className="text-xs text-danger">{t(cropError)}</div> : null}
     </div>

@@ -1,4 +1,4 @@
-﻿import { Eye, FileText, Pencil, X } from "lucide-react";
+﻿import { Eye, FileText, Pencil } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
@@ -20,6 +20,8 @@ import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typesc
 import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
 import { useI18n } from "../../lib/i18n";
 import { applyEditorTab } from "../../utils/text-editor";
+import Dialog, { DialogHeader } from "../ui/Dialog";
+import SegmentedControl from "../ui/SegmentedControl";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 SyntaxHighlighter.registerLanguage("bash", bash);
@@ -102,19 +104,6 @@ export default function FileEditorModal({
     }
   }, [open, filePath]);
 
-  useEffect(() => {
-    if (!open) {
-      return undefined;
-    }
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, open]);
-
   const language = detectLanguage(filePath);
   const markdownFile = isMarkdownFile(filePath);
   const codeStyle = theme === "dark" ? oneDark : oneLight;
@@ -150,7 +139,7 @@ export default function FileEditorModal({
         const matched = /language-([\w-]+)/.exec(className || "");
         if (inline) {
           return (
-            <code className="rounded bg-warm px-1 py-0.5 font-mono text-[11px]" {...props}>
+            <code className="rounded border border-border bg-hover px-1 py-0.5 font-mono text-[11px]" {...props}>
               {children}
             </code>
           );
@@ -179,91 +168,76 @@ export default function FileEditorModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={onClose}>
-      <div
-        className="flex h-[86vh] w-full max-w-6xl flex-col rounded-2xl border border-border/80 bg-panel p-4 shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="inline-flex items-center gap-2 truncate text-base font-semibold">
-              <FileText className="h-4 w-4 text-accent" aria-hidden="true" />
-              {t("File Editor")}
-            </h3>
-            <p className="truncate text-xs text-muted">
-              {filePath} {dirtyFile ? t("(Unsaved)") : t("(Synced)")}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className={[
-                "inline-flex items-center gap-1 rounded border px-2 py-1 text-xs",
-                mode === "edit"
-                  ? "border-accent bg-accent text-white"
-                  : "border-border bg-surface text-muted",
-              ].join(" ")}
-              onClick={() => setMode("edit")}
-            >
-              <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("Edit")}
-            </button>
-            <button
-              type="button"
-              className={[
-                "inline-flex items-center gap-1 rounded border px-2 py-1 text-xs",
-                mode === "preview"
-                  ? "border-accent bg-accent text-white"
-                  : "border-border bg-surface text-muted",
-              ].join(" ")}
-              onClick={() => setMode("preview")}
-            >
-              <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("Preview")}
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted hover:bg-accent-soft"
-              onClick={onClose}
-            >
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("Close")}
-            </button>
-          </div>
-        </div>
+    <Dialog
+      open
+      onClose={onClose}
+      size="custom"
+      className="h-[86vh] max-w-6xl"
+      labelledBy="file-editor-title"
+    >
+      <DialogHeader
+        icon={FileText}
+        tone="accent"
+        title={t("File Editor")}
+        titleId="file-editor-title"
+        description={
+          <span className="inline-flex max-w-full items-center gap-2">
+            <span className="truncate font-mono text-[11px]">{filePath}</span>
+            <span className={["shrink-0 text-[11px]", dirtyFile ? "text-warning" : "text-subtle"].join(" ")}>
+              {dirtyFile ? t("(Unsaved)") : t("(Synced)")}
+            </span>
+          </span>
+        }
+        actions={
+          <SegmentedControl
+            size="xs"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { id: "edit", label: t("Edit"), icon: Pencil },
+              { id: "preview", label: t("Preview"), icon: Eye },
+            ]}
+          />
+        }
+        onClose={onClose}
+      />
 
+      <div className="min-h-0 flex-1 bg-panel">
         {mode === "edit" ? (
           <textarea
             ref={editorRef}
-            className="h-full w-full resize-none rounded-xl border border-border/80 bg-surface px-3 py-2 font-mono text-sm"
+            className="scroll-region h-full w-full resize-none bg-transparent px-4 py-3 font-mono text-[12.5px] leading-relaxed text-text outline-none"
             value={fileContent}
             onChange={(event) => onFileContentChange(event.target.value)}
             onKeyDown={handleEditorKeyDown}
+            spellCheck={false}
           />
         ) : markdownFile ? (
-          <div className="h-full overflow-auto rounded-xl border border-border/80 bg-surface px-3 py-2 text-sm">
+          <div className="scroll-region h-full overflow-auto px-5 py-4 text-[13px]">
             <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
               {fileContent || ""}
             </ReactMarkdown>
           </div>
         ) : (
-          <div className="h-full overflow-auto rounded-xl border border-border/80 bg-surface p-2">
+          <div className="scroll-region h-full overflow-auto">
             <SyntaxHighlighter
               language={language}
               style={codeStyle}
               customStyle={{
                 margin: 0,
                 minHeight: "100%",
-                borderRadius: "10px",
-                border: "1px solid var(--es-border)",
-                fontSize: "12px",
+                borderRadius: 0,
+                background: "transparent",
+                fontSize: "12.5px",
+                fontFamily: "var(--font-mono)",
               }}
+              codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
             >
               {fileContent || ""}
             </SyntaxHighlighter>
           </div>
         )}
       </div>
-    </div>
+    </Dialog>
   );
 }
