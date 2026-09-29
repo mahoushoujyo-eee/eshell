@@ -143,4 +143,8 @@ pub(crate) const WHITELIST: &[&str] = &[
     "select_download_dir",
     "reload_config",
     "list_reloadable_configs",
+    "create_port_forward",
+    "stop_port_forward",
+    "list_port_forwards",
+    "forget_port_forward",
 ];

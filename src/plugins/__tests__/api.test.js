@@ -91,6 +91,7 @@ describe("facade surface", () => {
     expect(Object.keys(api).sort()).toEqual(
       [
         "config",
+        "forward",
         "log",
         "meta",
         "react",

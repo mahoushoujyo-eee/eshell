@@ -858,6 +858,9 @@ mod broker_tests {
     use crate::domain::extensions::consts::*;
     use crate::domain::extensions::model_manifest::Contributes;
     use crate::domain::extensions::service::broker::*;
+    use crate::domain::forward::model::{
+        CreatePortForwardInput, ListPortForwardsInput, StopPortForwardInput,
+    };
     use crate::domain::monitor::model::{FetchServerStatusInput, ServerStatus};
     use crate::domain::sftp::model::SftpListResponse;
     use crate::domain::sftp::model::{
@@ -991,7 +994,7 @@ mod broker_tests {
             "../../../../tests/fixtures/plugin-api-wire.json"
         ))
         .expect("shared wire fixtures");
-        assert_eq!(cases.len(), 21);
+        assert_eq!(cases.len(), 25);
         let mut seen = std::collections::BTreeSet::new();
         for case in cases {
             let request = case.request;
@@ -1055,6 +1058,23 @@ mod broker_tests {
                 }
                 "list_reloadable_configs" => {
                     let _ = parsed!(NoArgs);
+                }
+                "create_port_forward" => {
+                    let input = parsed!(CreatePortForwardInput);
+                    assert_eq!(input.session_id, "wire-session");
+                    assert_eq!(input.target_host, "localhost");
+                    assert_eq!(input.target_port, 5432);
+                    assert_eq!(input.bind_host.as_deref(), Some("127.0.0.1"));
+                    assert_eq!(input.bind_port, Some(0));
+                }
+                "stop_port_forward" | "forget_port_forward" => {
+                    assert_eq!(parsed!(StopPortForwardInput).forward_id, "wire-forward");
+                }
+                "list_port_forwards" => {
+                    assert_eq!(
+                        parsed!(ListPortForwardsInput).session_id.as_deref(),
+                        Some("wire-session")
+                    );
                 }
                 _ => panic!("uncovered shared wire command: {command}"),
             }

@@ -642,6 +642,29 @@ export function createPluginApi(pluginId, options = {}) {
       // `{ input: { ... } }` — preserved exactly (see `tauri-api.js`).
       cached: (sessionId) => callArg("get_cached_server_status", { sessionId }),
     },
+    // `-L` style local forwards over a shell tab's SSH connection.
+    //
+    // The forward is bound to `sessionId`: closing that tab stops its
+    // listeners. `targetHost` is resolved by the *server*, so `localhost`
+    // means the server's own loopback, not this machine's.
+    forward: {
+      /** Starts a forward. `bindPort` 0 asks the OS for a free port. */
+      create: ({ sessionId, targetHost, targetPort, bindHost, bindPort } = {}) =>
+        callInput("create_port_forward", {
+          sessionId,
+          targetHost,
+          targetPort,
+          bindHost,
+          bindPort,
+        }),
+      /** Stops a forward and closes its listener. Idempotent. */
+      stop: (forwardId) => callInput("stop_port_forward", { forwardId }),
+      /** Lists forwards, optionally narrowed to one shell tab. */
+      list: (sessionId) =>
+        callArg("list_port_forwards", sessionId ? { input: { sessionId } } : { input: {} }),
+      /** Drops a stopped or failed row. Running forwards must be stopped first. */
+      forget: (forwardId) => callInput("forget_port_forward", { forwardId }),
+    },
     // Re-read config files the user (or this plugin) edited on disk, so a
     // change takes effect without restarting the app. Read-only: it returns
     // per-file outcomes, never the file contents, so a plugin cannot use it

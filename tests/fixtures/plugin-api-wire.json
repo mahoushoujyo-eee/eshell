@@ -337,5 +337,75 @@
       "command": "list_reloadable_configs",
       "args": {}
     }
+  },
+  {
+    "api": "forward.create",
+    "params": [
+      {
+        "sessionId": "wire-session",
+        "targetHost": "localhost",
+        "targetPort": 5432,
+        "bindHost": "127.0.0.1",
+        "bindPort": 0
+      }
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "create_port_forward",
+      "args": {
+        "input": {
+          "sessionId": "wire-session",
+          "targetHost": "localhost",
+          "targetPort": 5432,
+          "bindHost": "127.0.0.1",
+          "bindPort": 0
+        }
+      }
+    }
+  },
+  {
+    "api": "forward.stop",
+    "params": [
+      "wire-forward"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "stop_port_forward",
+      "args": {
+        "input": {
+          "forwardId": "wire-forward"
+        }
+      }
+    }
+  },
+  {
+    "api": "forward.list",
+    "params": [
+      "wire-session"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "list_port_forwards",
+      "args": {
+        "input": {
+          "sessionId": "wire-session"
+        }
+      }
+    }
+  },
+  {
+    "api": "forward.forget",
+    "params": [
+      "wire-forward"
+    ],
+    "request": {
+      "extensionId": "eshell.sftp",
+      "command": "forget_port_forward",
+      "args": {
+        "input": {
+          "forwardId": "wire-forward"
+        }
+      }
+    }
   }
 ]

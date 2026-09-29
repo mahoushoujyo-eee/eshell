@@ -27,6 +27,8 @@ use tauri::AppHandle;
 
 use crate::common::error::{to_command_error, AppError, AppResult};
 use crate::domain::extensions::consts::*;
+use crate::domain::forward::model::{CreatePortForwardInput, ListPortForwardsInput, StopPortForwardInput};
+use crate::domain::forward::service as forward;
 use crate::domain::sftp::model::{
     SftpCancelTransferInput, SftpCreateInput, SftpDeleteInput, SftpDownloadInput,
     SftpDownloadToLocalInput, SftpListInput, SftpReadInput, SftpRenameInput,
@@ -273,6 +275,29 @@ async fn dispatch(
         "list_reloadable_configs" => {
             let _args: NoArgs = parse_args(command, &args)?;
             to_value(crate::domain::config::command::reloadable_configs())?
+        }
+
+        // ---- port forwarding ----------------------------------------------
+        // The commands take `State<'_, Arc<AppState>>`, which the broker does
+        // not have; the domain calls behind them are the same ones the command
+        // wrappers make, so the broker goes straight to those.
+        "create_port_forward" => {
+            let input: CreatePortForwardInput = parse_args(command, &args)?;
+            to_value(forward::create(state, Some(app), input).await?)?
+        }
+        "stop_port_forward" => {
+            let input: StopPortForwardInput = parse_args(command, &args)?;
+            forward::stop(state, &input.forward_id)?;
+            to_value(())?
+        }
+        "list_port_forwards" => {
+            let input: ListPortForwardsInput = parse_args(command, &args)?;
+            to_value(state.forward_plugin().list(input.session_id.as_deref()))?
+        }
+        "forget_port_forward" => {
+            let input: StopPortForwardInput = parse_args(command, &args)?;
+            forward::forget(state, &input.forward_id)?;
+            to_value(())?
         }
 
         _ => {

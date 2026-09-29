@@ -45,6 +45,13 @@ const BROKERED_COMMANDS = new Set([
   // returns per-file outcomes, never credentials.
   "reload_config",
   "list_reloadable_configs",
+  // `-L` local forwards over a shell tab's SSH connection. Keep this list in
+  // step with the Rust whitelist (`domain/extensions/consts.rs`): a command
+  // missing here is refused before it ever reaches the backend.
+  "create_port_forward",
+  "stop_port_forward",
+  "list_port_forwards",
+  "forget_port_forward",
   // Private broker operations (not standalone Tauri commands). They accept
   // `{ title?, defaultPath? }` and resolve to a path string or null; the
   // backend keeps the picker's caller lease until it resolves.

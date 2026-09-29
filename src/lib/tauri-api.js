@@ -95,6 +95,12 @@ export const api = {
   sshKiRespond: (requestId, responses) =>
     invoke("ssh_ki_respond", { input: { requestId, responses } }),
 
+  createPortForward: (input) => invoke("create_port_forward", { input }),
+  stopPortForward: (forwardId) => invoke("stop_port_forward", { input: { forwardId } }),
+  listPortForwards: (sessionId) =>
+    invoke("list_port_forwards", { input: sessionId ? { sessionId } : {} }),
+  forgetPortForward: (forwardId) => invoke("forget_port_forward", { input: { forwardId } }),
+
   fetchServerStatus: (sessionId, selectedInterface) =>
     invoke("fetch_server_status", {
       input: { sessionId, selectedInterface },
