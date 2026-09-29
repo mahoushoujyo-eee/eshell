@@ -2,6 +2,7 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
+  CornerLeftUp,
   Eye,
   EyeOff,
   File,
@@ -14,6 +15,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../../lib/i18n";
 import { IconButton } from "../../../components/ui/Button";
 import { inputSmClass } from "../../../components/ui/fieldClasses";
+import { normalizeRemotePath, parentRemotePath } from "../../../utils/path";
 
 const renderEntryIcon = (entryType) => {
   switch (entryType) {
@@ -48,12 +50,14 @@ const SortIcon = ({ active, asc }) => {
 };
 
 export default function SftpEntriesPane({
+  activeSessionId,
   currentPath,
   sftpEntries,
   selectedEntry,
   selectSftpEntry,
   openSftpEntry,
   openEntryContextMenu,
+  navigateToDirectory,
   formatBytes,
 }) {
   const { t } = useI18n();
@@ -65,6 +69,15 @@ export default function SftpEntriesPane({
   useEffect(() => {
     setFilterText("");
   }, [currentPath]);
+
+  // `null` at the filesystem root: there is nothing above `/` to go back to.
+  const normalizedPath = normalizeRemotePath(currentPath);
+  const parentPath = normalizedPath === "/" ? null : parentRemotePath(normalizedPath);
+  const goToParentDirectory = () => {
+    if (parentPath) {
+      void navigateToDirectory?.(parentPath);
+    }
+  };
 
   const handleSortClick = (field) => {
     if (sortField === field) {
@@ -107,6 +120,14 @@ export default function SftpEntriesPane({
   return (
     <div className="flex h-full flex-col overflow-hidden bg-panel text-xs">
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2">
+        <IconButton
+          label={t("Go to parent directory")}
+          size="xs"
+          disabled={!activeSessionId || !parentPath}
+          onClick={goToParentDirectory}
+        >
+          <CornerLeftUp className="h-3.5 w-3.5" aria-hidden="true" />
+        </IconButton>
         <div className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted" title={currentPath}>
           {t("Path: {path}", { path: currentPath })}
         </div>

@@ -348,12 +348,14 @@ export default function SftpPanel({
           }
           secondary={
             <SftpEntriesPane
+              activeSessionId={activeSessionId}
               currentPath={currentPath}
               sftpEntries={sftpEntries}
               selectedEntry={selectedEntry}
               selectSftpEntry={selectSftpEntry}
               openSftpEntry={openSftpEntry}
               openEntryContextMenu={openEntryContextMenu}
+              navigateToDirectory={selectDirectory}
               formatBytes={formatBytes}
             />
           }

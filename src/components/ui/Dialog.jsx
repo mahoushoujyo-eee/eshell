@@ -136,11 +136,13 @@ export default function Dialog({
   );
 }
 
-const HEADER_TONES = {
-  default: "bg-hover text-muted",
-  accent: "bg-accent-soft text-accent",
-  danger: "bg-danger/12 text-danger",
-  warning: "bg-warning/14 text-warning",
+// Tone only tints the icon; a filled chip behind it competes with the title
+// and repeats on every dialog in the app.
+const HEADER_ICON_TONES = {
+  default: "text-muted",
+  accent: "text-accent",
+  danger: "text-danger",
+  warning: "text-warning",
 };
 
 /**
@@ -164,8 +166,8 @@ export function DialogHeader({
       {Icon ? (
         <span
           className={cx(
-            "mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
-            HEADER_TONES[tone] || HEADER_TONES.default,
+            "mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center",
+            HEADER_ICON_TONES[tone] || HEADER_ICON_TONES.default,
           )}
         >
           <Icon className="h-4 w-4" aria-hidden="true" />

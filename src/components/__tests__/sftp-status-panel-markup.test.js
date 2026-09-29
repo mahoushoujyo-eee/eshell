@@ -102,9 +102,9 @@ describe("SftpPanel static markup (pre-migration baseline)", () => {
       createElement(SftpPanel, makeSftpProps({ activeSessionId: null, sftpEntries: [] })),
     );
     expect(markup).toContain("Connect SSH first");
-    // Refresh / New / Upload / Download all disabled without a session.
+    // Refresh / New / Upload / Download and "go to parent" all disabled without a session.
     const disabledButtons = (markup.match(/disabled=""/g) || []).length;
-    expect(disabledButtons).toBe(4);
+    expect(disabledButtons).toBe(5);
     expect(markup).toMatchSnapshot();
   });
 

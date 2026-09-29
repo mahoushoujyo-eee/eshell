@@ -36,6 +36,16 @@ export function renameRemoteEntryPath(path, nextName) {
   return joinPath(parentPath, name);
 }
 
+/** Parent of a remote directory; `/` is its own parent. */
+export function parentRemotePath(path) {
+  const normalized = normalizeRemotePath(path);
+  if (normalized === "/") {
+    return "/";
+  }
+  const lastSlash = normalized.lastIndexOf("/");
+  return lastSlash <= 0 ? "/" : normalized.slice(0, lastSlash);
+}
+
 export function normalizeRemotePath(path) {
   const raw = String(path || "").trim();
   if (!raw) {

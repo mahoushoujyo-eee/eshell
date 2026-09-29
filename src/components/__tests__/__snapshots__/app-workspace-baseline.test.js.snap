@@ -52,6 +52,8 @@ exports[`AppMainWorkspace bottom panel layout (pre-migration baseline) > nests t
                   div .min-h-0.min-w-0.flex-1.overflow-hidden {flexBasis:74.000%,flexGrow:1,flexShrink:0}
                     div .flex.h-full.flex-col.overflow-hidden.bg-panel.text-xs
                       div .flex.h-8.shrink-0.items-center.gap-2.border-b.border-border.px-2
+                        button .inline-flex.shrink-0.items-center.justify-center.rounded-md.transition-colors.duration-150.disabled:cursor-not-allowed.disabled:opacity-40.h-6.w-6.text-muted.hover:bg-hover.hover:text-text
+                          svg(...icons collapsed)
                         div .min-w-0.flex-1.truncate.font-mono.text-[11px].text-muted
                         div .relative.w-[42%].max-w-52.min-w-24
                           svg(...icons collapsed)
