@@ -22,6 +22,17 @@
       "contributes": {
         "panels": [{ "id": "status", "order": 20 }]
       }
+    },
+    {
+      "id": "eshell.forward",
+      "displayName": "Port Forward",
+      "version": "1.0.0",
+      "apiVersion": 1,
+      "builtin": true,
+      "defaultEnabled": true,
+      "contributes": {
+        "panels": [{ "id": "forward", "order": 30 }]
+      }
     }
   ]
 }

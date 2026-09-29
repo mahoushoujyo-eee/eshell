@@ -221,7 +221,9 @@ describe("loadExternalPlugins", () => {
     expect(getPlugin("com.example.alpha")).toBeNull();
     // The builtin contributions are untouched.
     const ids = listPanelContributions().map((entry) => entry.pluginId);
-    expect(ids.sort()).toEqual(["eshell.sftp", "eshell.server-monitor"].sort());
+    expect(ids.sort()).toEqual(
+      ["eshell.sftp", "eshell.server-monitor", "eshell.forward"].sort(),
+    );
   });
 
   it("never publishes a draft panel key", async () => {

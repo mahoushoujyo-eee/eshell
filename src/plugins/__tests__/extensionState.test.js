@@ -25,9 +25,9 @@ import {
 } from "../extensions/extensionState";
 
 describe("builtin manifest", () => {
-  it("carries the two builtin extensions in contract order", () => {
+  it("carries the builtin extensions in contract order", () => {
     const ids = DEFAULT_BUILTIN_EXTENSION_MANIFEST.extensions.map((item) => item.id);
-    expect(ids).toEqual(["eshell.sftp", "eshell.server-monitor"]);
+    expect(ids).toEqual(["eshell.sftp", "eshell.server-monitor", "eshell.forward"]);
   });
 
   it("contributes the sftp panel at order 10 and status at 20", () => {
@@ -138,6 +138,7 @@ describe("defaultExtensionState", () => {
     expect(state.map((item) => item.id)).toEqual([
       "eshell.sftp",
       "eshell.server-monitor",
+      "eshell.forward",
     ]);
     expect(state.every((item) => item.enabled)).toBe(true);
     expect(state.every((item) => item.defaultEnabled)).toBe(true);
@@ -202,6 +203,7 @@ describe("startup seeding (replayable latest snapshot)", () => {
     expect(state.map((item) => item.id)).toEqual([
       "eshell.sftp",
       "eshell.server-monitor",
+      "eshell.forward",
     ]);
     expect(state.every((item) => item.enabled)).toBe(true);
   });

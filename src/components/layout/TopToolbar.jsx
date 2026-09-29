@@ -22,6 +22,7 @@ import {
   Settings,
   Shield,
   Terminal,
+  Waypoints,
   Wrench,
   Zap,
 } from "lucide-react";
@@ -40,6 +41,7 @@ import { useRegistryVersion } from "../../plugins/runtime/useRegistry";
 const PANEL_TOOLBAR_ICONS = {
   sftp: FolderOpen,
   status: Activity,
+  forward: Waypoints,
 };
 
 const PANEL_TOOLBAR_LABELS = {
@@ -52,6 +54,11 @@ const PANEL_TOOLBAR_LABELS = {
     name: "Server Status",
     show: "Show status panel",
     hide: "Hide status panel",
+  },
+  forward: {
+    name: "Port forwards",
+    show: "Show port forwards",
+    hide: "Hide port forwards",
   },
 };
 
@@ -198,11 +205,14 @@ export default function TopToolbar({
     status: showStatusPanel,
     ...(workbench?.panelVisibility || {}),
   };
+  const genericToggle = (key) => () => workbench?.togglePanel?.(key);
   const panelToggles = {
     sftp: onToggleSftpPanel,
     status: onToggleStatusPanel,
+    // No dedicated workbench callback: the generic map toggle is the whole
+    // contract for a panel added after the compat adapters.
+    forward: genericToggle("forward"),
   };
-  const genericToggle = (key) => () => workbench?.togglePanel?.(key);
   const contributedPanels = resolveToolbarContributions(extensions)
     .filter((item) => item.enabled)
     .map((item) => {

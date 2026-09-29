@@ -32,7 +32,7 @@ mod command_tests {
         let state = temp_state();
         let descriptors = state.extensions().descriptors(&state.extensions_catalog());
 
-        assert_eq!(descriptors.len(), 2);
+        assert_eq!(descriptors.len(), 3);
         let sftp = &descriptors[0];
         assert_eq!(sftp.id, "eshell.sftp");
         assert_eq!(sftp.display_name, "SFTP");
@@ -232,12 +232,12 @@ mod command_tests {
         let state = std::sync::Arc::new(AppState::new(root.clone()).expect("state"));
         // `list_extensions` merges the external row after the builtin ones.
         let merged = state.extensions().descriptors(&state.extensions_catalog());
-        assert_eq!(merged.len(), 3);
-        assert_eq!(merged[2].id, "com.example.plugin");
-        assert!(!merged[2].builtin);
-        assert!(merged[2].default_enabled);
-        assert!(merged[2].enabled);
-        assert_eq!(merged[2].contributes.panels.len(), 1);
+        assert_eq!(merged.len(), 4);
+        assert_eq!(merged[3].id, "com.example.plugin");
+        assert!(!merged[3].builtin);
+        assert!(merged[3].default_enabled);
+        assert!(merged[3].enabled);
+        assert_eq!(merged[3].contributes.panels.len(), 1);
 
         // `list_external_plugins` (the command body, sans Tauri State).
         let catalog = state.extensions_catalog();
@@ -753,10 +753,10 @@ mod model_manifest_tests {
     }
 
     #[test]
-    fn manifest_parses_and_declares_both_extensions_enabled_by_default() {
+    fn manifest_parses_and_declares_every_builtin_enabled_by_default() {
         let manifest = BuiltinManifest::parse().expect("parse builtin manifest");
         let ids: Vec<&str> = manifest.extensions.iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(ids, ["eshell.sftp", "eshell.server-monitor"]);
+        assert_eq!(ids, ["eshell.sftp", "eshell.server-monitor", "eshell.forward"]);
         for entry in &manifest.extensions {
             assert!(entry.builtin);
             assert!(entry.default_enabled);
@@ -840,6 +840,7 @@ mod model_manifest_tests {
             vec![
                 "eshell.sftp".to_string(),
                 "eshell.server-monitor".to_string(),
+                "eshell.forward".to_string(),
                 "com.example.plugin".to_string(),
             ]
         );
@@ -1234,7 +1235,7 @@ mod discovery_tests {
     use std::path::{Path, PathBuf};
 
     fn builtin_ids() -> BTreeSet<String> {
-        ["eshell.sftp", "eshell.server-monitor"]
+        ["eshell.sftp", "eshell.server-monitor", "eshell.forward"]
             .into_iter()
             .map(str::to_string)
             .collect()
@@ -2422,13 +2423,14 @@ mod registry_tests {
     }
 
     #[test]
-    fn defaults_come_from_the_manifest_and_both_are_enabled() {
+    fn defaults_come_from_the_manifest_and_all_are_enabled() {
         let registry = registry();
         assert_eq!(
             descriptors(&registry),
             vec![
                 ("eshell.sftp".to_string(), true),
                 ("eshell.server-monitor".to_string(), true),
+                ("eshell.forward".to_string(), true),
             ]
         );
     }
@@ -2466,6 +2468,7 @@ mod registry_tests {
             vec![
                 ("eshell.sftp".to_string(), true, true),
                 ("eshell.server-monitor".to_string(), true, true),
+                ("eshell.forward".to_string(), true, true),
                 ("com.example.plugin".to_string(), false, true),
             ]
         );
@@ -2556,6 +2559,7 @@ mod registry_tests {
             vec![
                 ("eshell.sftp".to_string(), false),
                 ("eshell.server-monitor".to_string(), true),
+                ("eshell.forward".to_string(), true),
             ]
         );
         registry.set_enabled("eshell.sftp", true).expect("enable");

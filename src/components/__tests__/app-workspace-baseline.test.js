@@ -128,7 +128,7 @@ function orderIndexOf(root, target) {
 const precedes = (root, first, second) => orderIndexOf(root, first) < orderIndexOf(root, second);
 
 describe("AppMainWorkspace bottom panel layout (pre-migration baseline)", () => {
-  it("keeps all three panel trees mounted when every panel is hidden", async () => {
+  it("keeps every panel tree mounted when all panels are hidden", async () => {
     const { document } = installFakeDom();
     try {
       const mounted = await render(
@@ -142,20 +142,22 @@ describe("AppMainWorkspace bottom panel layout (pre-migration baseline)", () => 
         }),
       );
 
-      // 1. All three panel bodies exist somewhere in the document.
+      // 1. Every panel body exists somewhere in the document.
       expect(document.body.textContent).toContain("SFTP Browser");
       expect(document.body.textContent).toContain("Server Status");
+      expect(document.body.textContent).toContain("Port forwards");
       expect(document.body.textContent).toContain("Command Draft");
 
       // 2. None of them is inside the rendered layout container.
       expect(mounted.container.textContent.includes("SFTP Browser")).toBe(false);
       expect(mounted.container.textContent.includes("Server Status")).toBe(false);
+      expect(mounted.container.textContent.includes("Port forwards")).toBe(false);
       expect(mounted.container.textContent.includes("Command Draft")).toBe(false);
 
       // 3. Each hidden panel lives in its own display:none stash under body,
       //    and each stash holds exactly the panel's KeepAlive host div.
       const stashes = stashContainers(document);
-      expect(stashes.length).toBe(3);
+      expect(stashes.length).toBe(4);
       const stashMarkers = stashes.map((stash) => {
         expect(stash.childNodes.length).toBe(1);
         const host = stash.firstChild;
@@ -165,6 +167,7 @@ describe("AppMainWorkspace bottom panel layout (pre-migration baseline)", () => 
       });
       expect(stashMarkers.some((text) => text.includes("SFTP Browser"))).toBe(true);
       expect(stashMarkers.some((text) => text.includes("Server Status"))).toBe(true);
+      expect(stashMarkers.some((text) => text.includes("Port forwards"))).toBe(true);
       expect(stashMarkers.some((text) => text.includes("Command Draft"))).toBe(true);
 
       // 4. The terminal still renders and the bottom area collapses.
@@ -291,7 +294,7 @@ describe("AppMainWorkspace bottom panel layout (pre-migration baseline)", () => 
     }
   });
 
-  it("nests three visible panels sftp | status | draft left to right", async () => {
+  it("nests every visible panel sftp | status | forward | draft left to right", async () => {
     installFakeDom();
     try {
       const mounted = await render(
@@ -329,8 +332,9 @@ describe("AppMainWorkspace bottom panel layout (pre-migration baseline)", () => 
       expect(secondSplitter).toBeTruthy();
       expect(precedes(mounted.container, firstSplitter, secondSplitter)).toBe(true);
 
-      // Nothing is stashed: every panel host is inside the layout.
-      expect(stashContainers(globalThis.document).length).toBe(0);
+      // Only the forward panel is stashed: the three visible hosts are inside
+      // the layout.
+      expect(stashContainers(globalThis.document).length).toBe(1);
 
       // Snapshot the bottom section's structural outline (nesting, split
       // structure, classes, layout-critical inline styles).

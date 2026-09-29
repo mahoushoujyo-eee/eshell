@@ -146,7 +146,7 @@ describe("KeepAlive state preservation across visibility toggles (pre-migration 
       );
       expect(mounted.container.textContent.includes("SFTP Browser")).toBe(false);
       const stashes = stashContainers(globalThis.document);
-      expect(stashes.length).toBe(2); // sftp + draft (draft hidden from the start)
+      expect(stashes.length).toBe(3); // sftp + forward + draft (the last two hidden from the start)
       const sftpStash = stashes.find((stash) =>
         stash.firstChild.textContent.includes("SFTP Browser"),
       );
@@ -208,8 +208,8 @@ describe("KeepAlive state preservation across visibility toggles (pre-migration 
       expect(section).not.toBeNull();
       expect(section.childNodes.length).toBe(0);
 
-      // Panel trees still exist, all three stashed.
-      expect(stashContainers(globalThis.document).length).toBe(3);
+      // Panel trees still exist, every one of them stashed.
+      expect(stashContainers(globalThis.document).length).toBe(4);
 
       await mounted.unmount();
     } finally {

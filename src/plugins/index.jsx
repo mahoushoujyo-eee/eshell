@@ -5,6 +5,7 @@ import { createPluginHostBridge } from "../lib/plugin-host";
 import { createPluginApi } from "./api";
 import { getPluginHostContext, setPluginHostContext } from "./context";
 import { registerPlugin } from "./registry";
+import { createForwardPlugin } from "./forward/index.jsx";
 import { createStatusPlugin } from "./status/index.jsx";
 import { createSftpPlugin } from "./sftp/index.jsx";
 
@@ -31,6 +32,7 @@ export function registerBuiltinPlugins() {
   registered = true;
   registerPlugin(createSftpPlugin(builtinApi("eshell.sftp")));
   registerPlugin(createStatusPlugin(builtinApi("eshell.server-monitor")));
+  registerPlugin(createForwardPlugin(builtinApi("eshell.forward")));
 }
 
 export {
@@ -50,3 +52,4 @@ export { useExtensionState, defaultExtensionState, normalizeExtensionList, norma
 export { DEFAULT_BUILTIN_EXTENSION_MANIFEST } from "./extensions/builtinManifest";
 export { SFTP_PANEL_ID, SFTP_EXTENSION_ID, useSftpController } from "./sftp/index.jsx";
 export { STATUS_PANEL_ID, STATUS_EXTENSION_ID, useStatusController } from "./status/index.jsx";
+export { FORWARD_PANEL_ID, FORWARD_EXTENSION_ID, useForwardController } from "./forward/index.jsx";

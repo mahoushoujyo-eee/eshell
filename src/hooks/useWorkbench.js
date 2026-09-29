@@ -11,12 +11,14 @@ import { useWorkbenchEffects } from "./workbench/effects";
 import { useWorkbenchOperations } from "./workbench/operations";
 import { emitHostKeyPrompt } from "../lib/plugin-host";
 import {
+  FORWARD_EXTENSION_ID,
   SFTP_EXTENSION_ID,
   STATUS_EXTENSION_ID,
   getPlugin,
   registerBuiltinPlugins,
   setPluginHostContext,
   useExtensionState,
+  useForwardController,
   useSftpController,
   useStatusController,
 } from "../plugins";
@@ -53,6 +55,7 @@ export function useWorkbench() {
   const { extensions, setExtensionEnabled, isEnabled } = useExtensionState();
   const sftpEnabled = isEnabled(SFTP_EXTENSION_ID);
   const statusEnabled = isEnabled(STATUS_EXTENSION_ID);
+  const forwardEnabled = isEnabled(FORWARD_EXTENSION_ID);
 
   // ---- Panel visibility ----------------------------------------------------
   // One generic map keyed by panel key; the old showX/setShowX keys below are
@@ -278,6 +281,14 @@ export function useWorkbench() {
     resolveSessionAlias: lazyResolveSessionAlias,
     runWithSessionReconnect: lazyRunWithSessionReconnect,
   });
+  const forwardController = useForwardController({
+    sessions,
+    activeSessionId,
+    panelVisible: forwardEnabled && panelVisibility.forward === true,
+    api: getPlugin(FORWARD_EXTENSION_ID)?.api,
+    onError,
+    pushUiNotice,
+  });
 
   // ---- External plugin controller hosts ------------------------------------
   // One keyed host per external plugin with a controller, rendered as
@@ -463,6 +474,17 @@ export function useWorkbench() {
     currentStatus: statusController.currentStatus,
     currentNic: statusController.currentNic,
     handleNicChange: statusController.handleNicChange,
+
+    // Port-forward plugin (per-tab tunnel rows and the create/stop actions).
+    sessionForwards: forwardController.sessionForwards,
+    createForward: forwardController.createForward,
+    stopForward: forwardController.stopForward,
+    forgetForward: forwardController.forgetForward,
+    forwardCreateOpen: forwardController.createOpen,
+    setForwardCreateOpen: forwardController.setCreateOpen,
+    forwardCreateBusy: forwardController.createBusy,
+    forwardStoppingId: forwardController.stoppingId,
+    forwardLoadError: forwardController.loadError,
 
     // File editor + download directory handlers (the content change is a
     // plain setter pair; the directory change trims, both unchanged).

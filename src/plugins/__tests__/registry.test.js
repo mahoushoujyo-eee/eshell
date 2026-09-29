@@ -106,11 +106,12 @@ describe("resolvePanelContributions against the builtin manifest", () => {
   beforeAll(() => {
     registerBuiltinPlugins();
   });
-  it("resolves sftp before status in manifest order", () => {
+  it("resolves panels in manifest order", () => {
     const extensions = defaultExtensionState();
     const panels = resolvePanelContributions(extensions);
-    expect(panels.map((panel) => panel.key)).toEqual(["sftp", "status"]);
+    expect(panels.map((panel) => panel.key)).toEqual(["sftp", "status", "forward"]);
     expect(panels[0].order).toBeLessThan(panels[1].order);
+    expect(panels[1].order).toBeLessThan(panels[2].order);
   });
 
   it("hides a disabled extension's panel entirely", () => {
@@ -118,7 +119,7 @@ describe("resolvePanelContributions against the builtin manifest", () => {
       extension.id === "eshell.sftp" ? { ...extension, enabled: false } : extension,
     );
     const panels = resolvePanelContributions(extensions);
-    expect(panels.map((panel) => panel.key)).toEqual(["status"]);
+    expect(panels.map((panel) => panel.key)).toEqual(["status", "forward"]);
   });
 
   it("hides the toolbar entry for a disabled extension", () => {
@@ -126,7 +127,7 @@ describe("resolvePanelContributions against the builtin manifest", () => {
       extension.id === "eshell.server-monitor" ? { ...extension, enabled: false } : extension,
     );
     const toolbar = resolveToolbarContributions(extensions);
-    expect(toolbar.map((item) => item.key)).toEqual(["sftp"]);
+    expect(toolbar.map((item) => item.key)).toEqual(["sftp", "forward"]);
   });
 
   it("falls back to rendering registered panels missing from the manifest", () => {
@@ -135,7 +136,7 @@ describe("resolvePanelContributions against the builtin manifest", () => {
       (extension) => extension.id !== "eshell.status" ? false : true,
     );
     const panels = resolvePanelContributions(extensions.slice(0, 0));
-    // With no manifest rows at all, both registered panels survive as orphans.
-    expect(panels.map((panel) => panel.key).sort()).toEqual(["sftp", "status"]);
+    // With no manifest rows at all, every registered panel survives as an orphan.
+    expect(panels.map((panel) => panel.key).sort()).toEqual(["forward", "sftp", "status"]);
   });
 });

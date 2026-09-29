@@ -4,6 +4,7 @@ import SplitPane from "../SplitPane";
 import CommandDraftPanel from "../panels/CommandDraftPanel";
 import TerminalPanel from "../panels/TerminalPanel";
 import {
+  FORWARD_EXTENSION_ID,
   SFTP_EXTENSION_ID,
   STATUS_EXTENSION_ID,
   getPlugin,
@@ -42,6 +43,15 @@ const builtinPanelProps = (panel, plugin, workbench, onOpenFileEditor) => {
     handleNicChange,
     statusRefreshInterval,
     setStatusRefreshInterval,
+    sessionForwards,
+    createForward,
+    stopForward,
+    forgetForward,
+    forwardCreateOpen,
+    setForwardCreateOpen,
+    forwardCreateBusy,
+    forwardStoppingId,
+    forwardLoadError,
     formatBytes,
   } = workbench;
 
@@ -79,6 +89,20 @@ const builtinPanelProps = (panel, plugin, workbench, onOpenFileEditor) => {
       formatBytes,
       refreshInterval: statusRefreshInterval,
       onRefreshIntervalChange: setStatusRefreshInterval,
+    };
+  }
+  if (panel.pluginId === FORWARD_EXTENSION_ID) {
+    return {
+      activeSessionId,
+      sessionForwards,
+      createOpen: forwardCreateOpen,
+      setCreateOpen: setForwardCreateOpen,
+      createBusy: forwardCreateBusy,
+      stoppingId: forwardStoppingId,
+      loadError: forwardLoadError,
+      createForward,
+      stopForward,
+      forgetForward,
     };
   }
   return null;
