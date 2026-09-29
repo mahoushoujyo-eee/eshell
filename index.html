@@ -4,11 +4,302 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri + React</title>
+    <title>eShell</title>
+    <!--
+      Startup splash.
+
+      The app renders nothing until `loadExternalPlugins()` resolves (see
+      `src/main.jsx`), and the module graph has to load before that. Without
+      this, the window shows a bare background for that whole stretch.
+
+      It lives in index.html on purpose: it is painted by the browser before
+      any module is fetched or executed, so it covers the entire wait rather
+      than only the part after React boots. `src/lib/boot-splash.js` removes it.
+
+      The native window is created hidden and only shown once this splash has
+      painted (`boot_ready`, see the script below and `src-tauri/src/boot.rs`),
+      so the very first thing on screen is the splash rather than a white
+      rectangle.
+
+      Colours are literal copies of the `--es-*` tokens in `src/index.css`
+      (bg / surface / border / text / muted / accent) — this markup runs before
+      Tailwind, so it cannot use the tokens. Keep them in sync.
+    -->
+    <style>
+      /* Same face and file as the wordmark in `src/index.css`; declared here
+         too because that stylesheet only arrives with the module graph. The
+         wordmark is a few glyphs from a local file, so `block` costs nothing
+         and avoids a fallback-font flash. */
+      @font-face {
+        font-family: "Space Grotesk";
+        font-style: normal;
+        font-weight: 700;
+        font-display: block;
+        src: url("/src/assets/fonts/SpaceGrotesk-Bold.woff2") format("woff2");
+      }
+
+      html,
+      body {
+        margin: 0;
+        background: #e8ecf2;
+      }
+      html[data-theme="dark"],
+      html[data-theme="dark"] body {
+        background: #0e1118;
+      }
+
+      #boot-splash {
+        --boot-bg: #e8ecf2;
+        --boot-text: #151a25;
+        --boot-muted: #5b6478;
+        --boot-track: #d3d9e3;
+        --boot-accent: #0b7a54;
+        --boot-glow: rgba(11, 122, 84, 0.2);
+        --boot-halo: rgba(11, 122, 84, 0.1);
+
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: var(--boot-muted);
+        /* The halo fades to transparent well inside the window, so the edge
+           colour is exactly `--boot-bg` — the same value `boot_ready` tints the
+           native window with. */
+        background:
+          radial-gradient(48% 42% at 50% 44%, var(--boot-halo), transparent 72%),
+          var(--boot-bg);
+        font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: default;
+        transition: opacity 240ms ease-out;
+      }
+      html[data-theme="dark"] #boot-splash {
+        --boot-bg: #0e1118;
+        --boot-text: #e3e7f0;
+        --boot-muted: #8a93a9;
+        --boot-track: #2b3349;
+        --boot-accent: #3dd68c;
+        --boot-glow: rgba(61, 214, 140, 0.26);
+        --boot-halo: rgba(61, 214, 140, 0.08);
+      }
+      #boot-splash[data-leaving="true"] {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #boot-splash[data-leaving="true"] .boot-lockup {
+        transform: translateY(-6px) scale(1.02);
+      }
+
+      .boot-lockup {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 30px;
+        transition: transform 240ms ease-out;
+      }
+
+      .boot-mark {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 72px;
+        height: 72px;
+      }
+      /* Soft accent glow behind the mark. Only opacity animates (compositor
+         only), so it stays smooth even while the main thread parses modules. */
+      .boot-mark::before {
+        content: "";
+        position: absolute;
+        inset: -30px;
+        border-radius: 50%;
+        background: radial-gradient(closest-side, var(--boot-glow), transparent);
+        animation: boot-breathe 2.4s ease-in-out infinite;
+      }
+      .boot-mark img {
+        position: relative;
+        width: 72px;
+        height: 72px;
+        pointer-events: none;
+      }
+
+      .boot-word {
+        color: var(--boot-text);
+        font-family: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        line-height: 1;
+      }
+
+      /* Indeterminate: the wait is module loading plus a catalog round-trip,
+         so there is no honest percentage to show. The comet has soft ends
+         instead of a hard-edged block. */
+      #boot-splash-bar {
+        position: relative;
+        width: 148px;
+        height: 3px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--boot-track);
+      }
+      #boot-splash-bar::after {
+        content: "";
+        position: absolute;
+        inset-block: 0;
+        left: -45%;
+        width: 45%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, transparent, var(--boot-accent) 55%, transparent);
+        animation: boot-sweep 1.3s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+      }
+
+      #boot-splash p {
+        margin: 14px 0 0;
+      }
+
+      @keyframes boot-sweep {
+        from {
+          left: -45%;
+        }
+        to {
+          left: 100%;
+        }
+      }
+      @keyframes boot-breathe {
+        0%,
+        100% {
+          opacity: 0.55;
+          transform: scale(0.94);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.04);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .boot-mark::before {
+          animation: none;
+          opacity: 0.8;
+        }
+        #boot-splash-bar::after {
+          animation: none;
+          left: 0;
+          width: 100%;
+          opacity: 0.5;
+        }
+      }
+    </style>
+    <script>
+      // Re-apply the persisted theme before first paint. The app owns the
+      // theme once it mounts; this only stops a dark-mode window from
+      // flashing the light splash. The key matches the theme attribute in
+      // `src/hooks/workbench/effects.js`.
+      try {
+        var storedTheme = window.localStorage.getItem("eshell:theme");
+        if (storedTheme === "dark" || storedTheme === "light") {
+          document.documentElement.setAttribute("data-theme", storedTheme);
+        }
+      } catch (error) {
+        /* Private mode or a blocked store: the default is fine. */
+      }
+    </script>
   </head>
 
   <body>
     <div id="root"></div>
+    <div id="boot-splash" role="status" aria-live="polite">
+      <div class="boot-lockup">
+        <div class="boot-mark">
+          <img src="/src/assets/eshell-mark.png" alt="" width="72" height="72" draggable="false" />
+        </div>
+        <div class="boot-word">eShell</div>
+      </div>
+      <div id="boot-splash-bar" aria-hidden="true"></div>
+      <p>正在启动…</p>
+    </div>
+    <script>
+      // Runs as soon as the splash markup above is parsed — before any module
+      // is fetched — so it must stay small and dependency-free.
+      (function () {
+        var splash = document.getElementById("boot-splash");
+
+        // Language: this is the persisted locale key from `src/lib/i18n.js`.
+        // The markup defaults to Chinese; anything else gets English. (This
+        // used to sit in <head>, where the splash did not exist yet, so the
+        // English text was never applied.)
+        try {
+          var storedLocale = window.localStorage.getItem("eshell:locale");
+          var locale = storedLocale || window.navigator.language || "en";
+          if (String(locale).toLowerCase().indexOf("zh") !== 0) {
+            splash.querySelector("p").textContent = "Starting…";
+          }
+        } catch (error) {
+          /* The defaults are fine. */
+        }
+
+        var tauri = window.__TAURI_INTERNALS__;
+        if (!tauri || typeof tauri.invoke !== "function") {
+          // Plain browser (vite preview, tests): nothing hidden to reveal.
+          return;
+        }
+        var call = function (command, args) {
+          try {
+            var pending = tauri.invoke(command, args);
+            if (pending && typeof pending.catch === "function") {
+              pending.catch(function () {});
+            }
+          } catch (error) {
+            /* Never let boot plumbing break boot. */
+          }
+        };
+
+        // Show the native window (created hidden) once the splash is on
+        // screen. Two frames: the first commits the layout, the second means it
+        // has actually been presented. The timer is the guarantee — a hidden
+        // window may throttle animation frames — and Rust has its own deadline
+        // behind this one.
+        var scriptMs = Math.round(performance.now());
+        var revealed = false;
+        var reveal = function (via) {
+          if (revealed) {
+            return;
+          }
+          revealed = true;
+          var dark = document.documentElement.getAttribute("data-theme") === "dark";
+          call("boot_ready", {
+            pageMs: Math.round(performance.now()),
+            // Must equal `--boot-bg` above; tints the native window so the
+            // frame right after show() is not the default white.
+            background: dark ? "#0e1118" : "#e8ecf2",
+            // Diagnostics only: which path fired, and when this script ran.
+            // Shows up in the `[boot]` timeline under `tauri dev`.
+            via: via + ", script ran at +" + scriptMs + "ms",
+          });
+        };
+        var mark = splash.querySelector("img");
+        var ready =
+          mark && typeof mark.decode === "function" ? mark.decode() : Promise.resolve();
+        // A failed decode (missing asset) must not keep the window hidden.
+        ready.catch(function () {}).then(function () {
+          window.requestAnimationFrame(function () {
+            window.requestAnimationFrame(function () {
+              reveal("two frames");
+            });
+          });
+        });
+        window.setTimeout(function () {
+          reveal("timer");
+        }, 150);
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

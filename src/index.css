@@ -1,4 +1,21 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+
+/* Where Tailwind looks for class names.
+
+   Left on automatic, Tailwind crawls the whole repository — `docs/`, the
+   `.codex` / `.agents` skill folders, `ui-shots/`, every markdown file — and on
+   a cold `vite` start that crawl alone took 3-4 s and sat on the critical
+   path: `main.jsx` imports this file, so nothing else runs until it is done.
+   Listing the real sources takes ~0.7 s and generates the same CSS, minus
+   ~60 utilities that only appeared in documentation.
+
+   `examples/` stays in: the reference plugins there style themselves with the
+   host's generated classes (see the token note below), so those utilities must
+   keep existing. A new directory that contains class names — a new plugin
+   sample, say — has to be added here, or its classes silently disappear. */
+@source "./";
+@source "../index.html";
+@source "../examples";
 
 /* Brand wordmark face — geometric, slightly techy, reads well at small sizes.
    Latin-subset woff2 bundled locally so the logo renders offline. */

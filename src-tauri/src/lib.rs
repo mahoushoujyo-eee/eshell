@@ -1,3 +1,4 @@
+mod boot;
 mod common;
 mod domain;
 mod state;
@@ -19,13 +20,23 @@ use state::AppState;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[cfg(not(test))]
 pub fn run() {
+    boot::start_clock();
+    boot::trace("native run() entered");
     let storage_root = resolve_storage_root();
     let app_state = AppState::new(storage_root).expect("failed to initialize app state");
+    boot::trace("native app state ready");
     let shared_state = Arc::new(app_state);
     let bridge_state = Arc::clone(&shared_state);
 
     let builder = tauri::Builder::default()
         .manage(shared_state)
+        .on_page_load(|_webview, payload| {
+            boot::trace(&format!(
+                "native page load {:?} {}",
+                payload.event(),
+                payload.url()
+            ));
+        })
         // External plugin bundles: http://plugin.localhost/<id>/<main> on
         // Windows, plugin://localhost/<id>/<main> elsewhere. See
         // `domain::extensions::service::protocol` for the containment rules.
@@ -33,7 +44,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .setup(move |_app| {
+        .setup(move |app| {
+            boot::trace("native setup: window exists, still hidden");
+            // The window is declared hidden (see `boot`); this is the
+            // backstop that shows it if the page never reports in.
+            boot::arm_reveal_deadline(app.handle());
             // Local MCP bridge: exposes eShell's sessions/SFTP as tools that
             // get injected into ACP agent sessions. Failure is non-fatal —
             // agents simply start without the eshell toolset.
@@ -45,6 +60,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            boot::boot_ready,
+            boot::boot_trace,
             domain::app_update::command::app_version,
             domain::app_update::command::check_app_update,
             domain::config::command::list_ssh_configs,

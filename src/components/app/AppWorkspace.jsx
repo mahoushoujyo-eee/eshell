@@ -1,10 +1,15 @@
+import { lazy, Suspense, useEffect } from "react";
 import StatusBar from "../layout/StatusBar";
 import TopToolbar from "../layout/TopToolbar";
 import UiNoticeStack from "../layout/UiNoticeStack";
 import WindowTitleBar from "../layout/WindowTitleBar";
+import { loadFileEditorModal, preloadFileEditorModal } from "../panels/file-editor-loader";
 import AppAiDock from "./AppAiDock";
 import AppMainWorkspace from "./AppMainWorkspace";
-import FileEditorModal from "../panels/FileEditorModal";
+
+// Kept out of the startup graph: the editor's markdown/Prism stack is heavy and
+// only matters once a file is opened. See `file-editor-loader.js`.
+const FileEditorModal = lazy(loadFileEditorModal);
 
 export default function AppWorkspace({
   workbench,
@@ -57,6 +62,9 @@ export default function AppWorkspace({
     onOpenFileEditor,
     onCloseFileEditor,
   } = ui;
+
+  // Warm the editor chunk once the first screen is up and the app is idle.
+  useEffect(() => preloadFileEditorModal(), []);
 
   return (
     <>
@@ -129,18 +137,25 @@ export default function AppWorkspace({
         isAiStreaming={acp.turnActive}
       />
 
-      <FileEditorModal
-        open={isFileEditorOpen}
-        onClose={onCloseFileEditor}
-        filePath={openFilePath}
-        fileContent={openFileContent}
-        onFileContentChange={handleOpenFileContentChange}
-        dirtyFile={dirtyFile}
-        autoSync={fileAutoSync}
-        onSave={saveOpenFile}
-        onDiscard={resetFileEditor}
-        theme={theme}
-      />
+      {/* Mounted only while open: the modal renders nothing when closed and
+          resets its own state on open, so unmounting it loses nothing — and
+          it keeps the lazy chunk from being requested until it is needed. */}
+      {isFileEditorOpen ? (
+        <Suspense fallback={null}>
+          <FileEditorModal
+            open={isFileEditorOpen}
+            onClose={onCloseFileEditor}
+            filePath={openFilePath}
+            fileContent={openFileContent}
+            onFileContentChange={handleOpenFileContentChange}
+            dirtyFile={dirtyFile}
+            autoSync={fileAutoSync}
+            onSave={saveOpenFile}
+            onDiscard={resetFileEditor}
+            theme={theme}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }
