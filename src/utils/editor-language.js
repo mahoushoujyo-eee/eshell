@@ -1,0 +1,87 @@
+// Monaco has no TOML/nginx/systemd grammar; `ini` still highlights their
+// sections, keys and `#` comments.
+const LANGUAGE_BY_EXTENSION = {
+  sh: "shell",
+  bash: "shell",
+  zsh: "shell",
+  ksh: "shell",
+  bashrc: "shell",
+  zshrc: "shell",
+  profile: "shell",
+  bash_profile: "shell",
+  bash_aliases: "shell",
+  ps1: "powershell",
+  psm1: "powershell",
+  bat: "bat",
+  cmd: "bat",
+  js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  jsx: "javascript",
+  ts: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  tsx: "typescript",
+  json: "json",
+  jsonc: "json",
+  yml: "yaml",
+  yaml: "yaml",
+  toml: "ini",
+  ini: "ini",
+  conf: "ini",
+  cfg: "ini",
+  cnf: "ini",
+  properties: "ini",
+  env: "ini",
+  service: "ini",
+  xml: "xml",
+  xsd: "xml",
+  svg: "xml",
+  html: "html",
+  htm: "html",
+  css: "css",
+  scss: "scss",
+  less: "less",
+  md: "markdown",
+  markdown: "markdown",
+  mdx: "mdx",
+  py: "python",
+  rb: "ruby",
+  php: "php",
+  pl: "perl",
+  lua: "lua",
+  r: "r",
+  go: "go",
+  rs: "rust",
+  java: "java",
+  kt: "kotlin",
+  kts: "kotlin",
+  scala: "scala",
+  swift: "swift",
+  dart: "dart",
+  c: "c",
+  h: "c",
+  cc: "cpp",
+  cpp: "cpp",
+  cxx: "cpp",
+  hpp: "cpp",
+  cs: "csharp",
+  sql: "sql",
+  proto: "protobuf",
+  graphql: "graphql",
+  gql: "graphql",
+  tf: "hcl",
+  hcl: "hcl",
+};
+
+export function detectEditorLanguage(path) {
+  const fileName = (String(path || "").split("/").pop() || "").toLowerCase();
+  if (fileName === "dockerfile" || fileName.startsWith("dockerfile.")) {
+    return "dockerfile";
+  }
+  const dot = fileName.lastIndexOf(".");
+  if (dot < 0) {
+    return "plaintext";
+  }
+  return LANGUAGE_BY_EXTENSION[fileName.slice(dot + 1)] || "plaintext";
+}

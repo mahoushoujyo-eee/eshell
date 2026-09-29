@@ -28,6 +28,13 @@ export function useSftpState() {
   const [openFileSessionId, setOpenFileSessionId] = useState(null);
   const [openFileContent, setOpenFileContent] = useState("");
   const [dirtyFile, setDirtyFile] = useState(false);
+  // Off by default: edits stay local until Ctrl+S, like a desktop editor.
+  const [fileAutoSync, setFileAutoSync] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem("eshell:file-auto-sync") === "1";
+  });
 
   // Debounced-save timer, owned here since only the sftp plugin schedules it.
   const saveTimerRef = useRef(null);
@@ -40,6 +47,13 @@ export function useSftpState() {
     }
     window.localStorage.setItem("eshell:sftp-download-dir", downloadDirectory || "");
   }, [downloadDirectory]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("eshell:file-auto-sync", fileAutoSync ? "1" : "0");
+  }, [fileAutoSync]);
 
   const resetFileEditor = useCallback(() => {
     setOpenFilePath("");
@@ -67,6 +81,8 @@ export function useSftpState() {
     setOpenFileContent,
     dirtyFile,
     setDirtyFile,
+    fileAutoSync,
+    setFileAutoSync,
     saveTimerRef,
     resetFileEditor,
   };

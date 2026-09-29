@@ -189,6 +189,7 @@ describe("useWorkbench real composition: return keys", () => {
       "currentStatus", "currentNic",
       "sftpEntries", "selectedEntry",
       "openFilePath", "dirtyFile", "openFileContent",
+      "fileAutoSync", "setFileAutoSync", "saveOpenFile", "resetFileEditor",
       "saveSsh", "connectServer", "cancelConnectServer",
       "closeSession", "reopenSessionPty",
       "disconnectedSessions",
@@ -222,6 +223,7 @@ describe("useWorkbench real composition: return keys", () => {
       "saveScript", "runScript", "handleDeleteSsh", "handleDeleteScript",
       "handleNicChange", "handleOpenFileContentChange", "handleDownloadDirectoryChange",
       "requestSftpDir", "refreshSftp", "openEntry", "selectSftpEntry",
+      "setFileAutoSync", "saveOpenFile", "resetFileEditor",
       "formatBytes",
     ];
     const nonFunctions = functionKeys.filter((key) => typeof wb[key] !== "function");
@@ -383,6 +385,9 @@ describe("useWorkbench real composition: listener and timer stability", () => {
       expect(mounted.wb.openFilePath).toBe("/var/app.log");
 
       await act(async () => {
+        mounted.wb.setFileAutoSync(true);
+      });
+      await act(async () => {
         mounted.wb.handleOpenFileContentChange("changed content");
       });
       expect(mounted.wb.dirtyFile).toBe(true);
@@ -397,6 +402,42 @@ describe("useWorkbench real composition: listener and timer stability", () => {
       expect(writes).toEqual([
         { sessionId: SESSION.id, path: "/var/app.log", content: "changed content" },
       ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for an explicit save while auto sync is off (the default)", async () => {
+    vi.useFakeTimers();
+    try {
+      installHappyCommands();
+      const writes = [];
+      commandHandlers.set("sftp_write_file", async (input) => {
+        writes.push(input.input ?? input);
+        return null;
+      });
+
+      const { wb } = await renderWorkbench();
+      expect(wb.fileAutoSync).toBe(false);
+
+      await act(async () => {
+        await wb.openEntry({ path: "/var/app.log", name: "app.log", entryType: "file", size: 4096 });
+      });
+      await act(async () => {
+        mounted.wb.handleOpenFileContentChange("changed content");
+      });
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(writes).toEqual([]);
+      expect(mounted.wb.dirtyFile).toBe(true);
+
+      await act(async () => {
+        await expect(mounted.wb.saveOpenFile()).resolves.toBe(true);
+      });
+      expect(writes).toEqual([
+        { sessionId: SESSION.id, path: "/var/app.log", content: "changed content" },
+      ]);
+      expect(mounted.wb.dirtyFile).toBe(false);
     } finally {
       vi.useRealTimers();
     }

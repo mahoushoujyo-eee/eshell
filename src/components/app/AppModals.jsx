@@ -36,6 +36,8 @@ export default function AppModals({
     resolveHostKeyTrust,
     kiPrompt,
     dismissKiPrompt,
+    fileAutoSync,
+    setFileAutoSync,
   } = workbench;
   const {
     isSshModalOpen,
@@ -90,6 +92,8 @@ export default function AppModals({
         onSelectTheme={setTheme}
         wallpaperLabel={t(getWallpaperLabel(wallpaper))}
         onOpenWallpaperPicker={onOpenWallpaperPicker}
+        fileAutoSync={fileAutoSync}
+        onFileAutoSyncChange={setFileAutoSync}
       />
 
       <WallpaperModal

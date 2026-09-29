@@ -79,33 +79,17 @@ export function useSftpEffects(ctx, sftpOps) {
     ctx.setSelectedEntry(null);
   }, [ctx.activeSessionId, ctx.setSftpEntries, ctx.setSelectedEntry]);
 
-  // The debounced remote save. Targets the session the file was opened from,
-  // not the active tab, so switching tabs mid-edit cannot write to the wrong
-  // server. Scalar deps only: only an editor change resets the 700ms timer.
+  // Auto sync: save 700ms after the last edit. With it off the user saves
+  // with Ctrl+S. Scalar deps only: only an editor change resets the timer.
   useEffect(() => {
-    if (!ctx.openFileSessionId || !ctx.openFilePath || !ctx.dirtyFile) {
+    if (!ctx.fileAutoSync || !ctx.openFileSessionId || !ctx.openFilePath || !ctx.dirtyFile) {
       return undefined;
     }
     if (ctx.saveTimerRef.current) {
       clearTimeout(ctx.saveTimerRef.current);
     }
-    ctx.saveTimerRef.current = setTimeout(async () => {
-      const current = ctxRef.current;
-      try {
-        await current.runBusy("Save edited file", () =>
-          current.runWithSessionReconnect(current.openFileSessionId, (sessionId) =>
-            // Save with debounce to avoid writing on each keystroke.
-            current.api.sftp.writeFile(
-              sessionId,
-              current.openFilePath,
-              current.openFileContent,
-            ),
-          ),
-        );
-        current.setDirtyFile(false);
-      } catch (err) {
-        current.onError(err);
-      }
+    ctx.saveTimerRef.current = setTimeout(() => {
+      void sftpOpsRef.current.saveOpenFile();
     }, 700);
 
     return () => {
@@ -116,6 +100,7 @@ export function useSftpEffects(ctx, sftpOps) {
     // Editor scalars + stable setters/refs: a transfers update or a poll
     // snapshot cannot starve or reset this timer.
   }, [
+    ctx.fileAutoSync,
     ctx.dirtyFile,
     ctx.openFileContent,
     ctx.openFilePath,

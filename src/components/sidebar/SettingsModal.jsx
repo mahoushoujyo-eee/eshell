@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Check,
   FileCog,
+  FilePen,
   Image,
   Info,
   Languages,
@@ -20,11 +21,13 @@ import { api } from "../../lib/tauri-api";
 import Button, { buttonClass, IconButton } from "../ui/Button";
 import Dialog from "../ui/Dialog";
 import SegmentedControl from "../ui/SegmentedControl";
+import Switch from "../ui/Switch";
 import { sectionLabelClass } from "../ui/fieldClasses";
 import PluginRemoveDialog from "./PluginRemoveDialog";
 
 const TAB = Object.freeze({
   interface: "interface",
+  editor: "editor",
   plugins: "plugins",
   config: "config",
   version: "version",
@@ -37,6 +40,7 @@ const TAB = Object.freeze({
  */
 const SECTIONS = [
   { id: TAB.interface, label: "Interface", icon: Palette, section: "Appearance" },
+  { id: TAB.editor, label: "File Editor", icon: FilePen, section: "File Editor" },
   { id: TAB.plugins, label: "Plugins", icon: Puzzle, section: "Extensions" },
   { id: TAB.config, label: "Config Files", icon: FileCog, section: "Config Files" },
   { id: TAB.version, label: "Version", icon: Info, section: "About" },
@@ -137,6 +141,23 @@ function InterfaceTab({ theme, onSelectTheme, wallpaperLabel, onOpenWallpaperPic
             <Button variant="secondary" size="xs" onClick={onOpenWallpaperPicker}>
               {t("Change")}
             </Button>
+          </Row>
+        </RowGroup>
+      </section>
+    </div>
+  );
+}
+
+function FileEditorTab({ autoSync, onAutoSyncChange }) {
+  const { t } = useI18n();
+
+  return (
+    <div className="space-y-4">
+      <section>
+        <SectionHeading>{t("File Editor")}</SectionHeading>
+        <RowGroup>
+          <Row icon={RefreshCw} label={t("Auto sync")} value={t("When on, edited files are saved automatically.")}>
+            <Switch checked={autoSync} onChange={onAutoSyncChange} label={t("Auto sync")} />
           </Row>
         </RowGroup>
       </section>
@@ -735,6 +756,8 @@ export default function SettingsModal({
   onSelectTheme,
   wallpaperLabel,
   onOpenWallpaperPicker,
+  fileAutoSync = false,
+  onFileAutoSyncChange,
 }) {
   const { t } = useI18n();
   const [tab, setTab] = useState(TAB.interface);
@@ -792,6 +815,8 @@ export default function SettingsModal({
                 wallpaperLabel={wallpaperLabel}
                 onOpenWallpaperPicker={onOpenWallpaperPicker}
               />
+            ) : tab === TAB.editor ? (
+              <FileEditorTab autoSync={fileAutoSync} onAutoSyncChange={onFileAutoSyncChange} />
             ) : tab === TAB.plugins ? (
               <PluginsTab />
             ) : tab === TAB.config ? (

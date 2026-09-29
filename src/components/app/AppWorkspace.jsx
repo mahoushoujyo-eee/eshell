@@ -29,6 +29,9 @@ export default function AppWorkspace({
     dirtyFile,
     openFileContent,
     handleOpenFileContentChange,
+    fileAutoSync,
+    saveOpenFile,
+    resetFileEditor,
     extensions,
     sessions,
     activeSessionId,
@@ -133,6 +136,9 @@ export default function AppWorkspace({
         fileContent={openFileContent}
         onFileContentChange={handleOpenFileContentChange}
         dirtyFile={dirtyFile}
+        autoSync={fileAutoSync}
+        onSave={saveOpenFile}
+        onDiscard={resetFileEditor}
         theme={theme}
       />
     </>

@@ -82,19 +82,21 @@ export default function SftpCreateEntryDialog({
           tone="accent"
           title={t("New")}
           titleId="sftp-create-entry-title"
+          actions={
+            <SegmentedControl
+              size="xs"
+              value={type}
+              onChange={selectType}
+              options={[
+                { id: "file", label: t("File"), icon: File },
+                { id: "directory", label: t("Folder"), icon: Folder },
+              ]}
+            />
+          }
           onClose={onCancel}
           closeDisabled={busy}
         />
-        <DialogBody className="space-y-3">
-          <SegmentedControl
-            size="sm"
-            value={type}
-            onChange={selectType}
-            options={[
-              { id: "file", label: t("File"), icon: File },
-              { id: "directory", label: t("Folder"), icon: Folder },
-            ]}
-          />
+        <DialogBody>
           <div className="space-y-1.5">
             <input
               ref={inputRef}

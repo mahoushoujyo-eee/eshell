@@ -182,32 +182,39 @@ describe("useSftpEffects transfer mirroring", () => {
 });
 
 describe("useSftpEffects debounced save", () => {
-  it("saves after 700ms of quiet, targeted at the owning session", async () => {
+  const dirtyBuffer = {
+    dirtyFile: true,
+    openFilePath: "/var/app.log",
+    openFileSessionId: "session-alpha",
+    openFileContent: "hello",
+  };
+
+  it("saves after 700ms of quiet when auto sync is on", async () => {
     vi.useFakeTimers();
     try {
-      const write = vi.fn(async () => null);
-      // The broker passes the existing Tauri shape: args = { input: {...} }.
-      brokeredCommands.set("sftp_write_file", (args) => {
-        const { sessionId, path, content } = args?.input ?? {};
-        write(sessionId, path, content);
-        return null;
-      });
-      const ctx = makeCtx({
-        dirtyFile: true,
-        openFilePath: "/var/app.log",
-        openFileSessionId: "session-alpha",
-        openFileContent: "hello",
-        runWithSessionReconnect: async (sessionId, action) => action(sessionId),
-      });
-      const refreshSftp = vi.fn(async () => {});
-      const utils = await renderHook(() => useSftpEffects(ctx, { refreshSftp }));
+      const saveOpenFile = vi.fn(async () => true);
+      const ctx = makeCtx({ ...dirtyBuffer, fileAutoSync: true });
+      const utils = await renderHook(() => useSftpEffects(ctx, { refreshSftp: vi.fn(), saveOpenFile }));
 
       await vi.advanceTimersByTimeAsync(600);
-      expect(write).not.toHaveBeenCalled();
+      expect(saveOpenFile).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(200);
-      expect(write).toHaveBeenCalledTimes(1);
-      expect(write).toHaveBeenCalledWith("session-alpha", "/var/app.log", "hello");
-      expect(ctx.setDirtyFile).toHaveBeenCalledWith(false);
+      expect(saveOpenFile).toHaveBeenCalledTimes(1);
+      await utils.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves saving to the user when auto sync is off", async () => {
+    vi.useFakeTimers();
+    try {
+      const saveOpenFile = vi.fn(async () => true);
+      const ctx = makeCtx({ ...dirtyBuffer, fileAutoSync: false });
+      const utils = await renderHook(() => useSftpEffects(ctx, { refreshSftp: vi.fn(), saveOpenFile }));
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(saveOpenFile).not.toHaveBeenCalled();
       await utils.unmount();
     } finally {
       vi.useRealTimers();
@@ -217,16 +224,12 @@ describe("useSftpEffects debounced save", () => {
   it("does nothing while the buffer is clean", async () => {
     vi.useFakeTimers();
     try {
-      const write = vi.fn(async () => null);
-      brokeredCommands.set("sftp_write_file", () => {
-        write();
-        return null;
-      });
-      const ctx = makeCtx({ dirtyFile: false });
-      const refreshSftp = vi.fn(async () => {});
-      const utils = await renderHook(() => useSftpEffects(ctx, { refreshSftp }));
+      const saveOpenFile = vi.fn(async () => true);
+      const ctx = makeCtx({ dirtyFile: false, fileAutoSync: true });
+      const utils = await renderHook(() => useSftpEffects(ctx, { refreshSftp: vi.fn(), saveOpenFile }));
+
       await vi.advanceTimersByTimeAsync(5000);
-      expect(write).not.toHaveBeenCalled();
+      expect(saveOpenFile).not.toHaveBeenCalled();
       await utils.unmount();
     } finally {
       vi.useRealTimers();

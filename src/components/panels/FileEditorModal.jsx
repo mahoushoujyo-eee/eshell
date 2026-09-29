@@ -1,5 +1,5 @@
-﻿import { Eye, FileText, Pencil } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { Eye, Pencil } from "lucide-react";
+import { lazy, Suspense, useEffect, useMemo, useState, useTransition } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -19,9 +19,11 @@ import toml from "react-syntax-highlighter/dist/esm/languages/prism/toml";
 import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
 import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
 import { useI18n } from "../../lib/i18n";
-import { applyEditorTab } from "../../utils/text-editor";
+import { detectEditorLanguage } from "../../utils/editor-language";
 import Dialog, { DialogHeader } from "../ui/Dialog";
 import SegmentedControl from "../ui/SegmentedControl";
+import { cx } from "../ui/cx";
+import UnsavedChangesDialog from "./editor/UnsavedChangesDialog";
 import { oneDark, oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 SyntaxHighlighter.registerLanguage("bash", bash);
@@ -41,49 +43,8 @@ SyntaxHighlighter.registerLanguage("yaml", yaml);
 SyntaxHighlighter.registerLanguage("html", markup);
 SyntaxHighlighter.registerLanguage("xml", markup);
 
-const MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdx"]);
-
-const LANGUAGE_MAP = {
-  yml: "yaml",
-  yaml: "yaml",
-  json: "json",
-  toml: "toml",
-  sh: "bash",
-  bash: "bash",
-  zsh: "bash",
-  js: "javascript",
-  jsx: "javascript",
-  ts: "typescript",
-  tsx: "typescript",
-  rs: "rust",
-  py: "python",
-  java: "java",
-  go: "go",
-  html: "html",
-  css: "css",
-  xml: "xml",
-  sql: "sql",
-  ini: "ini",
-  conf: "ini",
-};
-
-function getFileExtension(path) {
-  const fileName = String(path || "").split("/").pop() || "";
-  const chunks = fileName.split(".");
-  if (chunks.length < 2) {
-    return "";
-  }
-  return chunks[chunks.length - 1].toLowerCase();
-}
-
-function detectLanguage(path) {
-  const extension = getFileExtension(path);
-  return LANGUAGE_MAP[extension] || "text";
-}
-
-function isMarkdownFile(path) {
-  return MARKDOWN_EXTENSIONS.has(getFileExtension(path));
-}
+// Monaco is several MB; load it the first time a file is opened.
+const MonacoCodeEditor = lazy(() => import("./editor/MonacoCodeEditor"));
 
 export default function FileEditorModal({
   open,
@@ -92,35 +53,27 @@ export default function FileEditorModal({
   fileContent,
   onFileContentChange,
   dirtyFile,
+  autoSync = false,
+  onSave,
+  onDiscard,
   theme,
 }) {
   const { t } = useI18n();
   const [mode, setMode] = useState("edit");
-  const editorRef = useRef(null);
+  const [confirmingClose, setConfirmingClose] = useState(false);
+  const [savingBeforeClose, startSavingBeforeClose] = useTransition();
 
   useEffect(() => {
     if (open) {
       setMode("edit");
+      setConfirmingClose(false);
     }
   }, [open, filePath]);
 
-  const language = detectLanguage(filePath);
-  const markdownFile = isMarkdownFile(filePath);
+  const language = detectEditorLanguage(filePath);
+  const markdownFile = language === "markdown" || language === "mdx";
+  const showPreview = markdownFile && mode === "preview";
   const codeStyle = theme === "dark" ? oneDark : oneLight;
-
-  const handleEditorKeyDown = (event) => {
-    if (event.key !== "Tab") {
-      return;
-    }
-
-    event.preventDefault();
-    const editor = event.currentTarget;
-    const next = applyEditorTab(fileContent, editor.selectionStart, editor.selectionEnd);
-    onFileContentChange(next.value);
-    requestAnimationFrame(() => {
-      editorRef.current?.setSelectionRange(next.selectionStart, next.selectionEnd);
-    });
-  };
 
   const markdownComponents = useMemo(
     () => ({
@@ -167,77 +120,121 @@ export default function FileEditorModal({
     return null;
   }
 
+  const editorLoading = (
+    <div className="flex h-full items-center justify-center text-xs text-subtle">{t("Loading")}</div>
+  );
+
+  const status = !dirtyFile
+    ? t("(Synced)")
+    : autoSync
+      ? t("(Unsaved)")
+      : t("(Unsaved · Ctrl+S to save)");
+
+  const save = () => {
+    if (dirtyFile) {
+      void onSave();
+    }
+  };
+
+  const requestClose = () => {
+    if (!dirtyFile) {
+      onClose();
+      return;
+    }
+    if (autoSync) {
+      // Flush now: the debounced save is cancelled if another file opens
+      // before it fires.
+      void onSave();
+      onClose();
+      return;
+    }
+    setConfirmingClose(true);
+  };
+
+  const saveAndClose = () =>
+    startSavingBeforeClose(async () => {
+      const saved = await onSave();
+      setConfirmingClose(false);
+      if (saved) {
+        onClose();
+      }
+    });
+
+  const discardAndClose = () => {
+    setConfirmingClose(false);
+    onDiscard();
+    onClose();
+  };
+
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={requestClose}
       size="custom"
       className="h-[86vh] max-w-6xl"
       labelledBy="file-editor-title"
     >
       <DialogHeader
-        icon={FileText}
-        tone="accent"
-        title={t("File Editor")}
-        titleId="file-editor-title"
-        description={
-          <span className="inline-flex max-w-full items-center gap-2">
-            <span className="truncate font-mono text-[11px]">{filePath}</span>
-            <span className={["shrink-0 text-[11px]", dirtyFile ? "text-warning" : "text-subtle"].join(" ")}>
-              {dirtyFile ? t("(Unsaved)") : t("(Synced)")}
+        title={
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate font-mono text-xs font-medium" title={filePath}>
+              {filePath}
+            </span>
+            <span className={cx("shrink-0 text-[11px] font-normal", dirtyFile ? "text-warning" : "text-subtle")}>
+              {status}
             </span>
           </span>
         }
+        titleId="file-editor-title"
         actions={
-          <SegmentedControl
-            size="xs"
-            value={mode}
-            onChange={setMode}
-            options={[
-              { id: "edit", label: t("Edit"), icon: Pencil },
-              { id: "preview", label: t("Preview"), icon: Eye },
-            ]}
-          />
+          markdownFile ? (
+            <SegmentedControl
+              size="xs"
+              value={mode}
+              onChange={setMode}
+              options={[
+                { id: "edit", label: t("Edit"), icon: Pencil },
+                { id: "preview", label: t("Preview"), icon: Eye },
+              ]}
+            />
+          ) : null
         }
-        onClose={onClose}
+        onClose={requestClose}
       />
 
       <div className="min-h-0 flex-1 bg-panel">
-        {mode === "edit" ? (
-          <textarea
-            ref={editorRef}
-            className="scroll-region h-full w-full resize-none bg-transparent px-4 py-3 font-mono text-[12.5px] leading-relaxed text-text outline-none"
-            value={fileContent}
-            onChange={(event) => onFileContentChange(event.target.value)}
-            onKeyDown={handleEditorKeyDown}
-            spellCheck={false}
-          />
-        ) : markdownFile ? (
+        {/* Hidden rather than unmounted while previewing, so undo history and
+            the cursor survive a round trip through the preview. */}
+        <div className={showPreview ? "hidden" : "h-full"}>
+          <Suspense fallback={editorLoading}>
+            <MonacoCodeEditor
+              key={filePath}
+              value={fileContent}
+              language={language}
+              theme={theme}
+              onChange={onFileContentChange}
+              onSave={save}
+              loading={editorLoading}
+            />
+          </Suspense>
+        </div>
+        {showPreview ? (
           <div className="scroll-region h-full overflow-auto px-5 py-4 text-[13px]">
             <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
               {fileContent || ""}
             </ReactMarkdown>
           </div>
-        ) : (
-          <div className="scroll-region h-full overflow-auto">
-            <SyntaxHighlighter
-              language={language}
-              style={codeStyle}
-              customStyle={{
-                margin: 0,
-                minHeight: "100%",
-                borderRadius: 0,
-                background: "transparent",
-                fontSize: "12.5px",
-                fontFamily: "var(--font-mono)",
-              }}
-              codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
-            >
-              {fileContent || ""}
-            </SyntaxHighlighter>
-          </div>
-        )}
+        ) : null}
       </div>
+
+      <UnsavedChangesDialog
+        open={confirmingClose}
+        fileName={filePath.split("/").pop() || filePath}
+        saving={savingBeforeClose}
+        onSave={saveAndClose}
+        onDiscard={discardAndClose}
+        onCancel={() => setConfirmingClose(false)}
+      />
     </Dialog>
   );
 }

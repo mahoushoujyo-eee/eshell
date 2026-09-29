@@ -115,6 +115,40 @@ export function useSftpOperations(ctx) {
     ctxRef.current.setSelectedEntry(entry || null);
   }, []);
 
+  // Saves run one at a time and each writes the buffer as it is when it
+  // starts, so a slow write can never land after a newer one.
+  const saveQueueRef = useRef(Promise.resolve(true));
+
+  const saveOpenFile = useCallback(() => {
+    const run = async () => {
+      const current = ctxRef.current;
+      const { openFileSessionId, openFilePath, openFileContent } = current;
+      if (!openFileSessionId || !openFilePath) {
+        return false;
+      }
+      try {
+        // Target the session the file was opened from, not the active tab.
+        await current.runBusy(tRef.current("Save edited file"), () =>
+          current.runWithSessionReconnect(openFileSessionId, (sessionId) =>
+            current.api.sftp.writeFile(sessionId, openFilePath, openFileContent),
+          ),
+        );
+      } catch (err) {
+        current.onError(err);
+        return false;
+      }
+      // Edits made while the write was in flight still need saving.
+      const latest = ctxRef.current;
+      if (latest.openFilePath === openFilePath && latest.openFileContent === openFileContent) {
+        latest.setDirtyFile(false);
+      }
+      return true;
+    };
+    const next = saveQueueRef.current.then(run);
+    saveQueueRef.current = next;
+    return next;
+  }, []);
+
   const uploadFile = useCallback(async () => {
     const current = ctxRef.current;
     if (!current.activeSessionId) {
@@ -450,6 +484,7 @@ export function useSftpOperations(ctx) {
     refreshSftp,
     openEntry,
     selectSftpEntry,
+    saveOpenFile,
     uploadFile,
     createSftpEntry,
     downloadFile,

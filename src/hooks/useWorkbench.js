@@ -425,6 +425,10 @@ export function useWorkbench() {
     openFilePath: sftpController.openFilePath,
     dirtyFile: sftpController.dirtyFile,
     openFileContent: sftpController.openFileContent,
+    fileAutoSync: sftpController.fileAutoSync,
+    setFileAutoSync: sftpController.setFileAutoSync,
+    saveOpenFile: sftpController.saveOpenFile,
+    resetFileEditor: sftpController.resetFileEditor,
 
     // Core session operations, restored verbatim under their original keys.
     saveSsh,
