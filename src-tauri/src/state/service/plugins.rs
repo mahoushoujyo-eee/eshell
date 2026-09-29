@@ -4,6 +4,7 @@
 //! never touches the plugin's maps; the MCP bridge endpoint is recorded here
 //! once at startup for the ACP integration to inject.
 
+use crate::domain::forward::service::ForwardPlugin;
 use crate::domain::monitor::service::StatusPlugin;
 use crate::domain::sftp::service::SftpPlugin;
 use crate::state::model::{AppState, McpBridgeInfo};
@@ -30,5 +31,10 @@ impl AppState {
     /// The server-monitor plugin (status cache).
     pub fn status_plugin(&self) -> &StatusPlugin {
         &self.status_plugin
+    }
+
+    /// The port-forward plugin (local listeners and their tunnels).
+    pub fn forward_plugin(&self) -> &ForwardPlugin {
+        &self.forward_plugin
     }
 }

@@ -9,6 +9,7 @@ pub mod agent;
 pub mod app_update;
 pub mod config;
 pub mod extensions;
+pub mod forward;
 pub mod monitor;
 pub mod scripts;
 pub mod sftp;

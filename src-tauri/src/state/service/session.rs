@@ -109,6 +109,10 @@ impl AppState {
 
         // The server-monitor plugin drops its cache entry for the closed tab.
         crate::domain::monitor::service::on_session_removed(self, session_id);
+        // Port forwards are bound to the tab's connection: closing the tab
+        // stops its listeners rather than leaving them accepting into a dead
+        // transport.
+        crate::domain::forward::service::on_session_removed(self, session_id);
         self.remove_ssh_session(session_id);
         Ok(())
     }

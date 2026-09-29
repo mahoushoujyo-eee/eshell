@@ -20,6 +20,7 @@ use crate::domain::config::Storage;
 use crate::domain::extensions::model_manifest::ExtensionCatalog;
 use crate::domain::extensions::service::extension_state::ActivationStateStore;
 use crate::domain::extensions::service::registry::ExtensionRegistry;
+use crate::domain::forward::service::ForwardPlugin;
 use crate::domain::monitor::service::StatusPlugin;
 use crate::domain::agent::model::AcpAgentRegistry;
 use crate::domain::sftp::service::SftpPlugin;
@@ -91,6 +92,9 @@ pub struct AppState {
     pub(crate) sftp_plugin: SftpPlugin,
     /// Server-monitor plugin state (status cache). Same ownership rule.
     pub(crate) status_plugin: StatusPlugin,
+    /// Port-forward plugin state (local listeners and their tunnels). Same
+    /// ownership rule; forwards are keyed by shell tab and die with it.
+    pub(crate) forward_plugin: ForwardPlugin,
     /// PTY control channel per shell tab, tagged with the generation of the
     /// worker that registered it. A tab can outlive several PTY workers (see
     /// [`crate::state::service::pty`]), and a worker that is being replaced
@@ -131,6 +135,7 @@ impl AppState {
             extension_activation: Mutex::new(extension_activation),
             sftp_plugin: SftpPlugin::new(),
             status_plugin: StatusPlugin::new(),
+            forward_plugin: ForwardPlugin::new(),
             pty_channels: RwLock::new(HashMap::new()),
             pty_generations: AtomicU64::new(0),
             shell_session_tokens: RwLock::new(HashMap::new()),
