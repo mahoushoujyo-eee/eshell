@@ -2,6 +2,13 @@ name: build-tauri
 
 on:
   workflow_dispatch:
+    inputs:
+      dmg_url:
+        description: >-
+          Optional .dmg URL to assess with the macOS Gatekeeper check (e.g. a
+          release asset). Leave empty to assess the dmg built by this run.
+        type: string
+        required: false
   push:
     tags:
       - "v*"
@@ -61,9 +68,30 @@ jobs:
         shell: bash
         env:
           # Signs the updater artifacts (.sig) required by tauri-plugin-updater.
+          # This is a minisign key for the in-app updater — it has nothing to do
+          # with Apple code signing, despite the name.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Apple code signing + notarization. Only the macOS runner uses these,
+          # and only when they are configured: without them `tauri build` ships
+          # an unsigned bundle, which Gatekeeper refuses on a downloaded copy
+          # (the "「eshell.dmg」已损坏" report — see scripts/macos-gatekeeper-check.sh).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # An unconfigured secret arrives as an empty string, and Tauri tests
+          # for presence: signing with an empty identity fails the build. Drop
+          # the empty ones so a repo without Apple credentials builds exactly as
+          # it did before, on every platform.
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                      APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name:-}" ]; then unset "$name"; fi
+          done
+
           if [ -n "${{ matrix.tauri_args }}" ]; then
             npx tauri build ${{ matrix.tauri_args }}
           else
@@ -77,6 +105,53 @@ jobs:
           if-no-files-found: error
           path: |
             src-tauri/target/release/bundle/**
+
+  # Reproduces what a downloading Mac user gets from the .dmg: the Gatekeeper
+  # assessment, the codesign/notarization state, and the same artifact scored
+  # with and without the quarantine attribute Finder adds. Nothing on the
+  # Windows/Linux runners can see any of this, so it is the only automated place
+  # where "the installer says it is damaged" is observable.
+  #
+  # Run it from the Actions tab with `dmg_url` pointed at an *already released*
+  # dmg to reproduce a user report without owning a Mac.
+  gatekeeper-check:
+    needs: build
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download the built macOS bundle
+        if: inputs.dmg_url == ''
+        uses: actions/download-artifact@v4
+        with:
+          name: eshell-macos-arm64
+          path: bundle
+
+      - name: Fetch the .dmg to assess
+        if: inputs.dmg_url != ''
+        env:
+          DMG_URL: ${{ inputs.dmg_url }}
+        run: |
+          mkdir -p bundle
+          curl -fsSL -o bundle/artifact.dmg "$DMG_URL"
+
+      # `--allow-unsigned` reports instead of failing: an unsigned artifact is
+      # the current known state, and a red X on every tag would not tell anyone
+      # anything new. A genuinely corrupt image still fails the job, and the
+      # run summary carries the verdict either way.
+      - name: Assess the .dmg like a downloading user
+        shell: bash
+        run: |
+          dmg="$(find bundle -name '*.dmg' -type f | sort | head -1)"
+          if [ -z "$dmg" ]; then
+            echo "::error::no .dmg found in the bundle artifact"
+            exit 1
+          fi
+          echo "assessing $dmg"
+          chmod +x scripts/macos-gatekeeper-check.sh
+          scripts/macos-gatekeeper-check.sh "$dmg" --allow-unsigned
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
