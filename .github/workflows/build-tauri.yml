@@ -137,21 +137,38 @@ jobs:
           mkdir -p bundle
           curl -fsSL -o bundle/artifact.dmg "$DMG_URL"
 
-      # `--allow-unsigned` reports instead of failing: an unsigned artifact is
-      # the current known state, and a red X on every tag would not tell anyone
-      # anything new. A genuinely corrupt image still fails the job, and the
-      # run summary carries the verdict either way.
+      # `--allow-unsigned` reports instead of failing: an unsigned artifact is the
+      # current known state, and a red X on every tag would not tell anyone
+      # anything new. A harness failure still exits non-zero, which
+      # `continue-on-error` keeps from blocking the release — but it fails the
+      # step and gets annotated, because a check that cannot run is exactly the
+      # thing that must not pass silently.
+      #
+      # The output is captured and re-annotated on failure: the job log body is
+      # not reachable without a token, so the annotation is the only machine-
+      # readable trace of what went wrong (and the quickest one in the UI).
       - name: Assess the .dmg like a downloading user
+        id: assess
+        continue-on-error: true
         shell: bash
         run: |
+          find bundle -type f | head -20
           dmg="$(find bundle -name '*.dmg' -type f | sort | head -1)"
           if [ -z "$dmg" ]; then
             echo "::error::no .dmg found in the bundle artifact"
             exit 1
           fi
           echo "assessing $dmg"
-          chmod +x scripts/macos-gatekeeper-check.sh
-          scripts/macos-gatekeeper-check.sh "$dmg" --allow-unsigned
+          log="$RUNNER_TEMP/gatekeeper.log"
+          status=0
+          # Through `bash` rather than ./: the file is committed without the exec
+          # bit, and this way a checkout quirk cannot look like a verdict.
+          bash scripts/macos-gatekeeper-check.sh "$dmg" --allow-unsigned >"$log" 2>&1 || status=$?
+          cat "$log"
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=Gatekeeper check failed (exit $status)::$(tail -c 1200 "$log" | tr '\n' '~')"
+          fi
+          exit "$status"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

@@ -81,3 +81,18 @@ job passes `--allow-unsigned` so it reports today's known-unsigned state instead
 of failing every tag — a genuinely corrupt image still fails the job. Once the
 Apple secrets are configured the check should be made a hard failure, and its
 verdict is worth keeping in the release checklist.
+
+Two things about running this on a runner rather than a laptop:
+
+- **The job log body is not readable without a token** (the Actions API wants
+  auth for `/logs`, and the HTML no longer inlines it). So the step captures the
+  output and re-emits the tail as an `::error::` annotation on failure, which
+  *is* readable through the public check-runs API. Keep that when editing.
+- **A failing command in an `EXIT` trap becomes the script's exit status under
+  `set -e`.** The first version of this gated its `hdiutil detach` on `mount`
+  output containing the mount point; on macOS `mount` prints the resolved path
+  (`/private/var/folders/...` for the `/var/folders/...` that `mktemp -d`
+  returns), so the detach was skipped, `rm -rf` failed on the still-mounted
+  directory, and a run that had assessed everything correctly exited `1`. The
+  cleanup now detaches unconditionally, disables `set -e` *and* drops the ERR
+  trap, because the trap's exit status is the run's verdict.

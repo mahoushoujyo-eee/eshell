@@ -33,7 +33,12 @@
 #             2 = not installable as shipped (currently: Gatekeeper refuses it,
 #                 because our macOS bundles are unsigned),
 #             1 = usage/environment error.
-set -euo pipefail
+set -Eeuo pipefail
+
+# Name the command that failed instead of exiting silently. On a CI runner this
+# script's output is the only debugging surface there is, and a bare `set -e`
+# failure in a pipeline of probes reports nothing at all.
+trap 'status=$?; echo "*** FAILED (exit $status) at ${BASH_SOURCE[0]}:${LINENO}: ${BASH_COMMAND}" >&2' ERR
 
 usage() {
   cat <<'EOF'
@@ -84,17 +89,46 @@ mount_point=""
 # Always present: the simulated-quarantine copy of the app lives here even in
 # --app mode, and cleanup must never expand to a path outside it.
 workdir="$(mktemp -d)"
+# The trap must not be able to change the script's exit status. `set -e` makes a
+# failing command inside an EXIT trap *become* the exit status, so the first
+# version of this returned 1 after a perfectly good assessment: it gated the
+# detach on `mount` output containing $mount_point, and on macOS `mount` prints
+# the resolved path — `/private/var/folders/...` for the `/var/folders/...` that
+# `mktemp -d` returns — so the detach was skipped and `rm -rf` then failed on the
+# still-mounted directory. Detach unconditionally instead of pattern-matching.
 cleanup() {
-  if [ -n "$mount_point" ] && mount | grep -qF "on $mount_point "; then
-    hdiutil detach "$mount_point" -quiet || true
+  # Drop the ERR trap too: a detach that fails (the volume can still be held
+  # open) is expected here and must not be reported as a failed run.
+  trap - ERR
+  set +e
+  if [ -n "$mount_point" ]; then
+    hdiutil detach -force -quiet "$mount_point" >/dev/null 2>&1
   fi
   if [ -n "$workdir" ] && [ -d "$workdir" ]; then
-    rm -rf "$workdir"
+    rm -rf "$workdir" >/dev/null 2>&1
   fi
+  return 0
 }
 trap cleanup EXIT
 
 section() { printf '\n=== %s ===\n' "$1"; }
+
+# Every probe below is best effort: one that cannot run is reported and the rest
+# of the assessment still happens, since the verdict needs all of them.
+probe() {
+  if "$@" 2>&1; then
+    return 0
+  fi
+  echo "-> '$*' failed; continuing" >&2
+  return 0
+}
+
+section "Environment"
+echo "script:  $0"
+echo "bash:    ${BASH_VERSION}"
+echo "macOS:   $(sw_vers -productVersion 2>/dev/null || echo unknown)"
+echo "dmg:     ${dmg:-<none>}"
+echo "app:     ${app:-<from the dmg>}"
 
 # ---------------------------------------------------------------------------
 # 1. Is the file itself intact? (Kills the "the download is corrupt" theory.)
@@ -102,7 +136,7 @@ section() { printf '\n=== %s ===\n' "$1"; }
 if [ -n "$dmg" ]; then
   section "Disk image integrity"
   echo "file: $(ls -lh "$dmg" | awk '{print $5}')"
-  shasum -a 256 "$dmg"
+  probe shasum -a 256 "$dmg"
   if hdiutil verify "$dmg"; then
     echo "hdiutil verify: OK — the image is not corrupt"
   else
@@ -120,8 +154,8 @@ if [ -n "$dmg" ]; then
   scored_dmg="$workdir/as-downloaded.dmg"
   cp "$dmg" "$scored_dmg"
   # 0081 = quarantine flag + "downloaded by a browser", the payload Safari/Chrome write.
-  xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;" "$scored_dmg"
-  echo "quarantine: $(xattr -p com.apple.quarantine "$scored_dmg")"
+  probe xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;" "$scored_dmg"
+  echo "quarantine: $(xattr -p com.apple.quarantine "$scored_dmg" 2>/dev/null || echo '<none>')"
   # -t open --context context:primary-signature is how macOS assesses a disk
   # image; a plain `spctl -a` on it answers a different question.
   if spctl -a -vvv -t open --context context:primary-signature "$scored_dmg"; then
@@ -134,12 +168,28 @@ if [ -n "$dmg" ]; then
   section "Mounting"
   mount_point="$workdir/mnt"
   mkdir -p "$mount_point"
-  hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point" -quiet
+  # Options first and the image last (the documented form) and no `-quiet`:
+  # when the attach is what fails, its output is the diagnosis.
+  if ! hdiutil attach -nobrowse -readonly -mountpoint "$mount_point" "$dmg"; then
+    echo "*** hdiutil attach failed; the image may be corrupt after all" >&2
+    exit 1
+  fi
+  echo "mounted: $mount_point"
+  ls -la "$mount_point" || true
   # The bundle inside; taken from the mounted image, so it keeps whatever
   # attributes the build shipped (normally none).
-  app="$(find "$mount_point" -maxdepth 1 -name '*.app' -print -quit)"
+  app=""
+  for candidate in "$mount_point"/*.app; do
+    if [ -d "$candidate" ]; then
+      app="$candidate"
+      break
+    fi
+  done
   if [ -z "$app" ]; then
-    echo "no .app inside the image" >&2
+    app="$(find "$mount_point" -maxdepth 2 -name '*.app' -print -quit 2>/dev/null || true)"
+  fi
+  if [ -z "$app" ]; then
+    echo "*** no .app inside the image" >&2
     exit 1
   fi
   echo "app: $app"
@@ -166,7 +216,9 @@ fi
 section "Architecture"
 executable="$(plutil -extract CFBundleExecutable raw "$app/Contents/Info.plist" 2>/dev/null || true)"
 if [ -n "$executable" ]; then
-  command -v lipo >/dev/null 2>&1 && lipo -archs "$app/Contents/MacOS/$executable" || true
+  if command -v lipo >/dev/null 2>&1; then
+    probe lipo -archs "$app/Contents/MacOS/$executable"
+  fi
   echo "(arm64 requires at least an ad-hoc signature to launch at all; the"
   echo " linker adds one automatically, which is why a quarantine-stripped"
   echo " copy runs while the downloaded copy is refused)"
@@ -189,7 +241,7 @@ echo
 simulated="$workdir/App.app"
 rm -rf "$simulated"
 if ditto "$app" "$simulated" 2>/dev/null; then
-  xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;" "$simulated"
+  probe xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;" "$simulated"
   if spctl -a -vvv -t exec "$simulated"; then
     echo "verdict WITH quarantine (what the downloading user gets): accepted"
   else
@@ -197,6 +249,8 @@ if ditto "$app" "$simulated" 2>/dev/null; then
     echo "-> Finder: 「eshell.app 已损坏，无法打开。你应该将它移到废纸篓。」"
     WARNED=1
   fi
+else
+  echo "-> could not copy the bundle; the quarantined-copy simulation was skipped" >&2
 fi
 
 # ---------------------------------------------------------------------------
