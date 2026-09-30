@@ -11,14 +11,21 @@ for runtime activation and ownership.
 ## 1. UX Behavior
 
 The status panel is split into two levels:
-- top summary keeps CPU, memory, and network visible at all times
-- lower detail area switches between `Processes` and `Disks` to avoid a crowded stacked layout
+- top summary keeps CPU and memory visible at all times
+- lower detail area switches between `Processes`, `Network`, `Disks`, and `GPU` to avoid a crowded stacked layout
+
+Network traffic is one of those detail tabs, not a resident block: it is the least
+glanceable metric, so it yields its vertical space to the summary bars and is a
+single click away. Its poll history keeps accumulating while the tab is hidden,
+because the rate/series sampling lives in the panel, not in the view; opening the
+tab therefore shows the traffic graph already populated instead of starting empty.
 
 Current display rules:
 - CPU is shown as a percentage bar
 - summary memory is shown as `used / total` in `GB`
 - process memory is shown in `MB`
 - disk rows show mount point, used / total, and a usage bar
+- the `Network` tab holds the NIC selector, the up/down rates, the traffic graph, and the per-interface totals
 - fetched time is rendered with the current UI locale
 
 If status polling fails for one cycle because of a transient network issue, the UI shows a retry warning instead of treating it as a hard failure.
@@ -58,13 +65,18 @@ Important field semantics:
 - every metric comes from one batched command per poll, split back apart by `@@ESHELL-PROBE:<id>@@` section markers; a probe that produced no output still leaves its marker, so a blank metric stays distinguishable from a probe that never ran
 - `disks[].usedPercent` remains a string as parsed from `df -hP`
 
-## 4. Process and Disk Views
+## 4. Process, Network, and Disk Views
 
 `Processes` view:
 - optimized for quick triage
 - shows `PID`, `CPU %`, `Memory (MB)`, and command
 - capped at the five busiest processes, sorted by CPU usage
 - the `top` / `ps` processes the poll itself starts are dropped: they live only as long as the sample, so they always report near-100% CPU
+
+`Network` view:
+- scoped to the selected NIC; the selector is the only control in the panel that changes what a poll reports
+- the graph is a per-poll delta series (not a lifetime average), so gaps mean no poll landed in that slot
+- totals below the graph are the interface counters as read, not an interval sum
 
 `Disks` view:
 - optimized for mount-point readability
@@ -74,9 +86,9 @@ Important field semantics:
 ## 5. Frontend Integration
 
 Main frontend files:
-- `src/components/panels/StatusPanel.jsx`
-- `src/components/panels/status/StatusResourceBars.jsx`
-- `src/components/panels/status/StatusTrafficPanel.jsx`
+- `src/plugins/status/StatusPanel.jsx` (the implementation; `src/components/panels/StatusPanel.jsx` re-exports it)
+- `src/plugins/status/components/StatusResourceBars.jsx`
+- `src/plugins/status/components/StatusTrafficPanel.jsx` (the `Network` tab body)
 - `src/plugins/status/` (feature state, operations, effects, and contributions)
 
 Backend implementation:

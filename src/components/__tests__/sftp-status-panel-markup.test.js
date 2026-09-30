@@ -7,8 +7,10 @@
  *   SFTP: connected toolbar + entries (sorted, dotfiles hidden) vs. the
  *         no-session state (tree prompt, disabled toolbar actions), and the
  *         transfer queue staying closed until opened.
- *   Status: the empty state, and full data with resource bars, the traffic
- *         block, NIC options, and the processes detail view (the default).
+ *   Status: the empty state, and full data with resource bars and the
+ *         processes detail view (the default tab). The traffic block lives
+ *         behind the Network chip, so it is a click away and out of scope
+ *         here; the tab-switch suite covers it.
  *
  * Effects (tree loading, detail-view auto-switching) do not run on the
  * server, so disks/GPU views and open dialogs are not reachable here; those
@@ -153,7 +155,7 @@ describe("StatusPanel static markup (pre-migration baseline)", () => {
     expect(markup).toMatchSnapshot();
   });
 
-  it("renders resource bars, traffic, NIC options, and the processes view", () => {
+  it("renders resource bars, the detail chips, and the processes view", () => {
     const markup = renderStatic(
       createElement(StatusPanel, makeStatusProps({ currentStatus: STATUS_SNAPSHOT, currentNic: "eth0" })),
     );
@@ -162,17 +164,17 @@ describe("StatusPanel static markup (pre-migration baseline)", () => {
     expect(markup).toContain("node server.js");
     expect(markup).toContain("128.0 MB");
     expect(markup).toContain("0.1%");
-    // NIC options from the snapshot; eth0 selected.
-    expect(markup).toContain('<option value="eth0" selected="">eth0</option>');
-    expect(markup).toContain('<option value="lo">lo</option>');
-    expect(markup).toContain('selected=""');
-    // Traffic totals and the en-US fetched-at chip.
-    expect(markup).toContain("Total RX 1.0 KB / Total TX 512 B");
+    // The en-US fetched-at chip.
     expect(markup).toContain("4:00:00 PM");
     // Detail switcher chips carry the counts.
     expect(markup).toContain("Processes");
+    expect(markup).toContain("Network");
     expect(markup).toContain("Disks");
     expect(markup).toContain("GPU");
+    // The traffic block is no longer resident: it only renders inside the
+    // Network chip, which is a click away (covered by the tab-switch suite).
+    expect(markup).not.toContain("Total RX");
+    expect(markup).not.toContain("<option");
     expect(markup).toMatchSnapshot();
   });
 

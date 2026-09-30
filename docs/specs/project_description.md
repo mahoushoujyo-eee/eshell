@@ -121,8 +121,9 @@ See [Ops Agent Guide](../guides/features/ops_agent.md).
 ## Status Monitoring Notes
 
 The status panel now prioritizes readability over raw density:
-- top summary keeps CPU, memory, and network visible at all times
-- lower detail area switches between `Processes` and `Disks`
+- top summary keeps CPU and memory visible at all times
+- lower detail area switches between `Processes`, `Network`, `Disks`, and `GPU`
+- `Network` traffic is a detail tab rather than a resident block: it is the least glanceable metric and gives its space back to the summary
 - process memory is shown in `MB`
 - overall memory remains `used / total` in `GB`
 

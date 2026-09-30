@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Network } from "lucide-react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { useI18n } from "../../../lib/i18n";
 import { selectSmClass } from "../../../components/ui/fieldClasses";
 
@@ -22,16 +22,23 @@ export default function StatusTrafficPanel({
   const { t } = useI18n();
 
   return (
-    <div className="shrink-0 border-b border-border px-3 py-2.5">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-muted">
-          <Network className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("Network")}
-        </span>
+    <div className="scroll-region flex min-h-0 flex-1 flex-col overflow-auto px-3 py-2.5">
+      <div className="mb-2 flex shrink-0 items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex items-center gap-1 font-medium whitespace-nowrap text-info tabular-nums">
+            <ArrowUp className="h-3 w-3" aria-hidden="true" />
+            {formatRate(trafficRate.tx, formatBytes)}
+          </span>
+          <span className="inline-flex items-center gap-1 font-medium whitespace-nowrap text-accent tabular-nums">
+            <ArrowDown className="h-3 w-3" aria-hidden="true" />
+            {formatRate(trafficRate.rx, formatBytes)}
+          </span>
+        </div>
         <select
           className={`${selectSmClass} h-6`}
           value={currentNic || ""}
           onChange={(event) => onNicChange(event.target.value || null)}
+          aria-label={t("Network")}
         >
           {(currentStatus.networkInterfaces || []).map((networkInterface) => (
             <option key={networkInterface.interface} value={networkInterface.interface}>
@@ -41,18 +48,7 @@ export default function StatusTrafficPanel({
         </select>
       </div>
 
-      <div className="mb-1.5 flex items-center gap-3">
-        <span className="inline-flex items-center gap-1 font-medium whitespace-nowrap text-info tabular-nums">
-          <ArrowUp className="h-3 w-3" aria-hidden="true" />
-          {formatRate(trafficRate.tx, formatBytes)}
-        </span>
-        <span className="inline-flex items-center gap-1 font-medium whitespace-nowrap text-accent tabular-nums">
-          <ArrowDown className="h-3 w-3" aria-hidden="true" />
-          {formatRate(trafficRate.rx, formatBytes)}
-        </span>
-      </div>
-
-      <div className="relative h-12 overflow-hidden rounded-md border border-border bg-surface px-1 pt-1">
+      <div className="relative min-h-[72px] flex-1 overflow-hidden rounded-md border border-border bg-surface px-1 pt-1">
         <div className="absolute inset-0 flex items-end gap-px px-1 pt-1">
           {trafficSeries.map((point, index) => {
             const txHeight = Math.max(0, Math.round((point.tx / trafficScaleMax) * 100));
@@ -78,7 +74,7 @@ export default function StatusTrafficPanel({
       </div>
 
       {currentStatus.selectedInterfaceTraffic ? (
-        <div className="mt-1.5 text-[11px] text-subtle tabular-nums">
+        <div className="mt-1.5 shrink-0 text-[11px] text-subtle tabular-nums">
           {t("Total RX {rx} / Total TX {tx}", {
             rx: formatBytes(currentStatus.selectedInterfaceTraffic.rxBytes),
             tx: formatBytes(currentStatus.selectedInterfaceTraffic.txBytes),

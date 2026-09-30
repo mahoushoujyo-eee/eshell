@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, Clock3, Gpu, HardDrive, List } from "lucide-react";
+import { Activity, Clock3, Gpu, HardDrive, List, Network } from "lucide-react";
 import { useI18n } from "../../lib/i18n";
 import PanelHeader from "../../components/ui/PanelHeader";
 import SegmentedControl from "../../components/ui/SegmentedControl";
@@ -15,6 +15,7 @@ const emptyTrafficRate = Object.freeze({
 
 const DETAIL_VIEW = Object.freeze({
   processes: "processes",
+  network: "network",
   disks: "disks",
   gpus: "gpus",
 });
@@ -383,15 +384,6 @@ export default function StatusPanel({
       {currentStatus && (
         <div className="flex min-h-0 flex-1 flex-col">
           <StatusResourceBars currentStatus={currentStatus} formatMemoryGb={formatMemoryGb} />
-          <StatusTrafficPanel
-            currentStatus={currentStatus}
-            currentNic={currentNic}
-            onNicChange={onNicChange}
-            trafficRate={trafficRate}
-            trafficSeries={trafficSeries}
-            trafficScaleMax={trafficScaleMax}
-            formatBytes={formatBytes}
-          />
 
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="tab-strip flex h-9 shrink-0 items-center justify-between gap-2 overflow-x-auto border-b border-border px-3">
@@ -411,6 +403,12 @@ export default function StatusPanel({
                     trailing: currentStatus.topProcesses?.length || 0,
                   },
                   {
+                    id: DETAIL_VIEW.network,
+                    label: t("Network"),
+                    icon: Network,
+                    trailing: currentStatus.networkInterfaces?.length || 0,
+                  },
+                  {
                     id: DETAIL_VIEW.disks,
                     label: t("Disks"),
                     icon: HardDrive,
@@ -426,7 +424,17 @@ export default function StatusPanel({
               />
             </div>
 
-            {detailView === DETAIL_VIEW.disks ? (
+            {detailView === DETAIL_VIEW.network ? (
+              <StatusTrafficPanel
+                currentStatus={currentStatus}
+                currentNic={currentNic}
+                onNicChange={onNicChange}
+                trafficRate={trafficRate}
+                trafficSeries={trafficSeries}
+                trafficScaleMax={trafficScaleMax}
+                formatBytes={formatBytes}
+              />
+            ) : detailView === DETAIL_VIEW.disks ? (
               <DisksView rows={currentStatus.disks || []} />
             ) : detailView === DETAIL_VIEW.gpus ? (
               <GpusView rows={currentStatus.gpus || []} formatMemoryGb={formatMemoryGb} />
