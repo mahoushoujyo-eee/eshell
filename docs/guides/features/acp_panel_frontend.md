@@ -84,9 +84,12 @@ Body(滚动区，按优先级互斥):
 Plan 卡片: 常驻于滚动区与 composer 之间(可折叠，含完成度 x/y)
 Composer: 终端选中内容 chip(会话名+预览+字数+可删) + 附件缩略图条(可删)
           + 带边框的输入盒: textarea(Enter 发送/Shift+Enter 换行/粘贴图片)
-            + 底部条(border-t): 模式胶囊(左) + 会话设置按钮(齿轮, 右) + 圆形发送/中断按钮(最右)
-              会话设置 = 一个按钮收纳全部 config option；菜单每行一个设置(名称+当前值)，
-              悬浮/聚焦某行向侧边弹出子菜单选值(boolean 行直接点击切换)
+            + 底部条(border-t): 模式胶囊 + 会话设置胶囊(齿轮 + 当前模型 · 当前思考强度) + 圆形发送/中断按钮(最右)
+              会话设置 = 一个胶囊收纳全部 config option；胶囊内**直接显示当前值**(模型名跑得长，
+              14rem 截断，完整 "Name: value" 列表在 tooltip)。
+              菜单是**一个双栏单元**：左栏每行一个设置(名称+当前值)，右栏是该行可选值。右栏**常驻**，
+              默认展示第一行(模型)，悬浮/聚焦别的行只替换右栏内容(boolean 行直接点击切换，右栏不动)，
+              整组同生同灭 —— 不要让右栏变成靠悬浮弹进弹出的独立面板(滑开就只剩左栏悬着，且整组会横向跳动)
           斜杠补全: 输入以 "/" 开头且无空格时，在 composer 上方浮层列出匹配命令
           ⚠️ **没有图片按钮**：图片只能粘贴进 textarea（`capabilities.promptImage` 门控 onPaste）。
              这是刻意删掉的，别再加回一个方块按钮；要补录入方式的话做拖拽落入。
@@ -143,9 +146,10 @@ Tauri 命令收的是**裸值**（string / bool），由 `config_option_value()`
 - 下拉/弹层沿用 `AcpPickers` 的形态：胶囊触发器 + 弹层由 **`MenuLayer`（面板满宽定位层）** 摆放，而不是挂在触发器上。dock 宽度只有 320-760px 且面板根节点 `overflow-hidden`，**按触发器定位的弹层在边缘会被裁切**；满宽层 + flex 对齐则能「贴着自己的按钮、又永远在面板内」：
   - Agent 选择器：`side="bottom"` + `justify-start`（按钮在标题栏左侧）。
   - 模式选择器：`side="top"` + `justify-start`（胶囊在底部条左侧）。
-  - 会话设置：`side="top"` + `reverse`（`flex-row-reverse justify-start` → 右对齐贴按钮，同时 DOM 顺序保持「主菜单→子菜单」，tab 顺序才和视觉一致）。子菜单 `min-w-0 shrink`，窄 dock 下自己压缩而不是把主菜单推出面板。
+  - 会话设置：`side="top"` + `align="start"` + `inset={触发器 offsetLeft}`（DOM 顺序即「列表→值」，`flex-row` 下左边列表、右边值，tab 顺序也和视觉一致）。它在底部条里排在模式胶囊**之后**，不是贴着面板左边缘，所以量一下自己的 `offsetLeft` 把层内缩过去（满宽层与触发器同一坐标系），弹层才真的「紧挨着按钮」而不是贴在面板边上。两栏**都**是 `min-w-0 shrink`，窄 dock 下按宽度比例一起压缩，谁也不会被挤出面板（13rem + 15rem 在 320px 的 dock 里放不下，所以两栏都必须能缩）。
   - 早期版本所有底部菜单都用 `bottom-full right-0` 满宽 sheet，导致点任何胶囊都从右下角弹出 —— 不要退回那种写法。
-- 子菜单靠悬浮打开，所以 `MenuPanel` 的 `autoFocus` 对它关掉（抢焦点会和鼠标打架）；主菜单与子菜单同属一个 `MenuLayer`，`onMouseLeave` 挂在层上，鼠标跨过两者之间的间隙不会误关。
+- **弹层本体必须点击穿透**：`MenuLayer` 是满宽盒子、又长在 composer 里，所以它挂 `pointer-events-none`，只在**菜单组**那层 `pointer-events-auto` 回来（挂在组上而不是每个面板上，两栏之间的 gap 才算菜单的一部分）。少了这一步，点弹层周围的空白会被判定成「点在 composer 内」，面板的 outside-click 关闭永远不触发，菜单只剩按钮能关。
+- 值那一栏跟着悬浮/聚焦走，所以 `MenuPanel` 的 `autoFocus` 对它关掉（抢焦点会和鼠标打架）；列表与值同属一个 `MenuLayer`，两者之间的间隙由组的 `gap` 提供，鼠标跨过去不会误触。
 - 面板同时只允许一个弹层打开：`openMenu` 单值状态在 `AcpAgentPanel`，外部点击/Esc 的判定要同时排除 `headerMenuRef` 和 `composerMenuRef` 两个区域。
 
 ## 5. UI 待优化清单（交接 backlog）

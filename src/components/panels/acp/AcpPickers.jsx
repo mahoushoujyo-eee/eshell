@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Settings2, SlidersHorizontal } from "lucide-react";
 import AcpAgentLogo from "../../ai/AcpAgentLogo";
 import { formatAcpAgentSpawn } from "../../../lib/acpAgentBrands";
@@ -45,28 +45,38 @@ function RunningDot({ title }) {
 }
 
 /**
- * Panel-wide positioning layer for one menu (or a menu plus its flyout).
- * `align` picks the side the trigger sits on; `reverse` right-aligns while
- * keeping DOM order primary-then-flyout, so tab order matches reading order.
+ * Panel-wide positioning layer for one menu, or for a menu plus the column it
+ * drives (list left, values right — DOM order is reading order, so tab order
+ * follows too). `align` picks the side of the dock the group hugs; `inset`
+ * shifts it off that edge by the trigger's `offsetLeft`, for a trigger that does
+ * not sit flush against one.
+ *
+ * The layer itself is click-transparent (`pointer-events-none`) and only the
+ * menu group opts back in. It is a full-width box spanning the whole menu area,
+ * and it lives inside the composer, so without this any click on the empty space
+ * around a menu reads as "inside the composer" and the panel's outside-click
+ * dismiss never fires — the menu would only ever close from its own trigger.
+ * The opt-in sits on the group rather than on each panel so that the gap
+ * between a list and the column it drives stays part of the menu.
  */
-function MenuLayer({ side = "top", align = "start", reverse = false, onMouseLeave, children }) {
+function MenuLayer({ side = "top", align = "start", inset = 0, children }) {
   return (
     <div
-      onMouseLeave={onMouseLeave}
+      style={inset ? { paddingLeft: inset } : undefined}
       className={[
-        "absolute inset-x-0 z-30 flex items-end gap-1.5",
+        "pointer-events-none absolute inset-x-0 z-30 flex items-end",
         side === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5",
-        reverse ? "flex-row-reverse justify-start" : align === "end" ? "justify-end" : "justify-start",
+        align === "end" ? "justify-end" : "justify-start",
       ].join(" ")}
     >
-      {children}
+      <div className="pointer-events-auto flex min-w-0 items-end gap-1.5">{children}</div>
     </div>
   );
 }
 
 /**
- * One bordered menu box with roving focus. `autoFocus` is off for flyouts, which
- * open on hover — pulling focus there would fight the pointer.
+ * One bordered menu box with roving focus. `autoFocus` is off for a secondary
+ * column that follows the pointer — pulling focus there would fight the pointer.
  */
 function MenuPanel({ label, className = "", autoFocus = true, children }) {
   const listRef = useRef(null);
@@ -281,32 +291,56 @@ export function AcpModePicker({ modes, open, onToggle, onSelect }) {
 /**
  * Single settings button for every session config option the agent advertises
  * (model, thought level, model config). One row per option showing its current
- * value; hovering or focusing a select row flies its values out to the side, so
- * the combinatorial settings stay one click deep without a row of pills.
+ * value; the rows are the left column and the highlighted row's values are the
+ * right one, so the combinatorial settings stay one click deep without a row of
+ * pills.
+ *
+ * The value column is always populated — the first row with values by default,
+ * otherwise whichever row was last hovered or focused. It is never a separate
+ * panel that pops in and out on hover: that left the menu half-collapsed (list
+ * hanging alone) whenever the pointer strayed off the values, and made the
+ * whole group jump sideways every time a row was touched.
  */
 export function AcpSessionSettingsMenu({ options, open, onToggle, onSelect }) {
   const { t } = useI18n();
-  const [flyoutId, setFlyoutId] = useState(null);
+  const [detailId, setDetailId] = useState(null);
+  const [inset, setInset] = useState(0);
+  const triggerRef = useRef(null);
 
-  // A closed menu must not remember which row was open.
-  useEffect(() => {
+  // The layer spans the whole composer (a trigger-anchored popover gets clipped
+  // by the 320-760px dock), so it is inset to the trigger to still read as that
+  // button's popover — this pill sits after the session-mode pill, not at the
+  // composer's left edge. `offsetLeft` shares the layer's coordinate origin
+  // (both are relative to the composer footer). Re-measured on every render
+  // while open, so a wrapped pill row or a resized dock self-corrects; the
+  // equality check stops it from looping.
+  useLayoutEffect(() => {
     if (!open) {
-      setFlyoutId(null);
+      return;
     }
-  }, [open]);
+    const next = triggerRef.current?.offsetLeft ?? 0;
+    setInset((prev) => (prev === next ? prev : next));
+  });
 
   if (options.length === 0) {
     return null;
   }
 
-  const flyout = options.find((option) => option.id === flyoutId) || null;
+  // Falls back to the first row that has values when nothing was touched yet, or
+  // when the touched row is gone (a model switch can swap the whole option set).
+  const detail =
+    options.find((option) => option.id === detailId && option.type !== "boolean") ||
+    options.find((option) => option.type !== "boolean") ||
+    null;
+  const labels = options.map((option) => configOptionCurrentLabel(option));
   const summary = options
-    .map((option) => `${option.name}: ${configOptionCurrentLabel(option)}`)
+    .map((option, index) => `${option.name}: ${labels[index]}`)
     .join(" · ");
 
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={onToggle}
         aria-haspopup="menu"
@@ -317,6 +351,11 @@ export function AcpSessionSettingsMenu({ options, open, onToggle, onSelect }) {
         data-tauri-no-drag
       >
         <Settings2 className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
+        {/* The current values, not just a gear: the two settings that matter are
+            otherwise invisible until the menu is opened. Model names run long
+            (`deepseek-v4-flash-vision-exp[1m]`), so the strip truncates and the
+            full "Name: value" list stays in the tooltip. */}
+        <span className="min-w-0 max-w-[14rem] truncate">{labels.join(" · ")}</span>
         <ChevronDown
           className={["h-3.5 w-3.5 shrink-0 text-muted transition-transform", open ? "rotate-180" : ""].join(
             " ",
@@ -326,27 +365,33 @@ export function AcpSessionSettingsMenu({ options, open, onToggle, onSelect }) {
       </button>
 
       {open ? (
-        <MenuLayer side="top" reverse onMouseLeave={() => setFlyoutId(null)}>
-          <MenuPanel label={t("Session settings")} className="w-[13rem] shrink-0">
+        <MenuLayer side="top" align="start" inset={inset}>
+          <MenuPanel label={t("Session settings")} className="w-[13rem] min-w-0 shrink">
             {options.map((option) => {
               const isBoolean = option.type === "boolean";
-              const expanded = option.id === flyoutId;
+              const shown = !isBoolean && option.id === detail?.id;
               return (
                 <button
                   key={option.id}
                   type="button"
                   aria-haspopup={isBoolean ? undefined : "listbox"}
-                  aria-expanded={isBoolean ? undefined : expanded}
+                  aria-expanded={isBoolean ? undefined : shown}
                   aria-pressed={isBoolean ? Boolean(option.currentValue) : undefined}
                   title={option.description || option.name}
-                  onMouseEnter={() => setFlyoutId(isBoolean ? null : option.id)}
-                  onFocus={() => setFlyoutId(isBoolean ? null : option.id)}
+                  onMouseEnter={() => {
+                    if (!isBoolean) {
+                      setDetailId(option.id);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (!isBoolean) {
+                      setDetailId(option.id);
+                    }
+                  }}
                   onClick={() =>
-                    isBoolean
-                      ? onSelect(option.id, !option.currentValue)
-                      : setFlyoutId(expanded ? null : option.id)
+                    isBoolean ? onSelect(option.id, !option.currentValue) : setDetailId(option.id)
                   }
-                  className={optionClass(expanded)}
+                  className={optionClass(shown)}
                   data-tauri-no-drag
                 >
                   <span className="min-w-0 flex-1">
@@ -365,13 +410,13 @@ export function AcpSessionSettingsMenu({ options, open, onToggle, onSelect }) {
             })}
           </MenuPanel>
 
-          {flyout ? (
+          {detail ? (
             <MenuPanel
-              label={flyout.name}
+              label={detail.name}
               autoFocus={false}
               className="w-[15rem] min-w-0 shrink"
             >
-              {configSelectGroups(flyout).map((group, groupIndex) => (
+              {configSelectGroups(detail).map((group, groupIndex) => (
                 <div key={group.group ?? groupIndex}>
                   {group.name ? (
                     <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
@@ -383,8 +428,8 @@ export function AcpSessionSettingsMenu({ options, open, onToggle, onSelect }) {
                       key={value.value}
                       name={value.name}
                       description={value.description}
-                      selected={value.value === flyout.currentValue}
-                      onSelect={() => onSelect(flyout.id, value.value)}
+                      selected={value.value === detail.currentValue}
+                      onSelect={() => onSelect(detail.id, value.value)}
                     />
                   ))}
                 </div>
