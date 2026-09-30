@@ -4,7 +4,7 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.7.0** 是一个基于 **Tauri 2、React 19、Rust** 的桌面运维工作台。
+**eShell v1.7.1** 是一个基于 **Tauri 2、React 19、Rust** 的桌面运维工作台。
 
 它把 SSH 会话、PTY 终端、SFTP 文件操作、服务器状态监控、脚本执行，以及 ACP 编码 agent 面板集成在一个本地优先的桌面应用里。
 
@@ -16,7 +16,8 @@
 - Termius 风格的工作区：会话标签在标题栏，窄活动栏，底部状态栏，支持亮色和暗色主题。
 - 使用基于 `xterm.js` 的交互式 PTY 终端，支持尺寸同步、自定义壁纸和 Ctrl+Shift+C/V 复制粘贴。
 - 终端断连后原地恢复：重连按钮在同一个 session 上重建 PTY，标签页、工作目录和状态缓存都保留。
-- 通过 SFTP 浏览、预览、编辑、上传、下载和删除远程文件。
+- 通过 SFTP 浏览、预览、编辑、上传、下载和删除远程文件，编辑器基于 Monaco，默认手动保存、可开启自动同步。
+- 借助当前会话的 SSH 连接把本机端口转发到远端，可在 **端口转发** 面板操作，也能由插件驱动。
 - 查看远程服务器 CPU、内存、网络流量、进程、磁盘和 NVIDIA 显卡状态。
 - 保存常用脚本，并在当前会话中执行。
 - 通过 Agent Client Protocol 驱动外部编码 agent（Codex、Claude Code、Gemini CLI 等），支持按项目隔离会话和权限审批。
@@ -245,5 +246,6 @@ cargo test
 - [SFTP 传输指南](docs/guides/features/sftp_transfer.md)
 - [插件开发指南](docs/guides/features/plugin_development.md)
 - [未发布变更](docs/releases/unreleased.md)
+- [1.7.1 发布说明](docs/releases/v1.7.1.md)
 - [1.7.0 发布说明](docs/releases/v1.7.0.md)
 - [1.6.0 发布说明](docs/releases/v1.6.0.md)

@@ -1,8 +1,10 @@
 # Unreleased Changes
 
-Last updated: 2026-09-28
+Last updated: 2026-09-30
 
-Nothing yet. Everything through 1.7.0 shipped in [v1.7.0](v1.7.0.md).
+Nothing yet. Everything through 1.7.1 shipped in [v1.7.1](v1.7.1.md) — including
+the macOS install note, which is repeated in the [Releasing Guide](../guides/releasing.md)
+along with the signing state behind it.
 
 ## How To Use This File
 

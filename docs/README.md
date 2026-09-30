@@ -39,6 +39,7 @@ Root project introductions:
 - [Project Description](specs/project_description.md) — Product scope, runtime state, and feature models
 - [OpenAPI-style RPC Spec](specs/openapi.yaml) — Tauri invoke command contracts
 - [Project Dev Guide](guides/PROJECT_DEV_GUIDE.md) — Engineering workflow, testing baseline, and documentation checklist
+- [Releasing Guide](guides/releasing.md) — CI bundles, updater vs Apple signing secrets, why unsigned macOS downloads report "已损坏" (it is Gatekeeper, not corruption), and how to reproduce a user's Mac verdict from CI
 - [SFTP Transfer Guide](guides/features/sftp_transfer.md) — SFTP browser operations, transfers, cancellation, and context-menu behavior
 - [Server Status Guide](guides/features/server_status.md) — Status panel data semantics and UI behavior
 - [Ops Agent Guide](guides/features/ops_agent.md) — Ops Agent request flow, approvals, streaming, attachments, and cancellation
@@ -51,6 +52,8 @@ Root project introductions:
 - [Built-in Extension Migration Validation](reports/builtin-extension-migration.md) — Compatibility checks, regression tests, browser comparisons, and remaining manual coverage
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
+- [Release Notes 1.7.1](releases/v1.7.1.md) — SSH local port forwarding (panel + plugin API), Monaco editor with explicit save, faster start with no white window, and the macOS download/Gatekeeper note
+- [Release Notes 1.7.0](releases/v1.7.0.md) — Termius-style workspace redesign: session tabs, activity rail, status bar, shared visual system
 - [Release Notes 1.6.0](releases/v1.6.0.md) — Built-in extensions and trusted external plugins, Settings → Plugins install/remove, config reload, the eshell-plugin-dev skill, and a two-pane settings dialog
 - [Release Notes 1.5.5](releases/v1.5.5.md) — update check no longer hits the rate-limited GitHub API
 - [Release Notes 1.5.4](releases/v1.5.4.md) — in-place PTY recovery, no orphan tabs, terminal clipboard shortcuts

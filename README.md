@@ -4,7 +4,7 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.7.0** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
+**eShell v1.7.1** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
 
 It combines SSH sessions, PTY terminals, SFTP file operations, server status monitoring, reusable scripts, and an ACP coding agent panel in one local-first application.
 
@@ -16,7 +16,8 @@ It combines SSH sessions, PTY terminals, SFTP file operations, server status mon
 - Work in a Termius-style workspace: session tabs in the title bar, a slim activity rail, a status bar, and light and dark themes.
 - Use an interactive `xterm.js` PTY terminal with resize sync, custom wallpaper, and Ctrl+Shift+C/V clipboard shortcuts.
 - Recover a dead terminal in place: the reconnect button rebuilds the PTY on the same session, keeping the tab, its working directory and its status cache.
-- Browse, preview, edit, upload, download, and delete files through SFTP.
+- Browse, preview, edit, upload, download, and delete files through SFTP, editing in a Monaco-based editor with explicit save or an opt-in auto sync.
+- Forward local ports to a remote host over the active session's SSH connection, from the **Port Forward** panel or a plugin.
 - Monitor remote server CPU, memory, network traffic, processes, disks, and NVIDIA GPUs.
 - Save reusable scripts and run them against the active session.
 - Drive external coding agents (Codex, Claude Code, Gemini CLI, …) over the Agent Client Protocol, with per-project sessions and permission prompts.
@@ -248,5 +249,6 @@ Persistence notes:
 - [SFTP Transfer Guide](docs/guides/features/sftp_transfer.md)
 - [Plugin Development](docs/guides/features/plugin_development.md)
 - [Unreleased Notes](docs/releases/unreleased.md)
+- [Release Notes 1.7.1](docs/releases/v1.7.1.md)
 - [Release Notes 1.7.0](docs/releases/v1.7.0.md)
 - [Release Notes 1.6.0](docs/releases/v1.6.0.md)
