@@ -61,8 +61,21 @@ jobs:
             libwebkit2gtk-4.1-dev \
             patchelf
 
+      # `--include=optional` is load-bearing, not decoration. npm silently skips
+      # platform-scoped optional dependencies (npm/cli#4828, still open) and
+      # every native binary in this tree is one of them: without
+      # `@tauri-apps/cli-<platform>` the Tauri CLI cannot even be required, so
+      # `tauri build` dies in the same second it starts. The lockfile already
+      # records all platform variants — it is the install that drops them.
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --include=optional
+
+      # Makes the next occurrence legible. The failure this guards against lands
+      # ten steps later with a generic "Cannot find native binding" and no
+      # package name, and the job log needs a token to read.
+      - name: Verify the platform's native packages
+        shell: bash
+        run: bash scripts/verify-native-deps.sh
 
       - name: Build Tauri bundles
         shell: bash

@@ -58,6 +58,43 @@ The durable fix is a Developer ID Application certificate and notarization (paid
 Apple Developer account). Tauri does both itself once the secrets above exist;
 signing without notarizing still fails the first launch, so both are needed.
 
+## "Cannot find native binding" — the build dies in zero seconds
+
+`Build Tauri bundles` can fail instantly, with no compile output, and the only
+line that matters is:
+
+```
+Error: Cannot find native binding. npm has a bug related to optional
+dependencies (https://github.com/npm/cli/issues/4828).
+  [cause]: Error: Cannot find module '@tauri-apps/cli-linux-x64-gnu'
+```
+
+The platform-scoped packages are all **optional dependencies** carrying a
+prebuilt native binary — the Tauri CLI, plus rollup, the Tailwind oxide
+backend, lightningcss and esbuild. npm/cli#4828 (still open, "Needs Triage")
+lets `npm ci` finish with exit 0 while silently skipping them. The Tauri CLI
+is the first thing `tauri build` loads, so the run dies in the same second and
+never reaches the frontend build — which is why the message names a package
+that looks fine in the lockfile.
+
+**The lockfile is not the problem.** It records every platform variant, and that
+has not changed across releases; do not delete it to "fix" this. Deleting it
+trades a reproducible install for one that silently drifts on every `^` range,
+which is a worse failure than the one you are looking at.
+
+Two things in the workflow guard it:
+
+- `npm ci --include=optional` is the mitigation, and it is load-bearing.
+- `scripts/verify-native-deps.sh` runs right after the install and fails with
+  the **names** of the packages that went missing. Without it, the next
+  occurrence is the same unreadable crash ten steps later — and reading the job
+  log needs a token (see the note at the end of this file).
+
+The v1.7.2 run hit this on `ubuntu-latest` after the runner image rolled
+forward; the previous release built the same commit content fine, which is the
+signature of an environment change rather than a code change. If a new platform
+family is ever added to the dependency tree, add it to the script's list.
+
 ## Checking a build the way a user's Mac sees it
 
 Nothing on the Windows or Linux runners can observe any of the above, so the
