@@ -84,6 +84,7 @@ Body(滚动区，按优先级互斥):
 Plan 卡片: 常驻于滚动区与 composer 之间(可折叠，含完成度 x/y)
 Composer: 终端选中内容 chip(会话名+预览+字数+可删) + 附件缩略图条(可删)
           + 带边框的输入盒: textarea(Enter 发送/Shift+Enter 换行/粘贴图片)
+            + 溢出时右上角出现放大按钮(见 §4「composer 放大」)
             + 底部条(border-t): 模式胶囊 + 会话设置胶囊(齿轮 + 当前模型 · 当前思考强度) + 圆形发送/中断按钮(最右)
               会话设置 = 一个胶囊收纳全部 config option；胶囊内**直接显示当前值**(模型名跑得长，
               14rem 截断，完整 "Name: value" 列表在 tooltip)。
@@ -94,6 +95,9 @@ Composer: 终端选中内容 chip(会话名+预览+字数+可删) + 附件缩略
           ⚠️ **没有图片按钮**：图片只能粘贴进 textarea（`capabilities.promptImage` 门控 onPaste）。
              这是刻意删掉的，别再加回一个方块按钮；要补录入方式的话做拖拽落入。
 ```
+
+工具行（`ToolCallCard`）与思考行（`ThoughtEntry`）是 transcript 里最密集的两种行，视觉约定见 §4「工具行」——
+**不要给它们加左侧竖线，也不要给展开内容加缩进**，两条都是踩过之后删掉的。
 
 终端选中联动：在终端选中文本 → 右上角「Add To Agent」浮层（`XtermSelectionAction`）→
 `AppMainWorkspace` 调 `acp.attachShellContext(selection)` 并打开 dock → composer 出现 chip →
@@ -140,7 +144,19 @@ Tauri 命令收的是**裸值**（string / bool），由 `config_option_value()`
 - Tailwind 语义 token（**定义在 `src/index.css` 的 `@theme`，只有这些能用**）：背景 `bg-bg` / `bg-surface` / `bg-panel`，边框 `border-border`，文字 `text-text` / `text-muted`，主色 `accent` / `accent-soft`，状态 `success` / `warning` / `danger`，另有 `warm`。
   - ⚠️ **`text-primary` / `text-secondary` 不存在**（本面板早期版本用过，Tailwind v4 对未定义 token 不报错、直接不产出 CSS，文字会退回继承色）。次级文字用 `text-text/88`，弱化文字用 `text-muted`。新增 token 前先确认 `@theme` 里有。
   - `dark:` 变体已在 `index.css` 用 `@custom-variant dark` 绑到 `[data-theme="dark"]`（主题由 JS 写 `data-theme`，**不是** `prefers-color-scheme`）。
-  - 状态色目前仍沿用裸 emerald / amber / red（成功 / 进行中·警示 / 失败·危险），尚未迁移到 `success` / `warning` / `danger`（见 backlog）。
+  - 状态色已全部迁到 `success` / `warning` / `danger` 语义 token（26 处），面板里不再有裸 emerald / amber / red。
+- **工具行**（`ToolCallCard` / `ThoughtEntry`）——一行三件事：状态、名字、展开。三条都是踩过之后定下来的，改之前先读完：
+  - **不要用左侧竖线表达状态**。原来是每行 `border-l-2` + 状态色，连续几条工具调用排在一起就是一道彩色栅栏，非常「人机」。现在状态是 12px 定宽槽里的 6px 圆点（`TOOL_STATUS_DOT`），多行天然对齐。形状也带信息，不只靠颜色：`pending` 空心、`in_progress` 脉动、`completed` 实心、`failed` 实心红。
+  - **状态文字不要可见**。「已完成」在中文里是同义反复，且和圆点、颜色构成三重重复信号。现在它是 `sr-only`，可访问名仍是 `execute_command 已完成`，读屏和 tooltip 都还在。
+  - **`kind` 徽章不要画**。所有 MCP 工具的 `kind` 后端都写死成 `"other"`（`src-tauri/src/domain/agent/service/acp_client.rs`），徽章恒为 `OTHER`，纯噪音。改用剥掉 `mcp__{server}__` 前缀的 `title`（`splitToolTitle`，按**最后**一个 `__` 切，server 名本身含下划线时才正确），server 不逐行重复显示，完整名放 `title`。
+  - **展开内容不缩进**。`pl-1`，和整行按钮同一个左边缘即可。竖线删掉后再补一个缩进，只是把一种错位换成另一种。
+- **composer 放大**：textarea 固定 2 行，内容超出时右上角出现放大按钮（`Maximize2` / 收起时 `Minimize2`）。
+  - 按钮的出现条件是**实测** `scrollHeight > clientHeight`（`composerOverflows`），不按字数猜：换行量取决于 dock 宽度，而宽度用户随时能拖。`ResizeObserver` 挂在**外框**上，textarea 自身盒子高度不变，观察它测不到。
+  - 展开高度 `h-[min(52vh,26rem)]`，textarea 同时加 `flex-1`；消息区是 `flex-1 min-h-0`，会主动让出空间而不是把面板撑破。
+  - **展开后按钮不能消失**：展开后通常就不再溢出，若条件写成 `composerOverflows` 按钮会一起消失，用户再也回不去。条件是 `composerOverflows || composerExpanded`。
+  - Esc 收起时必须 `stopPropagation`：`App.jsx` 有全局 Esc 关整个 dock 的监听器，不拦会连面板一起关。发送后自动收起。
+  - 滚动条**两种状态都保留**——展开只是加空间，不替代滚动。
+  - 按钮出现时 textarea 加 `pr-9`，否则最后几个词会压在按钮底下。这条是防重叠，不是缩进，别为了「对齐」去掉。
 - 所有用户可见文案必须走 `t("English key")` 并在 `i18n.js` 补中文；key 即英文原文。
 - 图标统一 lucide-react，尺寸基准 `h-3.5 w-3.5`（行内）/ `h-4 w-4`（按钮）。Agent 品牌标识走 `AcpAgentLogo`，不要直接内联 SVG。
 - 下拉/弹层沿用 `AcpPickers` 的形态：胶囊触发器 + 弹层由 **`MenuLayer`（面板满宽定位层）** 摆放，而不是挂在触发器上。dock 宽度只有 320-760px 且面板根节点 `overflow-hidden`，**按触发器定位的弹层在边缘会被裁切**；满宽层 + flex 对齐则能「贴着自己的按钮、又永远在面板内」：
@@ -160,21 +176,21 @@ Tauri 命令收的是**裸值**（string / bool），由 `config_option_value()`
 2. **diff 渲染**：工具卡片的 diff 目前是"红块+绿块"两段 pre，无行号、无逐行对比、无语法高亮（`react-syntax-highlighter` 已在依赖里）。
 3. **代码块复制按钮**：assistant Markdown 的代码块无 copy 按钮（`aiAssistantUtils.copyText` 可直接复用）。
 4. **消息级操作**：无复制原文/重发/引用回复。
-5. **历史列表**：无搜索、无按 agent 过滤、无分页；时间显示是裸字符串截断（`updatedAt.slice(0,16)`），应本地化相对时间。
+5. **历史列表**：无搜索、无按 agent 过滤、无分页。（相对时间本地化已做，见 `formatRelativeTime`。）
 6. **thought 折叠预览**：折叠态仅截 80 字符，可做两行 clamp + 渐隐。
 7. **权限卡片**：无键盘快捷键；多个待审批时无聚合视图。
 8. **启动页**：已带 Agent logo + 名称 + spawn 命令（`break-all`），但仍缺"这个 agent 需要先登录/装什么"之类引导。
-9. **composer**：textarea 固定 2 行，不自适应高度；不支持拖拽图片落入（图片按钮已按设计移除，只保留粘贴）。
+9. **composer**：已支持一键放大编辑（见 §4），但仍**不支持拖拽图片落入**（图片按钮已按设计移除，只保留粘贴）。另外放大是手动切换，不随内容自动增高。
 10. **plan 卡片**：固定占位，任务多时挤压消息区，可改为可收纳角标/抽屉。
 11. **usage 徽标**：可升级为点击弹层（含 token 明细、成本，后端 `usage_update` 里有 cost 字段未透传）。
-12. **状态色迁移**：工具状态 / 通知 / 权限卡片仍用裸 emerald / amber / red，应迁到 `success` / `warning` / `danger` 语义 token 并校深色对比度。
+12. **工具调用聚合**：连续同类型的已完成调用（如 5 条 `execute_command`）仍逐条平铺，去掉竖线后栅栏感没了但重复本身仍占屏。可参考 Claude Code 的 `groupToolUses`（`docs/refer_proj/claude-code/src/utils/groupToolUses.ts`）按「同类型 + ≥N 条 + 均已结束」折叠成一行计数；进行中的条目永不折叠。注意 eShell 没有 messageId 分组键，得用「时间连续 + 标题相同 + 全部非 running」代替。
 13. **与 webshell 断连遮罩的视觉统一**（见 [webshell 会话指南](webshell_session.md)）。
 14. **Agent 品牌覆盖**：`acpAgentBrands.js` 目前收录 OpenAI(Codex) / Anthropic(Claude Code) / OpenCode / Gemini / Qwen 的官方 mark，其余 agent 回退中性 Bot 图标；新增品牌只需往注册表加一条（glyph + 匹配正则 + 双主题配色）。
 
 ## 6. 本地验证
 
 ```bash
-npm run test          # vitest（72 例）
+npm run test          # vitest（425 例 / 40 文件）
 npx vite build        # 构建校验
 cd src-tauri && cargo test --lib acp mcp_bridge   # 后端契约未破坏
 npm run tauri dev     # 冒烟：启动 agent → 对话 → 工具/权限/计划/历史/图片

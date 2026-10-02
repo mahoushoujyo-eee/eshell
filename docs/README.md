@@ -52,6 +52,7 @@ Root project introductions:
 - [Built-in Extension Migration Validation](reports/builtin-extension-migration.md) — Compatibility checks, regression tests, browser comparisons, and remaining manual coverage
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
+- [Release Notes 1.7.2](releases/v1.7.2.md) — ACP panel rework: tool rows lose the status rail and the `OTHER` chip, the composer can be enlarged, and Server Status network traffic becomes a detail tab
 - [Release Notes 1.7.1](releases/v1.7.1.md) — SSH local port forwarding (panel + plugin API), Monaco editor with explicit save, faster start with no white window, and the macOS download/Gatekeeper note
 - [Release Notes 1.7.0](releases/v1.7.0.md) — Termius-style workspace redesign: session tabs, activity rail, status bar, shared visual system
 - [Release Notes 1.6.0](releases/v1.6.0.md) — Built-in extensions and trusted external plugins, Settings → Plugins install/remove, config reload, the eshell-plugin-dev skill, and a two-pane settings dialog

@@ -1,6 +1,6 @@
 [package]
 name = "eshell"
-version = "1.7.1"
+version = "1.7.2"
 description = "A Tauri App"
 authors = ["eee"]
 edition = "2021"

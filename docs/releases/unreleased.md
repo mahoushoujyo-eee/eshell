@@ -1,10 +1,11 @@
 # Unreleased Changes
 
-Last updated: 2026-09-30
+Last updated: 2026-10-02
 
-Nothing yet. Everything through 1.7.1 shipped in [v1.7.1](v1.7.1.md) — including
-the macOS install note, which is repeated in the [Releasing Guide](../guides/releasing.md)
-along with the signing state behind it.
+Nothing yet. Everything through 1.7.2 shipped in [v1.7.2](v1.7.2.md) — the ACP
+panel rework (tool rows, composer) and the Server Status network-traffic detail
+tab. The macOS install note is unchanged and still lives in the
+[Releasing Guide](../guides/releasing.md).
 
 ## How To Use This File
 
