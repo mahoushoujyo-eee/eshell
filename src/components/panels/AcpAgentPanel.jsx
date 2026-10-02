@@ -18,7 +18,9 @@ import {
   KeyRound,
   ListTodo,
   Loader2,
+  Maximize2,
   MessageSquarePlus,
+  Minimize2,
   Play,
   Plus,
   RotateCcw,
@@ -386,7 +388,7 @@ function OrphanedSessionCard({ agent, busy, onReclaim, onStop }) {
 
 function permissionButtonClass(kind, resolving) {
   const base =
-    "rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50";
+    "rounded-md px-2.5 py-1 text-xs font-medium transition-colors wrap-anywhere disabled:opacity-50";
   if (kind === "allow_once" || kind === "allow_always") {
     return `${base} bg-accent text-on-accent hover:bg-accent/88 ${resolving ? "" : ""}`;
   }
@@ -470,7 +472,7 @@ function ThoughtEntry({ text }) {
         )}
       </button>
       {expanded ? (
-        <div className="px-2.5 pt-0.5 pb-2 leading-relaxed whitespace-pre-wrap text-muted italic">
+        <div className="px-2.5 pt-0.5 pb-2 leading-relaxed wrap-anywhere whitespace-pre-wrap text-muted italic">
           {text}
         </div>
       ) : null}
@@ -535,7 +537,7 @@ function NoticeRow({ entry }) {
   }
   if (entry.tone === "error") {
     return (
-      <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+      <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs wrap-anywhere text-danger">
         {text}
       </div>
     );
@@ -565,16 +567,17 @@ function PlanCard({ plan }) {
         )}
       </button>
       {expanded ? (
-        <ul className="mt-1.5 max-h-36 space-y-1 overflow-y-auto pb-0.5">
+        <ul className="mt-1.5 max-h-36 space-y-1 overflow-x-hidden overflow-y-auto pb-0.5">
           {plan.map((entry, index) => (
             <li key={index} className="flex items-start gap-2">
               <span className="mt-0.5 shrink-0">
                 <ToolStatusIcon status={entry.status} />
               </span>
               <span
-                className={
-                  entry.status === "completed" ? "text-muted line-through" : "text-text/88"
-                }
+                className={[
+                  "min-w-0 wrap-anywhere",
+                  entry.status === "completed" ? "text-muted line-through" : "text-text/88",
+                ].join(" ")}
               >
                 {entry.content}
               </span>
@@ -614,7 +617,9 @@ function TranscriptEntry({ entry, onRespondPermission }) {
               )}
             </div>
           ) : null}
-          {entry.text ? <span className="whitespace-pre-wrap">{entry.text}</span> : null}
+          {entry.text ? (
+            <span className="wrap-anywhere whitespace-pre-wrap">{entry.text}</span>
+          ) : null}
           {entry.context ? (
             <details className="mt-1.5 text-xs">
               <summary className="cursor-pointer select-none text-text/70">
@@ -1016,6 +1021,13 @@ export default function AcpAgentPanel({ acp }) {
   const [viewingRecord, setViewingRecord] = useState(null);
   // Header popovers: null | "agent" | "mode" (only one open at a time).
   const [openMenu, setOpenMenu] = useState(null);
+  // A long draft scrolls inside the 2-row composer, which hides the text being
+  // edited. The box therefore grows on demand via a top-right toggle; the
+  // scrollbar is kept either way, so expansion only ever adds room.
+  const [composerExpanded, setComposerExpanded] = useState(false);
+  const [composerOverflows, setComposerOverflows] = useState(false);
+  const textareaRef = useRef(null);
+  const composerRef = useRef(null);
   const scrollRef = useRef(null);
   const nearBottomRef = useRef(true);
   // Menus live in two places now: agent in the header, mode in the composer.
@@ -1046,6 +1058,26 @@ export default function AcpAgentPanel({ acp }) {
     const node = event.currentTarget;
     nearBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
   }, []);
+
+  // The expand affordance only earns its corner once the draft really
+  // overflows, so measure instead of guessing from its length: how much wraps
+  // depends on the panel width, which the user can drag at any time. Observed
+  // on the box, not the textarea, whose own box never changes height.
+  useEffect(() => {
+    const node = textareaRef.current;
+    const box = composerRef.current;
+    if (!node) {
+      return undefined;
+    }
+    const measure = () => setComposerOverflows(node.scrollHeight > node.clientHeight + 1);
+    measure();
+    if (!box || typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [question, composerExpanded]);
 
   // Dismiss the header popovers on outside click or Escape. Escape is captured
   // here so it closes the menu instead of bubbling up to App's "close dock".
@@ -1092,6 +1124,7 @@ export default function AcpAgentPanel({ acp }) {
         return;
       }
       setQuestion("");
+      setComposerExpanded(false);
       const images = attachments;
       setAttachments([]);
       nearBottomRef.current = true;
@@ -1247,7 +1280,7 @@ export default function AcpAgentPanel({ acp }) {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="scroll-region min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        className="scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3"
       >
         {historyOpen ? (
           viewingRecord ? (
@@ -1460,11 +1493,28 @@ export default function AcpAgentPanel({ acp }) {
           {/* One bordered box holding the textarea and a footer strip, so the
               session-mode picker and send button read as part of the composer
               (images arrive by paste only — there is no attach button). */}
-          <div className="overflow-visible rounded-lg border border-border-strong bg-panel transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15">
+          <div
+            ref={composerRef}
+            className={[
+              "relative flex flex-col overflow-visible rounded-lg border border-border-strong bg-panel transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15",
+              // Grows on demand; the transcript above is `flex-1 min-h-0`, so it
+              // gives up the space instead of the composer overflowing the panel.
+              composerExpanded ? "h-[min(52vh,26rem)]" : "",
+            ].join(" ")}
+          >
             <textarea
+              ref={textareaRef}
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={(event) => {
+                // Collapse first: App's own Escape handler closes the whole dock,
+                // so this must not bubble.
+                if (event.key === "Escape" && composerExpanded) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setComposerExpanded(false);
+                  return;
+                }
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault();
                   handleSend(event);
@@ -1486,8 +1536,33 @@ export default function AcpAgentPanel({ acp }) {
                     ? t("Sign in to continue")
                     : t("Start the agent first")
               }
-              className="min-h-0 w-full resize-none border-0 bg-transparent px-3 py-2.5 text-[13px] leading-6 text-text outline-none placeholder:text-subtle"
+              className={[
+                "min-h-0 w-full resize-none border-0 bg-transparent px-3 py-2.5 text-[13px] leading-6 text-text outline-none placeholder:text-subtle",
+                // Keep the draft clear of the toggle; without this the last
+                // words of a full line sit underneath it.
+                composerOverflows || composerExpanded ? "pr-9" : "",
+                composerExpanded ? "flex-1" : "",
+              ].join(" ")}
             />
+            {/* Only worth a corner once the draft overflows — and it has to stay
+                put while expanded, since an expanded box usually no longer
+                overflows and would otherwise strand the user with no way back. */}
+            {composerOverflows || composerExpanded ? (
+              <button
+                type="button"
+                onClick={() => setComposerExpanded((prev) => !prev)}
+                title={composerExpanded ? t("Collapse input") : t("Expand input")}
+                aria-label={composerExpanded ? t("Collapse input") : t("Expand input")}
+                aria-expanded={composerExpanded}
+                className="absolute top-1.5 right-1.5 z-10 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors hover:bg-hover hover:text-text"
+              >
+                {composerExpanded ? (
+                  <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+              </button>
+            ) : null}
             <div
               ref={composerMenuRef}
               className="relative flex items-end gap-1.5 px-2 pb-1.5"

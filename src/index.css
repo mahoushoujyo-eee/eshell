@@ -263,6 +263,24 @@ body > #root {
   color: var(--es-text);
   font-size: 13.5px;
   line-height: 1.7;
+  /* The panel is 360-760px wide, so agent replies routinely carry tokens with
+     no break opportunity — long URLs, Windows paths, commit hashes, minified
+     identifiers. Left alone they push the transcript's horizontal scrollbar
+     into view. `anywhere` (not `break-word`) because it also collapses the
+     min-content width, so the text can never widen its container. Pre/code
+     below set `white-space: pre`, which ignores this — code blocks keep
+     scrolling inside their own `overflow: auto` box. */
+  overflow-wrap: anywhere;
+}
+
+/* Markdown images arrive with whatever intrinsic width the agent had — a
+   900px screenshot is routine — and nothing capped them, so one screenshot
+   widened the whole transcript. Unlayered on purpose: it outranks any
+   Tailwind `max-w-*` a plugin or override might put on the element. */
+.ai-markdown img {
+  max-width: 100%;
+  height: auto;
+  display: block;
 }
 
 .ai-markdown > :first-child {

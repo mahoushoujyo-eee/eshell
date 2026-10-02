@@ -209,6 +209,8 @@ const zhMessages = {
   "Start an ACP agent to begin a session.": "先启动一个 ACP Agent 以开始会话。",
   "Agent working…": "Agent 正在工作……",
   "Message the agent…": "向 Agent 发送消息……",
+  "Expand input": "展开输入框",
+  "Collapse input": "收起输入框",
   "Start the agent first": "请先启动 Agent",
   "Starting…": "启动中……",
   "Cancel turn": "中断本轮",
