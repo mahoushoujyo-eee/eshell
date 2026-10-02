@@ -7,10 +7,8 @@ import {
   Bot,
   Brain,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
-  CircleDashed,
   CircleStop,
   Folder,
   FolderKanban,
@@ -57,11 +55,17 @@ const TOOL_STATUS_META = {
   failed: { labelKey: "Failed", className: "text-danger" },
 };
 
-const TOOL_STATUS_RAIL = {
-  pending: "border-border-strong",
-  in_progress: "border-warning/70",
-  completed: "border-success/60",
-  failed: "border-danger/70",
+// Status is a 6px dot in a fixed 12px slot, the way Claude Code renders tool
+// state (docs/refer_proj/claude-code/src/components/ToolUseLoader.tsx:30-37):
+// one glyph whose only job is colour, in a fixed slot so stacked rows stay
+// aligned. Shape carries the state too — pending is hollow, running pulses —
+// so it survives without colour. The 2px left rail this replaced put a
+// saturated colour bar on every row, and a run of them read as a fence.
+const TOOL_STATUS_DOT = {
+  pending: "border border-muted/60",
+  in_progress: "bg-warning animate-pulse",
+  completed: "bg-success/65",
+  failed: "bg-danger",
 };
 
 // Reads one image file into a prompt attachment (base64 payload + preview URL).
@@ -122,16 +126,15 @@ const readImageFile = (file) =>
   });
 
 function ToolStatusIcon({ status }) {
-  if (status === "completed") {
-    return <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />;
-  }
-  if (status === "failed") {
-    return <XCircle className="h-3.5 w-3.5 text-danger" aria-hidden="true" />;
-  }
-  if (status === "in_progress") {
-    return <Loader2 className="h-3.5 w-3.5 animate-spin text-warning" aria-hidden="true" />;
-  }
-  return <CircleDashed className="h-3.5 w-3.5 text-muted" aria-hidden="true" />;
+  return (
+    <span className="flex size-3 shrink-0 items-center justify-center" aria-hidden="true">
+      <span
+        className={`size-1.5 rounded-full ${
+          TOOL_STATUS_DOT[status] || TOOL_STATUS_DOT.pending
+        }`}
+      />
+    </span>
+  );
 }
 
 function Markdown({ text }) {
@@ -195,19 +198,36 @@ function ToolContentBlocks({ content, t }) {
   );
 }
 
-// The kind badge is fixed-height and centers its own glyphs (`leading-none` +
-// flex centering) instead of relying on the mono font's ascent/descent inside an
-// inherited ratio line-height — that made its text sit high in the pill. The
-// extra 1px offset is optical: an all-caps badge reads high next to the
-// underscore-heavy monospace tool names it labels.
+// MCP tool names arrive as `mcp__{server}__{tool}`. Claude Code strips that
+// prefix for display (getMcpDisplayName in
+// docs/refer_proj/claude-code/src/services/mcp/mcpStringUtils.ts:75-81) and
+// shows the server separately; splitting on the LAST `__` rather than the
+// first keeps servers whose own name contains an underscore intact.
+function splitToolTitle(title) {
+  const rest = String(title || "");
+  if (!rest.startsWith("mcp__")) {
+    return { name: rest, server: null };
+  }
+  const body = rest.slice(5);
+  const cut = body.lastIndexOf("__");
+  return cut > 0
+    ? { name: body.slice(cut + 2), server: body.slice(0, cut) }
+    : { name: rest, server: null };
+}
+
+// The kind badge this replaced was dead weight: every MCP tool gets the kind
+// "other" (src-tauri/src/domain/agent/service/acp_client.rs:869), so the chip
+// read "OTHER" on nearly every row while the real signal — the tool name —
+// sat beside it in mono and got less attention. The name now carries the row.
+//
+// The server is deliberately not shown per row. Claude Code's transcript shows
+// the stripped name only and surfaces the server in its tool picker, and
+// repeating it down a stack of five `execute_command` rows just trades one
+// piece of noise for another. The full name stays in the row's tooltip.
 function ToolCallSummary({ tool }) {
+  const { name } = splitToolTitle(tool.title);
   return (
-    <>
-      <span className="relative top-px inline-flex h-[18px] shrink-0 items-center rounded bg-hover px-1.5 font-mono text-[10px] uppercase leading-none tracking-wide text-muted">
-        {tool.kind || "tool"}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-left text-text/88">{tool.title}</span>
-    </>
+    <span className="min-w-0 flex-1 truncate text-left font-medium text-text/90">{name}</span>
   );
 }
 
@@ -221,30 +241,42 @@ function ToolCallCard({ tool }) {
     tool.rawInput != null;
 
   return (
-    <div className={`border-l-2 text-xs ${TOOL_STATUS_RAIL[tool.status] || TOOL_STATUS_RAIL.pending}`}>
+    <div className="text-xs">
       <button
         type="button"
         onClick={() => hasDetails && setExpanded((prev) => !prev)}
+        title={tool.title || undefined}
         className={[
-          "flex w-full items-center gap-2 rounded-r-md py-1.5 pr-2 pl-2.5",
+          "group flex w-full items-center gap-2 rounded-md py-1.5 pr-1.5 pl-1",
           hasDetails ? "cursor-pointer hover:bg-hover" : "cursor-default",
         ].join(" ")}
       >
         <ToolStatusIcon status={tool.status} />
         <ToolCallSummary tool={tool} />
-        <span className={`shrink-0 font-medium ${statusMeta.className}`}>
-          {t(statusMeta.labelKey)}
-        </span>
+        {/* The status word used to sit in the row in full colour. Three signals
+            for one fact — rail, icon, text — and "已完成" is tautological in
+            Chinese. The dot now carries it visually; this keeps it for screen
+            readers and the hover title. */}
+        <span className="sr-only">{t(statusMeta.labelKey)}</span>
         {hasDetails ? (
           expanded ? (
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+            <ChevronDown
+              className="h-3.5 w-3.5 shrink-0 text-subtle transition-transform group-hover:text-muted"
+              aria-hidden="true"
+            />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+            <ChevronRight
+              className="h-3.5 w-3.5 shrink-0 text-subtle transition-transform group-hover:text-muted"
+              aria-hidden="true"
+            />
           )
         ) : null}
       </button>
       {expanded ? (
-        <div className="space-y-2 px-2.5 pt-1 pb-2">
+        /* Flush with the row above it (same pl-1 inset), not indented under
+           the tool name. The rule this replaced doubled as a status rail, and
+           an indent to match it just swapped one misalignment for another. */
+        <div className="space-y-2 pt-0.5 pr-1 pb-2 pl-1">
           {tool.locations && tool.locations.length > 0 ? (
             <div className="space-y-0.5">
               {tool.locations.map((location, index) => (
@@ -455,24 +487,34 @@ function ThoughtEntry({ text }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="border-l-2 border-border-strong text-xs">
+    <div className="text-xs">
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
-        className="flex w-full items-center gap-2 rounded-r-md py-1.5 pr-2 pl-2.5 text-muted hover:bg-hover"
+        className="group flex w-full items-center gap-2 rounded-md py-1.5 pr-1.5 pl-1 text-muted hover:bg-hover"
       >
-        <Brain className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        <span className="flex-1 truncate text-left">
+        {/* Same 12px slot as the tool rows' status dot, so thoughts and tool
+            calls still line up when they interleave in one transcript. */}
+        <span className="flex size-3 shrink-0 items-center justify-center" aria-hidden="true">
+          <Brain className="h-3 w-3" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-left">
           {expanded ? t("Thinking") : text.replaceAll("\n", " ").slice(0, 80)}
         </span>
         {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <ChevronDown
+            className="h-3.5 w-3.5 shrink-0 text-subtle transition-transform group-hover:text-muted"
+            aria-hidden="true"
+          />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <ChevronRight
+            className="h-3.5 w-3.5 shrink-0 text-subtle transition-transform group-hover:text-muted"
+            aria-hidden="true"
+          />
         )}
       </button>
       {expanded ? (
-        <div className="px-2.5 pt-0.5 pb-2 leading-relaxed wrap-anywhere whitespace-pre-wrap text-muted italic">
+        <div className="pt-0.5 pr-1 pb-2 pl-1 leading-relaxed wrap-anywhere whitespace-pre-wrap text-muted italic">
           {text}
         </div>
       ) : null}
