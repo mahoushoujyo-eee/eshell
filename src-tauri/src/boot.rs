@@ -95,13 +95,21 @@ pub fn parse_hex_color(input: &str) -> Option<Color> {
 /// applied to the window and webview first so that any frame WebView2 has not
 /// produced yet — the moment right after `show()` — matches the splash
 /// instead of flashing the default white.
+///
+/// Windows keeps an opaque window, so the tint is what covers that frame.
+/// Linux and macOS declare `transparent: true` in their platform configs
+/// (see `tauri.linux.conf.json`), and a tinted background there would fill
+/// the CSS corners back in — the whole point of the transparent window is
+/// that the desktop shows through them.
 pub fn reveal(window: &WebviewWindow, background: Option<&str>, reason: &str) {
     if !REVEAL.claim() {
         return;
     }
-    if let Some(color) = background.and_then(parse_hex_color) {
-        if let Err(error) = window.set_background_color(Some(color)) {
-            trace(&format!("could not tint the window background: {error}"));
+    if cfg!(target_os = "windows") {
+        if let Some(color) = background.and_then(parse_hex_color) {
+            if let Err(error) = window.set_background_color(Some(color)) {
+                trace(&format!("could not tint the window background: {error}"));
+            }
         }
     }
     trace(&format!("showing the window ({reason})"));

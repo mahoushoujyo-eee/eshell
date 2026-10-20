@@ -47,6 +47,15 @@
       html[data-theme="dark"] body {
         background: #0e1118;
       }
+      /* Transparent window (see tauri.linux.conf.json / tauri.macos.conf.json):
+         the splash paints the frame, so the page behind it has to stay
+         transparent or the rounded corners would be filled in square. */
+      html[data-desktop-platform="macos"],
+      html[data-desktop-platform="linux"],
+      html[data-desktop-platform="macos"] body,
+      html[data-desktop-platform="linux"] body {
+        background: transparent;
+      }
 
       #boot-splash {
         --boot-bg: #e8ecf2;
@@ -78,6 +87,12 @@
         user-select: none;
         cursor: default;
         transition: opacity 240ms ease-out;
+      }
+      /* The splash is the frame's background on the transparent platforms, so
+         it rounds with the window. */
+      html[data-desktop-platform="macos"] #boot-splash,
+      html[data-desktop-platform="linux"] #boot-splash {
+        border-radius: 10px;
       }
       html[data-theme="dark"] #boot-splash {
         --boot-bg: #0e1118;
@@ -198,6 +213,30 @@
       }
     </style>
     <script>
+      // The transparent-window platforms round the shell with CSS, and the
+      // splash is painted before any module loads — so the platform has to be
+      // on <html> this early. The window is created hidden and only shown
+      // once `boot_ready` fires, so nothing square is ever on screen.
+      try {
+        var platformSource = String(
+          (navigator.userAgentData && navigator.userAgentData.platform) ||
+            navigator.platform ||
+            navigator.userAgent ||
+            "",
+        ).toLowerCase();
+        var desktopPlatform = "unknown";
+        if (platformSource.indexOf("mac") !== -1) {
+          desktopPlatform = "macos";
+        } else if (platformSource.indexOf("win") !== -1) {
+          desktopPlatform = "windows";
+        } else if (platformSource.indexOf("linux") !== -1) {
+          desktopPlatform = "linux";
+        }
+        document.documentElement.setAttribute("data-desktop-platform", desktopPlatform);
+      } catch (error) {
+        /* A blocked navigator is not a reason to skip the app. */
+      }
+
       // Re-apply the persisted theme before first paint. The app owns the
       // theme once it mounts; this only stops a dark-mode window from
       // flashing the light splash. The key matches the theme attribute in

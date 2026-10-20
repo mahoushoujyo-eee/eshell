@@ -129,6 +129,9 @@ body {
   inset: 0;
   margin: 0;
   color: var(--es-text);
+  /* The window is transparent on Linux and macOS (see the platform configs),
+     and the shell paints the frame so its corners can be rounded. Windows
+     keeps the opaque background here. */
   background: var(--es-bg);
   font-family: var(--font-sans);
   font-size: 13px;
@@ -136,6 +139,11 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+html[data-desktop-platform="macos"] body,
+html[data-desktop-platform="linux"] body {
+  background: transparent;
 }
 
 * {
@@ -200,6 +208,14 @@ body > #root {
 
 .app-shell {
   overscroll-behavior: none;
+  background: var(--es-bg);
+}
+
+/* Only where the window is transparent, and only while unmaximized: a
+   maximized window with rounded corners leaves notches at the screen edges. */
+html[data-desktop-platform="macos"] .app-shell.is-rounded,
+html[data-desktop-platform="linux"] .app-shell.is-rounded {
+  border-radius: 10px;
 }
 
 .scroll-region {
