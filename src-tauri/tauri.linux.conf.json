@@ -1,0 +1,17 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "eshell",
+        "width": 1200,
+        "height": 780,
+        "minWidth": 1040,
+        "minHeight": 700,
+        "decorations": false,
+        "resizable": true,
+        "visible": false,
+        "transparent": true
+      }
+    ]
+  }
+}
