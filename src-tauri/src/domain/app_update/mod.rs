@@ -7,5 +7,3 @@ pub(crate) mod service;
 
 #[cfg(test)]
 mod tests;
-
-pub use model::{ReleaseAsset, ReleaseCheck};

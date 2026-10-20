@@ -283,11 +283,6 @@ impl Connection {
         .map_err(AppError::from)
     }
 
-    /// The jump connection this one was tunnelled through, if any.
-    pub fn jump_connection(&self) -> Option<&Arc<Connection>> {
-        self.jump.as_ref()
-    }
-
     /// Synchronous teardown: cancels the connection token and starts a graceful disconnect.
     ///
     /// Safe to call from any context. The disconnect is best-effort: without a running tokio runtime
@@ -295,14 +290,6 @@ impl Connection {
     pub fn shutdown(&self) {
         self.cancel.cancel();
         spawn_graceful_disconnect(Arc::clone(&self.handle));
-    }
-
-    /// Awaitable graceful disconnect for callers that can yield.
-    pub async fn disconnect(&self) {
-        let _ = self
-            .handle
-            .disconnect(russh::Disconnect::ByApplication, "client shutdown", "")
-            .await;
     }
 }
 

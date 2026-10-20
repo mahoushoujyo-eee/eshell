@@ -4,7 +4,6 @@ pub(crate) mod probes;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 use serde_json::Value;
 use tauri::AppHandle;

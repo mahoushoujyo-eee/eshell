@@ -7,4 +7,3 @@ pub(crate) mod model;
 pub(crate) mod session_model;
 
 pub use model::*;
-pub use session_model::*;

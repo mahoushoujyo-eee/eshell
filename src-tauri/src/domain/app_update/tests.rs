@@ -2,7 +2,7 @@
 
 use crate::domain::app_update::model::UpdaterManifest;
 use crate::domain::app_update::service::{
-    current_version, file_name_of, is_newer, normalize_version, platform_key,
+    file_name_of, is_newer, normalize_version, platform_key,
 };
 
 #[test]

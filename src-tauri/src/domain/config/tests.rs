@@ -4,7 +4,6 @@ use std::env;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::domain::scripts::model::ScriptInput;
 use crate::domain::ssh::model::{SshAuthType, SshConfigInput, TrustSshHostKeyInput};
 
 fn temp_dir(name: &str) -> PathBuf {

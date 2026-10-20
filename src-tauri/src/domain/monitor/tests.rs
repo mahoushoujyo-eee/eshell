@@ -115,7 +115,6 @@ fn deactivate_clears_only_the_status_cache() {
 // probes/mod (batch command, section split)
 // ---------------------------------------------------------------------------
 
-use super::*;
 
 #[test]
 fn every_probe_has_a_distinct_id_and_a_command() {
@@ -253,7 +252,6 @@ fn into_status_keeps_a_valid_interface_preference_and_falls_back_otherwise() {
 // probes/cpu
 // ---------------------------------------------------------------------------
 
-use super::*;
 
 #[test]
 fn parse_cpu_and_memory_works() {
@@ -300,7 +298,6 @@ KiB Mem : 2061548 total, 1219396 free,   68676 used,  773476 buff/cache
 // probes/disk
 // ---------------------------------------------------------------------------
 
-use super::*;
 
 #[test]
 fn parse_disks_works() {
@@ -320,7 +317,6 @@ tmpfs           1.9G  2.0M  1.9G   1% /run
 // probes/gpu
 // ---------------------------------------------------------------------------
 
-use super::*;
 
 #[test]
 fn parse_gpus_reads_metrics_and_attributes_processes_by_uuid() {
@@ -468,7 +464,6 @@ fn parse_gpus_drops_uuidless_processes_when_several_cards_exist() {
 // probes/network
 // ---------------------------------------------------------------------------
 
-use super::*;
 
 #[test]
 fn parse_network_interfaces_works() {
@@ -489,7 +484,6 @@ eth0: 9876543 9999 0 0 0 0 0 0 1234567 8888 0 0 0 0 0 0
 // probes/process
 // ---------------------------------------------------------------------------
 
-use super::*;
 
 /// Two procps frames, the shape the probe actually asks for.
 const PROCPS_TWO_FRAMES: &str = r#"
