@@ -23,6 +23,11 @@ import { api } from "../lib/tauri-api";
 const STREAM_EVENT = "acp-agent-stream";
 const HISTORY_TITLE_LENGTH = 48;
 
+// A failing command often surfaces twice: the command's own rejection and the
+// stream event that reports the same outage. Inside this window the second
+// one is noise, so it is swallowed.
+const FAILURE_DEDUPE_MS = 5000;
+
 let entrySeq = 0;
 const nextEntryId = () => {
   entrySeq += 1;
@@ -88,6 +93,8 @@ export function useAcpAgent() {
   const [projects, setProjects] = useState([]);
   // Terminal selection staged for the next prompt ({sessionId, sessionName, content}).
   const [shellContext, setShellContext] = useState(null);
+  // Node.js toolchain probe result ({ ok, node, npx }); null until probed.
+  const [runtimeEnv, setRuntimeEnv] = useState(null);
 
   // Agent id the panel is engaged with; set as soon as start begins so events
   // arriving during the handshake (e.g. session/load replay) are kept.
@@ -124,6 +131,52 @@ export function useAcpAgent() {
       { id: nextEntryId(), type: "notice", tone, code, detail: String(detail || "") },
     ]);
   }, []);
+
+  // When a failure was reported this recently, the same failure arriving
+  // again is the same problem, not a new one.
+  const failureReportedAtRef = useRef(0);
+
+  const reportFailure = useCallback(
+    (code, err) => {
+      pushNotice("error", code, err);
+      failureReportedAtRef.current = Date.now();
+    },
+    [pushNotice],
+  );
+
+  const failureAlreadyReported = useCallback(
+    () => Date.now() - failureReportedAtRef.current < FAILURE_DEDUPE_MS,
+    [],
+  );
+
+  // Names of the tools that are missing, shared by the warning card and the
+  // notice row.
+  const missingEnvTools = (env) =>
+    !env || env.ok
+      ? []
+      : [env.node, env.npx].filter((tool) => tool && !tool.found).map((tool) => tool.command);
+
+  // Last probe conclusion, so the notice is pushed on the transition only.
+  const lastEnvOkRef = useRef(null);
+
+  const refreshRuntimeEnv = useCallback(async () => {
+    let env = null;
+    try {
+      const probed = await api.acpRuntimeEnv();
+      env = probed && typeof probed === "object" ? probed : null;
+    } catch {
+      setRuntimeEnv(null);
+      return null;
+    }
+    setRuntimeEnv(env);
+    // Only on the transition into missing: otherwise every panel open would
+    // push another identical notice.
+    if (env && !env.ok && lastEnvOkRef.current !== false) {
+      pushNotice("warning", "env-missing", missingEnvTools(env).join(", "));
+    }
+    lastEnvOkRef.current = Boolean(env?.ok);
+    return env;
+  }, [pushNotice]);
 
   const appendStreamText = useCallback((type, chunk) => {
     if (typeof chunk !== "string" || chunk.length === 0) {
@@ -220,11 +273,11 @@ export function useAcpAgent() {
         await refreshProjects();
         return project;
       } catch (err) {
-        pushNotice("error", "project-create-failed", err);
+        reportFailure("project-create-failed", err);
         return null;
       }
     },
-    [pushNotice, refreshProjects],
+    [pushNotice, refreshProjects, reportFailure],
   );
 
   // "New project" flow: OS folder picker, then register the chosen directory.
@@ -237,10 +290,10 @@ export function useAcpAgent() {
       }
       return await createProject(path);
     } catch (err) {
-      pushNotice("error", "project-create-failed", err);
+      reportFailure("project-create-failed", err);
       return null;
     }
-  }, [createProject, pushNotice]);
+  }, [createProject, pushNotice, reportFailure]);
 
   // Removes the project entry only; its transcripts survive as ungrouped
   // sessions, which is what the backend does too.
@@ -250,10 +303,10 @@ export function useAcpAgent() {
         await api.acpProjectDelete(id);
         await refreshProjects();
       } catch (err) {
-        pushNotice("error", "project-delete-failed", err);
+        reportFailure("project-delete-failed", err);
       }
     },
-    [pushNotice, refreshProjects],
+    [pushNotice, refreshProjects, reportFailure],
   );
 
   useEffect(() => {
@@ -387,7 +440,11 @@ export function useAcpAgent() {
           setConfigOptions([]);
           setUsage(null);
           if (payload.error) {
-            pushNotice("error", "agent-error", payload.error);
+            // The command's own rejection usually reported this already; the
+            // stream event just says the same thing a moment later.
+            if (!failureAlreadyReported()) {
+              reportFailure("agent-error", payload.error);
+            }
           } else {
             pushNotice("info", "session-ended");
           }
@@ -406,6 +463,7 @@ export function useAcpAgent() {
     };
   }, [
     appendStreamText,
+    failureAlreadyReported,
     mergeToolCall,
     pushNotice,
     refreshAgents,
@@ -471,13 +529,13 @@ export function useAcpAgent() {
         engagedAgentRef.current = null;
         pendingResumeRef.current = null;
         setPhase("idle");
-        pushNotice("error", "start-failed", err);
+        reportFailure("start-failed", err);
         // The failure may be "this agent already has an active session"; the
         // refreshed `running` flag is what lets the panel offer to reclaim it.
         void refreshAgents();
       }
     },
-    [applyStartInfo, pushNotice, refreshAgents],
+    [applyStartInfo, pushNotice, refreshAgents, reportFailure],
   );
 
   const start = useCallback(() => startAgent(activeAgentId), [activeAgentId, startAgent]);
@@ -514,11 +572,11 @@ export function useAcpAgent() {
         // The agent may have died mid sign-in; `stopped` already reset state.
         if (engagedAgentRef.current === agentId) {
           setPhase("auth");
-          pushNotice("error", "auth-failed", err);
+          reportFailure("auth-failed", err);
         }
       }
     },
-    [applyStartInfo, pushNotice],
+    [applyStartInfo, pushNotice, reportFailure],
   );
 
   // Stops the engaged agent, or an explicitly named one. The explicit form
@@ -543,10 +601,10 @@ export function useAcpAgent() {
           void refreshAgents();
         }
       } catch (err) {
-        pushNotice("error", "agent-error", err);
+        reportFailure("agent-error", err);
       }
     },
-    [pushNotice, refreshAgents],
+    [pushNotice, refreshAgents, reportFailure],
   );
 
   // Reclaims an orphaned runner and immediately opens a fresh session on it.
@@ -604,7 +662,7 @@ export function useAcpAgent() {
             setConfigOptions(info.configOptions);
           }
         } catch (err) {
-          pushNotice("error", "new-session-failed", err);
+          reportFailure("new-session-failed", err);
         }
         return;
       }
@@ -619,7 +677,7 @@ export function useAcpAgent() {
       }
       await startAgent(targetAgent, null, project);
     },
-    [activeAgentId, pushNotice, saveHistory, startAgent, stop, turnActive],
+    [activeAgentId, pushNotice, reportFailure, saveHistory, startAgent, stop, turnActive],
   );
 
   // Header button: same agent and project as the live session, just a clean slate.
@@ -678,7 +736,7 @@ export function useAcpAgent() {
       } catch (err) {
         // A stop that raced the prompt already reported through `stopped`.
         if (sessionRef.current) {
-          pushNotice("error", "turn-failed", err);
+          reportFailure("turn-failed", err);
         }
       } finally {
         setTurnActive(false);
@@ -686,7 +744,7 @@ export function useAcpAgent() {
       }
       return true;
     },
-    [pushNotice, saveHistory, turnActive],
+    [pushNotice, reportFailure, saveHistory, turnActive],
   );
 
   const cancelTurn = useCallback(async () => {
@@ -733,10 +791,10 @@ export function useAcpAgent() {
               }
             : prev,
         );
-        pushNotice("error", "mode-failed", err);
+        reportFailure("mode-failed", err);
       }
     },
-    [pushNotice],
+    [pushNotice, reportFailure],
   );
 
   // Applies one config option. The agent answers with the full updated set, so
@@ -759,10 +817,10 @@ export function useAcpAgent() {
           setConfigOptions(updated);
         }
       } catch (err) {
-        pushNotice("error", "config-option-failed", err);
+        reportFailure("config-option-failed", err);
       }
     },
-    [pushNotice],
+    [pushNotice, reportFailure],
   );
 
   const respondPermission = useCallback(
@@ -793,10 +851,10 @@ export function useAcpAgent() {
               : entry,
           ),
         );
-        pushNotice("error", "permission-failed", err);
+        reportFailure("permission-failed", err);
       }
     },
-    [pushNotice, resolvePermissionEntry],
+    [pushNotice, reportFailure, resolvePermissionEntry],
   );
 
   const getHistoryRecord = useCallback(async (id) => {
@@ -849,5 +907,8 @@ export function useAcpAgent() {
     setConfigOption,
     respondPermission,
     refreshAgents,
+    runtimeEnv,
+    envMissing: runtimeEnv != null && !runtimeEnv.ok,
+    refreshRuntimeEnv,
   };
 }

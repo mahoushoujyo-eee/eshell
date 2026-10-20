@@ -6,7 +6,7 @@
  * do in the app. Scope matches fake-dom.js: structure and lifecycle
  * assertions, not real-browser layout or default actions.
  */
-import { act } from "react";
+import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { FakeEvent } from "./fake-dom.js";
 
@@ -40,4 +40,15 @@ export async function render(element) {
 /** Dispatch a click on a fake-DOM node through React's delegated events. */
 export function fireClick(node, init = {}) {
   return node.dispatchEvent(new FakeEvent("click", { target: node, ...init }));
+}
+
+/** Mounts a hook through a probe component and exposes its latest return value. */
+export async function renderHook(hook) {
+  const ref = { current: null };
+  function Probe() {
+    ref.current = hook();
+    return null;
+  }
+  const mounted = await render(createElement(Probe));
+  return { ...mounted, result: ref };
 }

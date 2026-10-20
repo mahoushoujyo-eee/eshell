@@ -122,6 +122,8 @@ export const api = {
     invoke("delete_agent_context", { input: { serverId } }),
   listAgentContextFiles: () => invoke("list_agent_context_files"),
 
+  // Probes the Node.js toolchain the built-in agents are launched through.
+  acpRuntimeEnv: () => invoke("acp_runtime_env"),
   acpAgentList: () => invoke("acp_agent_list"),
   acpAgentStart: (agentId, resumeSessionId = null, cwd = null) =>
     invoke("acp_agent_start", { input: { agentId, resumeSessionId, cwd } }),
