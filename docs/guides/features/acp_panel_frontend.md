@@ -10,13 +10,15 @@
 | --- | --- |
 | `src/components/panels/AcpAgentPanel.jsx` | 面板主体 UI（内含 transcript / 卡片 / composer 等子组件） |
 | `src/components/panels/acp/AcpPickers.jsx` | 两个下拉：Agent 选择器（标题栏，含 logo/spawn 命令/进程状态）与会话模式选择器（composer 右下角，向上弹） |
+| `src/components/panels/acp/AcpNoticeRow.jsx` | 转写里的通知行：标题/正文分离的报错卡片；`noticeCopy()` 负责 code→文案映射（`AcpNoticeRow.test.js` 覆盖） |
+| `src/components/ai/AcpEnvWarningCard.jsx` | 缺 Node.js 时的常驻提示卡：列出缺失工具、版本、下载链接、重新检测 |
 | `src/components/ai/AcpAgentLogo.jsx` | 单个 Agent 的品牌标识（未识别品牌回退中性图标） |
 | `src/lib/acpAgentBrands.js` | 品牌注册表 + 匹配逻辑（`acpAgentBrands.test.js` 覆盖） |
 | `src/lib/acpConfigOptions.js` | 会话配置项（模型/思考强度/…）的过滤、排序、分组、当前值取名（`acpConfigOptions.test.js` 覆盖） |
 | `scripts/acp-probe.mjs` | 探针：直接跟 agent 握手并打印 `session/new` 实际返回，用于确认某个 agent 到底 advertise 什么 |
 | `src/hooks/useAcpAgent.js` | 会话状态机：事件路由、transcript 组装、历史持久化、全部 action |
 | `src/components/app/AppAiDock.jsx` | 右侧 dock 容器：宽度/拖拽/显隐动画 |
-| `src/App.jsx` | 创建 hook 实例；dock 宽度状态；Esc 关闭；面板打开时刷新 agent 列表 |
+| `src/App.jsx` | 创建 hook 实例；dock 宽度状态；Esc 关闭；面板打开时刷新 agent 列表并探测 Node 环境 |
 | `src/components/app/AppWorkspace.jsx` | 标题栏 AI 按钮 ↔ `showAiPanel`；繁忙指示 = `acp.turnActive` |
 | `src/lib/tauri-api.js` | `acp*` 命令封装（全部后端调用入口） |
 | `src/lib/i18n.js` | 文案（英文原文为 key，中文在 `zhMessages`，缺失时回退英文） |
@@ -42,9 +44,12 @@ usage             null | {used, size}                   ← 上下文用量
 turnActive        bool（回合进行中；标题栏繁忙指示同源）
 history           [{id, agentId, agentName, title, createdAt, updatedAt, entryCount}]
 shellContext      null | {sessionId, sessionName, content}   ← 终端选中内容暂存（≤4000 字符）
+runtimeEnv        null | {ok, node: {found, command, version?}, npx: {found, command, version?}}
+                  ← `acp_runtime_env` 的探测结果；null = 还没探过
+envMissing        bool（runtimeEnv 存在且 ok 为假）      ← 决定是否挂 AcpEnvWarningCard
 ```
 
-Actions：`start()` / `stop(agentId?)`（省略 agentId = 当前 engaged 的 agent） / `reclaimAndStart(agentId)` / `authenticate(methodId)` / `setConfigOption(configId, value)` / `sendPrompt(text, images)` / `cancelTurn()` / `setMode(modeId)` / `respondPermission(requestId, optionId|null)` / `resumeHistory(record)` / `getHistoryRecord(id)` / `deleteHistoryRecord(id)` / `attachShellContext(selection)` / `clearShellContext()` / `refreshAgents()` / `refreshHistory()`。
+Actions：`start()` / `stop(agentId?)`（省略 agentId = 当前 engaged 的 agent） / `reclaimAndStart(agentId)` / `authenticate(methodId)` / `setConfigOption(configId, value)` / `sendPrompt(text, images)` / `cancelTurn()` / `setMode(modeId)` / `respondPermission(requestId, optionId|null)` / `resumeHistory(record)` / `getHistoryRecord(id)` / `deleteHistoryRecord(id)` / `attachShellContext(selection)` / `clearShellContext()` / `refreshAgents()` / `refreshHistory()` / `refreshRuntimeEnv()`。
 
 ### transcript 条目类型
 
@@ -54,12 +59,18 @@ Actions：`start()` / `stop(agentId?)`（省略 agentId = 当前 engaged 的 age
 { id, type: "thought",    text }                    // 思考过程，默认折叠
 { id, type: "tool",       tool }                    // 按 toolCallId 原位更新
 { id, type: "permission", requestId, toolCall, options, resolution, resolving }
-{ id, type: "notice",     tone: "info"|"error", code, detail }
+{ id, type: "notice",     tone: "info"|"warning"|"error", code, detail }
 ```
 
 `tool` 形状：`{toolCallId, title, kind, status, content: [块], locations: [{path, line?}], rawInput, rawOutput}`；status 取值 `pending|in_progress|completed|failed`；content 块为 `{type:"text",text}` / `{type:"diff",path,oldText?,newText}` / `{type:"terminal",terminalId}`。
 
-`notice.code` 由 `NoticeRow` 翻译：`session-ended` / `start-failed` / `turn-stopped`（detail=stopReason）/ `turn-failed` / `auth-failed` / `mode-failed` / `permission-failed` / `agent-error` / `resume-fallback`。新增文案走 code，不要在 hook 里放中文。
+`notice.code` 由 `AcpNoticeRow.jsx` 的 `noticeCopy()` 翻译：`session-ended` / `env-missing` / `start-failed` / `new-session-failed` / `project-create-failed` / `project-delete-failed` / `turn-stopped`（detail=stopReason）/ `turn-failed` / `auth-failed` / `resume-fallback` / `mode-failed` / `config-option-failed` / `permission-failed` / `agent-error`。新增文案走 code，不要在 hook 里放中文。
+
+`noticeCopy()` 返回 `{title, body}`：`body` 为空字符串表示这一行没有正文（渲染成一行灰字，不画卡片）；否则 `body` 就是原始报错。**标题与正文必须分开** —— 旧的实现把两者拼成一行，读起来是一团。
+
+### 失败上报去重
+
+hook 里所有失败通知走 `reportFailure(code, err)`，不要直接 `pushNotice("error", …)`：它除了推通知还会记下时间戳，5 秒内同一个故障的重复上报（命令自身的 rejection 与随后那条 stream 事件）会被吞掉。`stopped` 事件里的 `payload.error` 走 `failureAlreadyReported()` 判断，也是同一个原因。
 
 ### ⚠️ 兼容性红线
 
@@ -81,6 +92,8 @@ Body(滚动区，按优先级互斥):
   authActive  → 登录卡片(方法按钮/等待中+取消/手动配置提示) + notices
   idle 且无记录 → 启动页(说明 + spawn 命令预览 + 启动按钮)
   其他        → transcript 流 + turnActive 转圈 + (idle 且有记录时顶部"重新启动")
+  ⚠️ 缺 Node.js 时**两个位置都挂 AcpEnvWarningCard**：启动页顶部一份、transcript 上方一份。
+     启动失败后卡片要留着 —— 通知行说"发生了什么"，卡片给"接下来怎么办"。
 Plan 卡片: 常驻于滚动区与 composer 之间(可折叠，含完成度 x/y)
 Composer: 终端选中内容 chip(会话名+预览+字数+可删) + 附件缩略图条(可删)
           + 带边框的输入盒: textarea(Enter 发送/Shift+Enter 换行/粘贴图片)
@@ -179,7 +192,7 @@ Tauri 命令收的是**裸值**（string / bool），由 `config_option_value()`
 5. **历史列表**：无搜索、无按 agent 过滤、无分页。（相对时间本地化已做，见 `formatRelativeTime`。）
 6. **thought 折叠预览**：折叠态仅截 80 字符，可做两行 clamp + 渐隐。
 7. **权限卡片**：无键盘快捷键；多个待审批时无聚合视图。
-8. **启动页**：已带 Agent logo + 名称 + spawn 命令（`break-all`），但仍缺"这个 agent 需要先登录/装什么"之类引导。
+8. **启动页引导**：**已做一部分** —— 缺 Node.js 时启动页顶部挂 `AcpEnvWarningCard`（列出缺失工具与版本、下载链接、重新检测）。仍缺"这个 agent 需要先登录"之类的引导。
 9. **composer**：已支持一键放大编辑（见 §4），但仍**不支持拖拽图片落入**（图片按钮已按设计移除，只保留粘贴）。另外放大是手动切换，不随内容自动增高。
 10. **plan 卡片**：固定占位，任务多时挤压消息区，可改为可收纳角标/抽屉。
 11. **usage 徽标**：可升级为点击弹层（含 token 明细、成本，后端 `usage_update` 里有 cost 字段未透传）。
@@ -190,7 +203,7 @@ Tauri 命令收的是**裸值**（string / bool），由 `config_option_value()`
 ## 6. 本地验证
 
 ```bash
-npm run test          # vitest（425 例 / 40 文件）
+npm run test          # vitest（436 例 / 42 文件）
 npx vite build        # 构建校验
 cd src-tauri && cargo test --lib acp mcp_bridge   # 后端契约未破坏
 npm run tauri dev     # 冒烟：启动 agent → 对话 → 工具/权限/计划/历史/图片

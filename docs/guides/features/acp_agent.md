@@ -126,6 +126,7 @@ acp/
 
 | 命令 | 说明 |
 | --- | --- |
+| `acp_runtime_env` | 探测本机 Node.js 工具链（`node` / `npx` 是否在、什么版本）。内置 agent 靠 `npx` 拉起，缺了它们就起不来；前端据此显示缺依赖提示卡。纯新增，不影响其它命令 |
 | `acp_agent_list` | 列出配置的 agent 及运行状态 |
 | `acp_agent_start` | spawn + initialize 握手 + 创建会话（传 `resumeSessionId` 时先尝试 `session/load` 恢复），返回 `sessionId` / `modes` / `agentInfo` / `capabilities`（loadSession、promptImage）/ `resumed`；要求登录时返回 `authRequired` + `authMethods`（连接保持存活） |
 | `acp_agent_stop` | 结束会话与子进程 |

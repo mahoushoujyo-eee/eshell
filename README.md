@@ -4,7 +4,7 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.7.2** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
+**eShell v1.7.3** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
 
 It combines SSH sessions, PTY terminals, SFTP file operations, server status monitoring, reusable scripts, and an ACP coding agent panel in one local-first application.
 

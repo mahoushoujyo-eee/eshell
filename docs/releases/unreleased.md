@@ -1,10 +1,11 @@
 # Unreleased Changes
 
-Last updated: 2026-10-02
+Last updated: 2026-10-20
 
-Nothing yet. Everything through 1.7.2 shipped in [v1.7.2](v1.7.2.md) — the ACP
-panel rework (tool rows, composer) and the Server Status network-traffic detail
-tab. The macOS install note is unchanged and still lives in the
+Nothing yet. Everything through 1.7.3 shipped in [v1.7.3](v1.7.3.md) — the
+Node.js preflight for the ACP panel, the reworked error card with the
+five-second failure dedupe, and rounded window corners on Linux and macOS. The
+macOS install note is unchanged and still lives in the
 [Releasing Guide](../guides/releasing.md).
 
 ## How To Use This File

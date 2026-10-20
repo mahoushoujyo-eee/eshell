@@ -52,6 +52,7 @@ Root project introductions:
 - [Built-in Extension Migration Validation](reports/builtin-extension-migration.md) — Compatibility checks, regression tests, browser comparisons, and remaining manual coverage
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
+- [Release Notes 1.7.3](releases/v1.7.3.md) — Node.js preflight for the ACP panel, an error card with a title and a body, failures reported once, and rounded window corners on Linux and macOS
 - [Release Notes 1.7.2](releases/v1.7.2.md) — ACP panel rework: tool rows lose the status rail and the `OTHER` chip, the composer can be enlarged, and Server Status network traffic becomes a detail tab
 - [Release Notes 1.7.1](releases/v1.7.1.md) — SSH local port forwarding (panel + plugin API), Monaco editor with explicit save, faster start with no white window, and the macOS download/Gatekeeper note
 - [Release Notes 1.7.0](releases/v1.7.0.md) — Termius-style workspace redesign: session tabs, activity rail, status bar, shared visual system
