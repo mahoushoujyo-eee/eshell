@@ -20,6 +20,13 @@ use crate::domain::agent::model::{
     AcpSessionPromptInput, AcpSessionSetConfigOptionInput, AcpSessionSetModeInput,
 };
 use crate::domain::agent::service::acp_client::AcpSessionRunner;
+use crate::domain::agent::service::runtime_env;
+
+/// Probes the local Node.js toolchain the built-in agents are launched through.
+#[tauri::command]
+pub async fn acp_runtime_env() -> Result<crate::domain::agent::model::AcpRuntimeEnvView, String> {
+    Ok(runtime_env::probe().await)
+}
 
 #[tauri::command]
 pub async fn acp_agent_list(

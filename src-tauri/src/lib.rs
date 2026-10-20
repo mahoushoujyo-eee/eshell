@@ -113,6 +113,7 @@ pub fn run() {
             domain::config::command::save_agent_context,
             domain::config::command::list_agent_context_files,
             domain::config::command::delete_agent_context,
+            domain::agent::command::acp_runtime_env,
             domain::agent::command::acp_agent_list,
             domain::agent::command::acp_agent_start,
             domain::agent::command::acp_agent_stop,

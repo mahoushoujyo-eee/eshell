@@ -10,3 +10,4 @@
 pub(crate) mod acp_client;
 pub(crate) mod mcp_bridge;
 pub(crate) mod projects;
+pub(crate) mod runtime_env;

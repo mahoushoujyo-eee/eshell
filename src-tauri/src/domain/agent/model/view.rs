@@ -285,3 +285,22 @@ pub struct AcpAgentListEntry {
     /// the panel can show where "no project" sessions actually run.
     pub cwd: String,
 }
+
+/// One probed toolchain binary reported by `acp_runtime_env`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpToolProbeView {
+    pub found: bool,
+    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+/// Node.js toolchain the built-in agents need, probed on demand.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpRuntimeEnvView {
+    pub ok: bool,
+    pub node: AcpToolProbeView,
+    pub npx: AcpToolProbeView,
+}
