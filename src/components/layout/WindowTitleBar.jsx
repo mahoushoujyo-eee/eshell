@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Copy, Minus, Plus, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import { detectDesktopPlatform } from "../../utils/desktopPlatform";
 import EshellAiMark from "../ai/EshellAiMark";
 // Brand mark cropped from `docs/assets/Shell.png` (cube + `$`), text removed so
 // it can sit next to the wordmark without repeating "Shell".
@@ -17,30 +18,6 @@ function normalizePlatformKind(value) {
     return normalized;
   }
   return "auto";
-}
-
-function detectDesktopPlatform() {
-  if (typeof window === "undefined") {
-    return "unknown";
-  }
-
-  const source =
-    window.navigator?.userAgentData?.platform ||
-    window.navigator?.platform ||
-    window.navigator?.userAgent ||
-    "";
-  const normalized = String(source).toLowerCase();
-
-  if (normalized.includes("mac")) {
-    return "macos";
-  }
-  if (normalized.includes("win")) {
-    return "windows";
-  }
-  if (normalized.includes("linux")) {
-    return "linux";
-  }
-  return "unknown";
 }
 
 function readPlatformOverride() {
@@ -181,10 +158,11 @@ export default function WindowTitleBar({
   onCloseSession,
   disconnectedSessions = {},
   onNewSession,
+  isMaximized = false,
+  onSyncMaximized,
 }) {
   const { t } = useI18n();
   const appWindow = getCurrentWindow();
-  const [isMaximized, setIsMaximized] = useState(false);
   const [detectedPlatform, setDetectedPlatform] = useState(detectDesktopPlatform);
   const [platformKind, setPlatformKind] = useState(resolveDesktopPlatform);
   const titleBarRef = useRef(null);
@@ -246,40 +224,6 @@ export default function WindowTitleBar({
     };
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
-    let unlisten = null;
-
-    const syncMaximized = async () => {
-      try {
-        const value = await appWindow.isMaximized();
-        if (mounted) {
-          setIsMaximized(value);
-        }
-      } catch {
-        // noop: keep browser preview usable outside tauri runtime
-      }
-    };
-
-    const bindEvents = async () => {
-      try {
-        await syncMaximized();
-        unlisten = await appWindow.onResized(syncMaximized);
-      } catch {
-        // noop
-      }
-    };
-
-    void bindEvents();
-
-    return () => {
-      mounted = false;
-      if (unlisten) {
-        unlisten();
-      }
-    };
-  }, []);
-
   const safeWindowAction = async (action, actionName) => {
     try {
       await action();
@@ -296,7 +240,10 @@ export default function WindowTitleBar({
       } else {
         await appWindow.maximize();
       }
-      setIsMaximized(await appWindow.isMaximized());
+      // The shared state owns the value; the resize event would also catch
+      // it, but asking directly keeps the button and the shell in step even
+      // if the event is late.
+      await onSyncMaximized?.();
     }, "toggle-maximize");
 
   useEffect(() => {

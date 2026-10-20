@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   DEFAULT_WALLPAPER,
   EMPTY_SCRIPT,
@@ -94,6 +95,7 @@ export function useWorkbench() {
   const [uiNotices, setUiNotices] = useState([]);
   const [hostKeyTrustPrompt, setHostKeyTrustPrompt] = useState(null);
   const [kiPrompt, setKiPrompt] = useState(null);
+  const [isMaximized, setIsMaximized] = useState(false);
 
   const [sshConfigs, setSshConfigs] = useState([]);
   const [sshForm, setSshForm] = useState(EMPTY_SSH);
@@ -380,6 +382,38 @@ export function useWorkbench() {
     setKiPrompt,
   });
 
+  // The only place that asks the window whether it is maximized: the title
+  // bar's button and the shell's corner radius both read this. Two
+  // subscriptions would mean two chances to miss an event.
+  const syncMaximized = useCallback(async () => {
+    try {
+      setIsMaximized(await getCurrentWindow().isMaximized());
+    } catch {
+      // noop: keep browser preview usable outside the tauri runtime
+    }
+  }, []);
+
+  useEffect(() => {
+    let unlisten = null;
+
+    const bind = async () => {
+      try {
+        await syncMaximized();
+        unlisten = await getCurrentWindow().onResized(syncMaximized);
+      } catch {
+        // noop
+      }
+    };
+
+    void bind();
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [syncMaximized]);
+
   // ---- Compat adapter ------------------------------------------------------
   // The original useWorkbench keys, mapped onto plugin-owned values so every
   // existing consumer (AppMainWorkspace, AppWorkspace, AppModals) works
@@ -399,6 +433,8 @@ export function useWorkbench() {
     setStatusRefreshInterval: statusController.setStatusRefreshInterval,
     showAiPanel,
     setShowAiPanel,
+    isMaximized,
+    syncMaximized,
     busy,
     error,
     uiNotices,

@@ -8,6 +8,7 @@ import { dismissBootSplash } from "./lib/boot-splash";
 import { I18nProvider } from "./lib/i18n";
 import { registerBuiltinPlugins } from "./plugins";
 import { loadExternalPlugins } from "./plugins/loader";
+import { applyDesktopPlatformAttribute } from "./utils/desktopPlatform";
 import "./index.css";
 
 // Static imports are hoisted, so this line runs only once the whole module
@@ -15,6 +16,11 @@ import "./index.css";
 // between the splash painting and this mark is module loading; everything
 // after it is startup work proper.
 bootMark("modules loaded");
+
+// The splash already wrote the platform attribute; this keeps it in sync
+// once the module graph is up, and the CSS keys off it to round the shell
+// only where the window is transparent.
+applyDesktopPlatformAttribute();
 
 // Startup sequence (see `docs/plans/external-plugin-contract.md`):
 // register builtins, load external plugins, then render. Contribution

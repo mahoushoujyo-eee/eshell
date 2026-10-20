@@ -28,6 +28,8 @@ export default function AppWorkspace({
     setShowAiPanel,
     busy,
     error,
+    isMaximized,
+    syncMaximized,
     uiNotices,
     dismissUiNotice,
     openFilePath,
@@ -72,6 +74,8 @@ export default function AppWorkspace({
         showAiPanel={showAiPanel}
         onToggleAiPanel={() => setShowAiPanel((current) => !current)}
         isAiStreaming={acp.turnActive}
+        isMaximized={isMaximized}
+        onSyncMaximized={syncMaximized}
         sessions={sessions}
         activeSessionId={activeSessionId}
         onSelectSession={setActiveSessionId}

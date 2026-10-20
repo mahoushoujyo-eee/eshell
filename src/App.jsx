@@ -130,7 +130,11 @@ function App() {
   }, [isAiPanelResizing]);
 
   return (
-    <div className="app-shell flex h-full w-full min-h-0 flex-col overflow-hidden text-text">
+    <div
+      className={`app-shell flex h-full w-full min-h-0 flex-col overflow-hidden text-text${
+        workbench.isMaximized ? "" : " is-rounded"
+      }`}
+    >
       <AppWorkspace
         workbench={workbench}
         acp={acp}
