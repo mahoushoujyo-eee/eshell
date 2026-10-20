@@ -705,6 +705,26 @@ zhMessages["reviewing"] = "\u590d\u6838\u4e2d";
 zhMessages["validating"] = "\u6821\u9a8c\u4e2d";
 zhMessages["answering"] = "\u56de\u590d\u4e2d";
 
+// ACP Node.js prerequisite (see panels/ai/AcpEnvWarningCard.jsx and
+// panels/acp/AcpNoticeRow.jsx). Keys stay the English source text.
+zhMessages["Node.js is required"] = "需要 Node.js 运行环境";
+zhMessages["Node.js is not available"] = "未检测到 Node.js";
+zhMessages["Download Node.js"] = "前往下载 Node.js";
+zhMessages["Get Node.js"] = "去下载";
+zhMessages["Re-check"] = "重新检测";
+zhMessages["not found"] = "未找到";
+zhMessages["installed"] = "已安装";
+zhMessages["Show details"] = "展开详情";
+zhMessages["History was not restored"] = "未能恢复历史上下文";
+zhMessages[
+  "The built-in agents are launched through npx, so they cannot start without Node.js. Install it, then re-check — no need to restart eShell."
+] =
+  "内置的 agent 都通过 npx 拉起，没有 Node.js 就无法启动。装好后点「重新检测」即可，不需要重启 eShell。";
+zhMessages[
+  "Could not find {tools} on this machine. The built-in agents are launched through npx and cannot start until Node.js is installed."
+] =
+  "本机找不到 {tools}。内置 agent 通过 npx 启动，安装 Node.js 之前无法运行。";
+
 const defaultContextValue = {
   language: "en",
   localeTag: "en-US",

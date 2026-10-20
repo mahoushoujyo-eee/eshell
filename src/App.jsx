@@ -64,13 +64,14 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [workbench.showAiPanel, workbench.setShowAiPanel]);
 
-  // Pick up acp_agents.json edits without an app restart: the agent list
-  // reloads every time the dock is opened.
+  // Pick up acp_agents.json edits without an app restart, and re-probe the
+  // Node.js toolchain: the user may have installed it since the last open.
   useEffect(() => {
     if (workbench.showAiPanel) {
       void acp.refreshAgents();
+      void acp.refreshRuntimeEnv();
     }
-  }, [workbench.showAiPanel, acp.refreshAgents]);
+  }, [workbench.showAiPanel, acp.refreshAgents, acp.refreshRuntimeEnv]);
 
   useEffect(() => {
     if (typeof window === "undefined") {

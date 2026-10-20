@@ -33,7 +33,9 @@ import {
 } from "lucide-react";
 import { MARKDOWN_COMPONENTS } from "./ai-assistant/aiAssistantUtils";
 import { AcpAgentPicker, AcpModePicker, AcpSessionSettingsMenu } from "./acp/AcpPickers";
+import AcpNoticeRow from "./acp/AcpNoticeRow";
 import AcpAgentLogo from "../ai/AcpAgentLogo";
+import AcpEnvWarningCard from "../ai/AcpEnvWarningCard";
 import { formatAcpAgentSpawn } from "../../lib/acpAgentBrands";
 import { visibleConfigOptions } from "../../lib/acpConfigOptions";
 import { formatShellContextPreview } from "../../lib/ops-agent-shell-context";
@@ -522,71 +524,6 @@ function ThoughtEntry({ text }) {
   );
 }
 
-function NoticeRow({ entry }) {
-  const { t } = useI18n();
-  const detail = entry.detail || "";
-  let text;
-  switch (entry.code) {
-    case "session-ended":
-      text = t("Session ended");
-      break;
-    case "start-failed":
-      text = `${t("Failed to start agent")}: ${detail}`;
-      break;
-    case "new-session-failed":
-      text = `${t("Failed to start a new session")}: ${detail}`;
-      break;
-    case "project-create-failed":
-      text = `${t("Failed to add project")}: ${detail}`;
-      break;
-    case "project-delete-failed":
-      text = `${t("Failed to remove project")}: ${detail}`;
-      break;
-    case "turn-stopped":
-      if (detail === "cancelled") {
-        text = t("Turn cancelled");
-      } else if (detail === "refusal") {
-        text = t("The agent declined this request");
-      } else if (detail === "max_tokens") {
-        text = t("Stopped: max tokens reached");
-      } else {
-        text = `${t("Turn stopped")}: ${detail}`;
-      }
-      break;
-    case "turn-failed":
-      text = `${t("Turn failed")}: ${detail}`;
-      break;
-    case "auth-failed":
-      text = `${t("Sign-in failed")}: ${detail}`;
-      break;
-    case "resume-fallback":
-      text = t("This agent cannot restore the previous context; a fresh session was created instead.");
-      break;
-    case "mode-failed":
-      text = `${t("Failed to switch mode")}: ${detail}`;
-      break;
-    case "config-option-failed":
-      text = `${t("Failed to change setting")}: ${detail}`;
-      break;
-    case "permission-failed":
-      text = `${t("Failed to respond to permission request")}: ${detail}`;
-      break;
-    case "agent-error":
-      text = `${t("Agent error")}: ${detail}`;
-      break;
-    default:
-      text = detail;
-  }
-  if (entry.tone === "error") {
-    return (
-      <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-xs wrap-anywhere text-danger">
-        {text}
-      </div>
-    );
-  }
-  return <div className="py-0.5 text-center text-[11px] text-muted">{text}</div>;
-}
-
 function PlanCard({ plan }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(true);
@@ -694,7 +631,7 @@ function TranscriptEntry({ entry, onRespondPermission }) {
     return <PermissionCard entry={entry} onRespond={onRespondPermission} />;
   }
   if (entry.type === "notice") {
-    return <NoticeRow entry={entry} />;
+    return <AcpNoticeRow entry={entry} />;
   }
   return null;
 }
@@ -1055,6 +992,9 @@ export default function AcpAgentPanel({ acp }) {
     setMode,
     setConfigOption,
     respondPermission,
+    runtimeEnv,
+    envMissing,
+    refreshRuntimeEnv,
   } = acp;
 
   const [question, setQuestion] = useState("");
@@ -1372,6 +1312,13 @@ export default function AcpAgentPanel({ acp }) {
           </div>
         ) : !ready && transcript.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-muted">
+            {/* No Node.js means the built-in agents cannot start at all — say
+                so up front instead of letting the user read a spawn error. */}
+            {envMissing ? (
+              <div className="w-full max-w-full">
+                <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} />
+              </div>
+            ) : null}
             {activeAgent ? (
               <AcpAgentLogo agent={activeAgent} className="h-12 w-12 rounded-xl" />
             ) : (
@@ -1420,6 +1367,11 @@ export default function AcpAgentPanel({ acp }) {
           </div>
         ) : (
           <div className="space-y-2">
+            {/* The card outlives a failed start: the notice row explains what
+                happened, this says what to do about it. */}
+            {envMissing ? (
+              <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} />
+            ) : null}
             {!ready && transcript.length > 0 ? (
               orphanedSession ? (
                 <OrphanedSessionCard
