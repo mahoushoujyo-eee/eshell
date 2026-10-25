@@ -27,6 +27,8 @@ const zhMessages = {
   "and all of its messages will be removed permanently.": "及其所有消息都将被永久删除。",
   "and everything inside it will be removed from the remote server immediately.":
     "以及其中的所有内容都会立即从远端服务器删除。",
+  "is a folder. Open it and download the files inside one by one.":
+    "是一个文件夹。请先打开它，再逐个下载里面的文件。",
   "approval required": "需要审批",
   "Approval mode": "审批模式",
   "Approve": "批准",
@@ -145,6 +147,7 @@ const zhMessages = {
   "File Editor": "文件编辑器",
   "Folder": "文件夹",
   "Folder Actions": "文件夹操作",
+  "Folder download is not supported": "不支持下载文件夹",
   "Folder name": "文件夹名",
   "Created folder {name}": "已新建文件夹 {name}",
   "Forest Haze": "林雾",
@@ -406,7 +409,9 @@ const zhMessages = {
   "No shell session selected": "未选择 Shell 会话",
   "No status data": "没有状态数据",
   "No transfer tasks yet.": "还没有传输任务。",
+  "OK": "确定",
   "Only image files are supported.": "仅支持图片文件。",
+  "Only single files can be downloaded": "目前仅支持下载单个文件",
   "Open": "打开",
   "Open file as text?": "要按文本方式打开这个文件吗？",
   "Open Folder": "打开文件夹",
@@ -483,6 +488,7 @@ const zhMessages = {
   "Script path": "脚本路径",
   "Scripts": "脚本",
   "Selected file": "已选文件",
+  "Selected folder": "已选文件夹",
   "Server Status": "服务器状态",
   "Server AGENTS.md": "服务器 AGENTS.md",
   "Server-specific context, paths, policies...":

@@ -19,6 +19,19 @@ const isValidRemoteEntryName = (value) => {
 };
 
 /**
+ * True for a remote entry as the SFTP listing produces it.
+ *
+ * Guards the download operation against arguments that are not entries: a
+ * click event handed over by a button handler is truthy but carries no path,
+ * and would otherwise be downloaded as the remote root ("/").
+ */
+const isRemoteEntry = (value) =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  typeof value.path === "string" &&
+  typeof value.entryType === "string";
+
+/**
  * SFTP operations, moved verbatim from `hooks/workbench/operations.js`.
  *
  * Everything here talks to the workbench through the stable API context
@@ -264,8 +277,20 @@ export function useSftpOperations(ctx) {
 
   const downloadFile = useCallback(async (entry = null) => {
     const current = ctxRef.current;
-    const targetEntry = entry || current.selectedEntry;
-    if (!current.activeSessionId || !targetEntry || targetEntry.entryType === "directory") {
+    // Only a real entry can be the download target; anything else (a click
+    // event, for one) falls back to the current selection.
+    const targetEntry = isRemoteEntry(entry) ? entry : current.selectedEntry;
+    if (!current.activeSessionId || !targetEntry) {
+      return;
+    }
+    if (targetEntry.entryType === "directory") {
+      // The backend transfers one file per request, so a folder cannot be
+      // downloaded. The panel intercepts the request and shows the popup;
+      // this notice covers callers that reach the operation directly.
+      current.pushUiNotice(tRef.current("Folder download is not supported"), {
+        tone: "warning",
+        ttlMs: 4200,
+      });
       return;
     }
     const localDir = (current.downloadDirectory || "").trim();

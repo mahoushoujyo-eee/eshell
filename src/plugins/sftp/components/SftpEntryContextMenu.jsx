@@ -110,12 +110,13 @@ export default function SftpEntryContextMenu({
         <FilePenLine className={MENU_ICON} aria-hidden="true" />
         {isDirectory ? t("Open Folder") : t("Open")}
       </button>
-      {!isDirectory ? (
-        <button type="button" className={MENU_ITEM} onClick={() => onDownload?.(entry)} role="menuitem">
-          <Download className={MENU_ICON} aria-hidden="true" />
-          {t("Download")}
-        </button>
-      ) : null}
+      {/* Folders keep the Download item: the panel answers the request with
+          the "folder download is not supported" popup, which explains the
+          restriction instead of leaving the user with no way to ask for it. */}
+      <button type="button" className={MENU_ITEM} onClick={() => onDownload?.(entry)} role="menuitem">
+        <Download className={MENU_ICON} aria-hidden="true" />
+        {t("Download")}
+      </button>
       <button type="button" className={MENU_ITEM} onClick={() => onCopyPath?.(entry)} role="menuitem">
         <ClipboardCopy className={MENU_ICON} aria-hidden="true" />
         {t("Copy Path")}

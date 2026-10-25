@@ -5,6 +5,7 @@ import SftpCreateEntryDialog from "./components/SftpCreateEntryDialog";
 import SftpDeleteConfirmDialog from "./components/SftpDeleteConfirmDialog";
 import SftpEntriesPane from "./components/SftpEntriesPane";
 import SftpEntryContextMenu from "./components/SftpEntryContextMenu";
+import SftpFolderDownloadDialog from "./components/SftpFolderDownloadDialog";
 import SftpRenameEntryDialog from "./components/SftpRenameEntryDialog";
 import SftpTextOpenConfirmDialog from "./components/SftpTextOpenConfirmDialog";
 import SftpToolbar from "./components/SftpToolbar";
@@ -50,6 +51,8 @@ export default function SftpPanel({
   const [confirmDeleteBusy, setConfirmDeleteBusy] = useState(false);
   const [pendingRenameEntry, setPendingRenameEntry] = useState(null);
   const [confirmRenameBusy, setConfirmRenameBusy] = useState(false);
+  // The folder the user tried to download; drives the "not supported" popup.
+  const [pendingFolderDownload, setPendingFolderDownload] = useState(null);
 
   const cacheNodeChildren = useCallback((targetPath, entries) => {
     const normalized = normalizeRemotePath(targetPath);
@@ -113,6 +116,9 @@ export default function SftpPanel({
     setConfirmCreateBusy(false);
     setPendingDeleteEntry(null);
     setConfirmDeleteBusy(false);
+    setPendingRenameEntry(null);
+    setConfirmRenameBusy(false);
+    setPendingFolderDownload(null);
   }, [activeSessionId]);
 
   const performOpenSftpEntry = async (entry) => {
@@ -251,6 +257,36 @@ export default function SftpPanel({
     }
   };
 
+  /**
+   * Single entry point for download requests (toolbar button and entry
+   * context menu).
+   *
+   * The backend transfers one remote file per request, so a folder request
+   * cannot succeed. It is answered here with the "not supported" popup
+   * instead of a failed transfer with an opaque IO error.
+   */
+  const requestDownload = async (entry) => {
+    const target = entry || selectedEntry;
+    if (!target) {
+      return;
+    }
+
+    if (target.entryType === "directory") {
+      setPendingFolderDownload(target);
+      return;
+    }
+
+    await downloadFile(target);
+  };
+
+  const openPendingFolder = async () => {
+    const target = pendingFolderDownload;
+    setPendingFolderDownload(null);
+    if (target) {
+      await openSftpEntry(target);
+    }
+  };
+
   const transferRows = Array.isArray(transfers) ? transfers.slice(0, 8) : [];
   const activeTransferCount = transferRows.filter((item) =>
     item && ["queued", "started", "progress"].includes(item.stage),
@@ -311,7 +347,7 @@ export default function SftpPanel({
         refreshSftp={refreshSftp}
         uploadFile={uploadFile}
         createSftpEntry={requestCreateEntry}
-        downloadFile={downloadFile}
+        onDownload={requestDownload}
         selectedEntry={selectedEntry}
         showTransferPanel={showTransferPanel}
         onToggleTransferPanel={() => setShowTransferPanel((prev) => !prev)}
@@ -383,7 +419,7 @@ export default function SftpPanel({
         }}
         onDownload={async (entry) => {
           closeEntryContextMenu();
-          await downloadFile(entry);
+          await requestDownload(entry);
         }}
         onCopyPath={async (entry) => {
           closeEntryContextMenu();
@@ -446,6 +482,13 @@ export default function SftpPanel({
           setPendingRenameEntry(null);
         }}
         onConfirm={confirmRenameEntry}
+      />
+
+      <SftpFolderDownloadDialog
+        open={Boolean(pendingFolderDownload)}
+        entry={pendingFolderDownload}
+        onClose={() => setPendingFolderDownload(null)}
+        onOpenFolder={openPendingFolder}
       />
     </div>
   );
