@@ -1,12 +1,13 @@
 # Unreleased Changes
 
-Last updated: 2026-10-20
+Last updated: 2026-10-28
 
-Nothing yet. Everything through 1.7.3 shipped in [v1.7.3](v1.7.3.md) — the
-Node.js preflight for the ACP panel, the reworked error card with the
-five-second failure dedupe, and rounded window corners on Linux and macOS. The
-macOS install note is unchanged and still lives in the
-[Releasing Guide](../guides/releasing.md).
+## Xray Proxy Plugin Example
+
+`examples/xray-plugin/` is a worked example of an external eShell plugin: a
+panel for the xray installation on the machine you are connected to — its
+groups, its subscriptions, and the node each group uses. Install it from
+**Settings → Plugins → Install from folder…**.
 
 ## How To Use This File
 
