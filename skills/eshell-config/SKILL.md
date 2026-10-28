@@ -154,6 +154,25 @@ eShell 内置 MCP bridge（loopback + 每运行随机 Bearer token），只暴�
 5. 这些调用触发 `session/request_permission` → 面板审批卡片。**不要绕过审批**。
 6. `get_server_status` 是快照（实况拉取），非流式。
 
+### 3.1 独立运行的 `eshell-mcp`（不在 eShell 应用里）
+
+`eshell-mcp` 是脱离桌面应用运行的同一套 MCP 工具，走 stdio 传输。它的区别只有一处：
+
+- **`sessionId` 可以直接填 SSH profile 的名字或 id**，工具会按需建连并缓存复用；
+- 因此**不需要**先调 `list_shell_sessions`，也不需要用户先开 webshell；
+- 工具名、schema、返回结构与内置 bridge 完全一致。
+
+判断自己在用哪一种：客户端配置里 `command` 指向 `eshell-mcp` 就是独立模式；指向 eShell 应用注入的 `http://127.0.0.1:<port>/mcp` 就是内置模式。
+
+独立模式下正确的工作流程是：
+
+1. `list_ssh_profiles` → 拿到 `{id, name, host, port, username}`；
+2. 后续工具的 `sessionId` 直接填 profile 的名字或 id。
+
+**不要**先调 `list_shell_sessions`——独立模式下它返回空数组（独立进程没有终端标签页），拿不到任何目标。
+
+另外：独立 server 读的是 `--data-dir` / `ESHELL_DATA_DIR` 指定的 `.eshell-data`，**必须和桌面应用用的是同一份**，否则看到的服务器列表是空的。
+
 ## 4. 生效规则与错误处理
 
 ### 改完配置后：调 `reload_config`，不用重启

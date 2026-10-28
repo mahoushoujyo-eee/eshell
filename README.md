@@ -37,6 +37,17 @@ The main AI entry point is the ACP panel, which drives an external coding agent 
 
 All agent work is delegated to external ACP agents; the former self-hosted Ops Agent runtime was removed from the backend.
 
+## Standalone MCP Server And CLI
+
+Two binaries run the same server operations **without the desktop app**:
+
+- `eshell-mcp` — a standard MCP server over stdio, so any MCP client (Claude Code, Codex, Cursor, …) can operate the servers eShell manages. `--http <port>` switches to the same loopback HTTP transport the in-app bridge uses.
+- `eshell-cli` — the same operations from a shell: `profiles`, `exec`, `status`, `ls`, `cat`, `write`.
+
+Both read the same `.eshell-data/` directory, open their own SSH connections on demand (a profile name is enough — no terminal tab required), and expose the same MCP tools as the in-app bridge — nine of them by default, fewer when a plugin is deactivated.
+
+See [Standalone MCP Server And CLI](docs/guides/features/standalone_mcp_cli.md).
+
 ## Tech Stack
 
 Frontend:
@@ -242,6 +253,7 @@ Persistence notes:
 - [Webshell Session](docs/guides/features/webshell_session.md)
 - [ACP Agent Guide](docs/guides/features/acp_agent.md)
 - [ACP Panel Frontend](docs/guides/features/acp_panel_frontend.md)
+- [Standalone MCP Server And CLI](docs/guides/features/standalone_mcp_cli.md)
 - [Project Dev Guide](docs/guides/PROJECT_DEV_GUIDE.md)
 - [Project Description](docs/specs/project_description.md)
 - [OpenAPI-style RPC Spec](docs/specs/openapi.yaml)

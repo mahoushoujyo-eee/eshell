@@ -3,6 +3,11 @@ mod common;
 mod domain;
 mod state;
 
+/// The standalone entry points: the `eshell-cli` command line and the
+/// `eshell-mcp` MCP server. They run eShell's server operations without the
+/// desktop app.
+pub mod cli;
+
 #[cfg(not(test))]
 use std::path::PathBuf;
 #[cfg(not(test))]

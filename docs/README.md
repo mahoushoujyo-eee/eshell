@@ -45,6 +45,7 @@ Root project introductions:
 - [Ops Agent Guide](guides/features/ops_agent.md) — Ops Agent request flow, approvals, streaming, attachments, and cancellation
 - [ACP Agent Guide](guides/features/acp_agent.md) — Agent Client Protocol integration: protocol support matrix, auth flow, session history/resume, images, MCP bridge tools, multi-agent config
 - [ACP Panel Frontend Guide](guides/features/acp_panel_frontend.md) — UI handoff doc for the ACP chat panel: component map, state contract, interaction inventory, and UI backlog
+- [Standalone MCP Server And CLI](guides/features/standalone_mcp_cli.md) — The `eshell-mcp` and `eshell-cli` binaries that run eShell's server operations without the desktop app: config directory resolution, client setup, host-key policy, and the shared MCP core
 - [Webshell Session Guide](guides/features/webshell_session.md) — PTY keepalive-based disconnect detection, in-place session recovery, and terminal clipboard shortcuts
 - [eshell-config Skill](../skills/eshell-config/SKILL.md) — Agent-facing reference for editing `.eshell-data/*.json` (SSH/ACP schemas, wire formats, server-operation norms, non-hot-reload restart rule)
 - [eshell-plugin-dev Skill](../skills/eshell-plugin-dev/SKILL.md) — Agent-facing reference for writing an eShell external plugin (manifest schema, API v1 facade, lifecycle, install/enable flow, trust model)
