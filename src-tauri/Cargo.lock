@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "eshell"
-version = "1.7.4"
+version = "1.7.5"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
