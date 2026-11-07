@@ -26,7 +26,13 @@ export default defineConfig(async () => ({
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      //
+      // Also ignore editor/tooling temp artifacts. On Windows a watcher that
+      // picks up a file inside one of these transient `.tmpdir` directories can
+      // die on `EBUSY` and take the whole dev server down with it — the editor
+      // creates the file, starts watching it, and the tool removes the
+      // directory before chokidar lets go.
+      ignored: ["**/src-tauri/**", "**/.*.tmpdir/**", "**/*.tmp"],
     },
   },
   test: {
