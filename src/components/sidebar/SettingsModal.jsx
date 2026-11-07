@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   Check,
@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   Moon,
   Palette,
+  Pencil,
   Plus,
   Puzzle,
   RefreshCw,
@@ -23,7 +24,12 @@ import Dialog from "../ui/Dialog";
 import SegmentedControl from "../ui/SegmentedControl";
 import Switch from "../ui/Switch";
 import { sectionLabelClass } from "../ui/fieldClasses";
+import { loadFileEditorModal } from "../panels/file-editor-loader";
 import PluginRemoveDialog from "./PluginRemoveDialog";
+
+// Same chunk the SFTP viewer opens through, so editing a config file does not
+// pull a second copy of Monaco into the app.
+const FileEditorModal = lazy(loadFileEditorModal);
 
 const TAB = Object.freeze({
   interface: "interface",
@@ -357,13 +363,17 @@ function PluginsTab() {
  * profile applies to the next connection), and this pane says so rather than
  * implying that reload equals reconnect.
  */
-function ConfigTab() {
+function ConfigTab({ theme }) {
   const { t } = useI18n();
   const [files, setFiles] = useState([]);
   const [results, setResults] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  // The file open in the editor: { file, path, content, saved }.
+  const [editing, setEditing] = useState(null);
+  const [opening, setOpening] = useState("");
+  const [editorError, setEditorError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -405,10 +415,59 @@ function ConfigTab() {
 
   const outcomeFor = (file) => results?.find((row) => row.file === file);
 
+  /**
+   * Opens one config file in the editor.
+   *
+   * A file that does not exist yet comes back as a valid skeleton, so "edit"
+   * also covers creating the file — which is how `acp_agents.json` gets
+   * customised on a fresh install.
+   */
+  const openEditor = useCallback(async (entry) => {
+    setOpening(entry.file);
+    setEditorError("");
+    try {
+      const document = await api.readConfigFile(entry.file);
+      setEditing({
+        file: document.file,
+        path: document.path,
+        content: document.content,
+        saved: document.content,
+      });
+    } catch (cause) {
+      setError(String(cause?.message ?? cause));
+    } finally {
+      setOpening("");
+    }
+  }, []);
+
+  /**
+   * Saves the open file. The backend validates before writing, so a rejected
+   * save leaves the previous file — and the running app — untouched; the error
+   * stays in the editor instead of closing it.
+   */
+  const saveEditor = useCallback(async () => {
+    if (!editing) {
+      return false;
+    }
+    setEditorError("");
+    try {
+      const outcome = await api.writeConfigFile(editing.file, editing.content);
+      setEditing((prev) => (prev ? { ...prev, saved: prev.content } : prev));
+      setResults([{ ...outcome, saved: true }]);
+      return true;
+    } catch (cause) {
+      setEditorError(String(cause?.message ?? cause));
+      return false;
+    }
+  }, [editing]);
+
   /** One sentence per file: what actually happened to it. */
   const describe = (outcome) => {
     if (outcome.error) {
       return { tone: "danger", text: t("Could not apply: {reason}", { reason: outcome.error }) };
+    }
+    if (outcome.saved) {
+      return { tone: "success", text: t("Saved and applied.") };
     }
     if (outcome.missing) {
       return { tone: "muted", text: t("File not found — the current value was kept.") };
@@ -479,6 +538,19 @@ function ConfigTab() {
                       {describe(outcome).text}
                     </span>
                   ) : null}
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    onClick={() => void openEditor(entry)}
+                    disabled={Boolean(busy) || Boolean(opening)}
+                  >
+                    {opening === entry.file ? (
+                      <LoaderCircle className="h-3 w-3 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Pencil className="h-3 w-3" aria-hidden="true" />
+                    )}
+                    {t("Edit")}
+                  </Button>
                   <Button variant="secondary" size="xs" onClick={() => reload(entry.file)} disabled={Boolean(busy)}>
                     {t("Reload")}
                   </Button>
@@ -494,6 +566,27 @@ function ConfigTab() {
           "A missing file keeps its current value, and a file that fails to parse is reported instead of applied — a half-written file cannot clear your settings.",
         )}
       </p>
+
+      {/* Editing happens in the same Monaco editor the SFTP browser opens
+          remote files in, one layer above this dialog. Saving validates first,
+          so a typo never reaches the file the app is running on. */}
+      <Suspense fallback={null}>
+        <FileEditorModal
+          open={editing != null}
+          onClose={() => setEditing(null)}
+          filePath={editing?.path ?? ""}
+          fileContent={editing?.content ?? ""}
+          onFileContentChange={(value) =>
+            setEditing((prev) => (prev ? { ...prev, content: value } : prev))
+          }
+          dirtyFile={editing ? editing.content !== editing.saved : false}
+          onSave={saveEditor}
+          onDiscard={() => setEditing((prev) => (prev ? { ...prev, content: prev.saved } : prev))}
+          theme={theme}
+          layer="stacked"
+          error={editorError}
+        />
+      </Suspense>
     </div>
   );
 }
@@ -820,7 +913,7 @@ export default function SettingsModal({
             ) : tab === TAB.plugins ? (
               <PluginsTab />
             ) : tab === TAB.config ? (
-              <ConfigTab />
+              <ConfigTab theme={theme} />
             ) : (
               <VersionTab />
             )}

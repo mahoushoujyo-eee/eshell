@@ -1,4 +1,4 @@
-﻿import { Eye, Pencil } from "lucide-react";
+import { Eye, Pencil } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState, useTransition } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
@@ -57,6 +57,13 @@ export default function FileEditorModal({
   onSave,
   onDiscard,
   theme,
+  // Editor opened from inside another dialog (Settings → Config Files) has to
+  // sit above it; the unsaved-changes prompt it may raise is `stacked` too and
+  // is rendered after this one, so it still wins the paint order.
+  layer = "modal",
+  // A save can be rejected (invalid JSON, a write failure). Without a slot for
+  // it the editor would look like the save silently did nothing.
+  error = "",
 }) {
   const { t } = useI18n();
   const [mode, setMode] = useState("edit");
@@ -170,6 +177,7 @@ export default function FileEditorModal({
     <Dialog
       open
       onClose={requestClose}
+      layer={layer}
       size="custom"
       className="h-[86vh] max-w-6xl"
       labelledBy="file-editor-title"
@@ -201,6 +209,15 @@ export default function FileEditorModal({
         }
         onClose={requestClose}
       />
+
+      {error ? (
+        <div
+          role="alert"
+          className="shrink-0 border-b border-danger/35 bg-danger/10 px-4 py-2 text-xs leading-relaxed text-danger"
+        >
+          {error}
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 bg-panel">
         {/* Hidden rather than unmounted while previewing, so undo history and
