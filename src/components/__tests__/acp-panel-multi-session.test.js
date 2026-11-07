@@ -10,10 +10,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 
+// The dialog is the OS file picker: the panel only needs the paths back.
+const dialogState = vi.hoisted(() => ({ open: vi.fn(async () => []) }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: dialogState.open }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 
 import { createElement } from "react";
-import { findElement, findElements, installFakeDom, uninstallFakeDom } from "../../test/fake-dom.js";
+import {
+  FakeEvent,
+  findElement,
+  findElements,
+  installFakeDom,
+  uninstallFakeDom,
+} from "../../test/fake-dom.js";
 import { fireClick, render } from "../../test/react-render.js";
 import { I18nProvider } from "../../lib/i18n.js";
 import AcpAgentPanel from "../panels/AcpAgentPanel.jsx";
@@ -488,6 +497,96 @@ describe("AcpAgentPanel with live conversations", () => {
       fireClick(method);
     });
     expect(acp.authenticate).toHaveBeenCalledWith("oauth");
+    await unmount();
+  });
+});
+
+/** A ready conversation with a transcript, for the composer affordances. */
+const readyConversation = (overrides = {}) => {
+  const row = conversation({ transcript: [{ id: "t1", type: "assistant", text: "Plan: restart nginx" }] });
+  return { row: { ...row, ...overrides } };
+};
+
+const readyAcp = (setDraft) => {
+  const { row } = readyConversation();
+  return makeAcp({
+    conversations: [row],
+    activeKey: "c1",
+    activeConversation: row,
+    phase: "ready",
+    session: { id: "sess-1", modes: null, capabilities: null },
+    // The panel renders the hook's derived transcript, not the row's copy.
+    transcript: row.transcript,
+    draft: { text: "", attachments: [], shellContext: null },
+    setDraft,
+  });
+};
+
+describe("AcpAgentPanel composer context", () => {
+  it("adds the chosen file paths to the prompt instead of their contents", async () => {
+    dialogState.open.mockResolvedValue(["C:\\work\\a.ts", "C:\\work\\b.md"]);
+    const setDraft = vi.fn();
+    const { container, unmount } = await mountPanel(readyAcp(setDraft));
+
+    const attach = findElement(
+      container,
+      (node) => node.nodeName === "BUTTON" && node.getAttribute("aria-label") === "Attach file paths",
+    );
+    await act(async () => {
+      fireClick(attach);
+    });
+    await act(async () => {});
+
+    // Paths, not contents: the agent reads the file itself.
+    expect(setDraft).toHaveBeenCalledWith({ text: "`C:\\work\\a.ts`\n`C:\\work\\b.md`" });
+    await unmount();
+  });
+
+  it("quotes the selected transcript text into the prompt", async () => {
+    const setDraft = vi.fn();
+    const { container, unmount } = await mountPanel(readyAcp(setDraft));
+
+    // The deepest node holding the reply: an ancestor would not be "inside" the
+    // scroller, and the panel only quotes selections from the transcript.
+    const matches = findElements(
+      container,
+      (node) => (node.textContent || "").includes("Plan: restart nginx"),
+    );
+    const selected = matches[matches.length - 1];
+    const panel = findElement(
+      container,
+      (node) => (node.getAttribute("class") || "").includes("bg-surface"),
+    );
+    const scroller = findElement(
+      container,
+      (node) => (node.getAttribute("class") || "").includes("scroll-region"),
+    );
+    panel.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 600 });
+    window.getSelection = () => ({
+      toString: () => "Plan: restart nginx\nand reload",
+      anchorNode: selected,
+      rangeCount: 1,
+      getRangeAt: () => ({
+        getBoundingClientRect: () => ({ left: 10, top: 10, right: 50, bottom: 20, width: 40, height: 10 }),
+      }),
+      removeAllRanges: () => {},
+    });
+
+    await act(async () => {
+      scroller.dispatchEvent(new FakeEvent("mouseup", { target: selected }));
+    });
+
+    const quote = findElement(
+      container,
+      (node) => node.nodeName === "BUTTON" && (node.textContent || "").includes("Quote in reply"),
+    );
+    expect(quote).toBeTruthy();
+
+    await act(async () => {
+      fireClick(quote);
+    });
+
+    expect(setDraft).toHaveBeenCalledWith({ text: "> Plan: restart nginx\n> and reload" });
     await unmount();
   });
 });

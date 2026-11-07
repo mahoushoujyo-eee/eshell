@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   CircleStop,
   Folder,
   Loader2,
   Maximize2,
   Minimize2,
+  Paperclip,
+  Quote,
   Send,
   Square,
   TerminalSquare,
@@ -178,7 +181,10 @@ export default function AcpAgentPanel({ acp }) {
   const composerRef = useRef(null);
   const composerMenuRef = useRef(null);
   const scrollRef = useRef(null);
+  const panelRef = useRef(null);
   const nearBottomRef = useRef(true);
+  // Transcript text selected for quoting: { text, x, y } or null.
+  const [selectionQuote, setSelectionQuote] = useState(null);
 
   const ready = phase === "ready" && session != null;
   const starting = phase === "starting";
@@ -236,7 +242,26 @@ export default function AcpAgentPanel({ acp }) {
   const handleScroll = useCallback((event) => {
     const node = event.currentTarget;
     nearBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+    // The quote button is placed from the selection's viewport rect, so it
+    // would float over the wrong paragraph once the text moves.
+    setSelectionQuote(null);
   }, []);
+
+  // Dismiss the quote button on an outside click, the same way the composer
+  // popovers are dismissed — but keep the selection when the button itself is
+  // pressed, or the click would never land.
+  useEffect(() => {
+    if (!selectionQuote) {
+      return undefined;
+    }
+    const dismiss = (event) => {
+      if (!event.target?.closest?.("[data-quote-popover]")) {
+        setSelectionQuote(null);
+      }
+    };
+    window.addEventListener("pointerdown", dismiss, true);
+    return () => window.removeEventListener("pointerdown", dismiss, true);
+  }, [selectionQuote]);
 
   // The expand affordance only earns its corner once the draft really
   // overflows, so measure instead of guessing from its length: how much wraps
@@ -296,6 +321,149 @@ export default function AcpAgentPanel({ acp }) {
     },
     [attachments, canSend, question, sendPrompt],
   );
+
+  /**
+   * Appends a snippet to the draft and focuses the composer.
+   *
+   * Appending — rather than inserting at the caret — because both callers add a
+   * block the user is about to talk about ("here is a file", "about this
+   * paragraph"), and the sentence explaining it comes before the block in the
+   * user's head anyway. Appending never splits text they already typed.
+   */
+  const appendToDraft = useCallback(
+    (snippet) => {
+      const addition = (snippet || "").trim();
+      if (!addition) {
+        return;
+      }
+      const current = question.trimEnd();
+      setDraft({ text: current ? `${current}\n\n${addition}` : addition });
+      // `requestAnimationFrame` lives on the fake window in tests but is not a
+      // global there, so fall back to a timer.
+      const schedule =
+        typeof requestAnimationFrame === "function"
+          ? requestAnimationFrame
+          : (callback) => setTimeout(callback, 0);
+      schedule(() => {
+        const node = textareaRef.current;
+        if (!node) {
+          return;
+        }
+        node.focus();
+        node.setSelectionRange(node.value.length, node.value.length);
+      });
+    },
+    [question, setDraft],
+  );
+
+  // A path, not the file contents: the agent runs on this machine and can read
+  // the file itself, which beats shipping a stale copy through the transcript.
+  const quotePaths = useCallback(
+    (paths) => paths.filter(Boolean).map((path) => `\`${path}\``).join("\n"),
+    [],
+  );
+
+  const attachFiles = useCallback(
+    async (paths) => {
+      const snippet = quotePaths(paths);
+      if (snippet) {
+        appendToDraft(snippet);
+      }
+    },
+    [appendToDraft, quotePaths],
+  );
+
+  const pickFiles = useCallback(async () => {
+    try {
+      const picked = await openDialog({
+        multiple: true,
+        directory: false,
+        title: t("Attach file paths"),
+      });
+      const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+      await attachFiles(paths);
+    } catch {
+      // The dialog being unavailable (or cancelled) is not worth a notice.
+    }
+  }, [attachFiles, t]);
+
+  // Drops are handled at the webview level: the page never receives real file
+  // paths, only the shell does, so a plain HTML5 drop handler cannot work here.
+  // Only drops inside this panel count — otherwise dragging a file anywhere in
+  // the app would silently type into the agent prompt.
+  useEffect(() => {
+    let unlisten = null;
+    let cancelled = false;
+    const scale = window.devicePixelRatio || 1;
+    void (async () => {
+      try {
+        const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+        const stop = await getCurrentWebview().onDragDropEvent((event) => {
+          if (event.payload?.type !== "drop") {
+            return;
+          }
+          const rect = panelRef.current?.getBoundingClientRect();
+          const point = event.payload.position;
+          if (rect && point) {
+            const x = point.x / scale;
+            const y = point.y / scale;
+            if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+              return;
+            }
+          }
+          void attachFiles(event.payload.paths ?? []);
+        });
+        if (cancelled) {
+          stop?.();
+        } else {
+          unlisten = stop;
+        }
+      } catch {
+        // Outside Tauri (tests, plain browser) there is nothing to listen to.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [attachFiles]);
+
+  /** Turns a transcript selection into a quoted block. */
+  const handleTranscriptSelection = useCallback(() => {
+    const selection = window.getSelection?.();
+    const text = selection?.toString?.().trim() ?? "";
+    const anchor = selection?.anchorNode;
+    const container = scrollRef.current;
+    if (!text || !anchor || !container?.contains(anchor) || selection.rangeCount === 0) {
+      setSelectionQuote(null);
+      return;
+    }
+    const rect = selection.getRangeAt(0).getBoundingClientRect?.();
+    const panelRect = panelRef.current?.getBoundingClientRect?.();
+    if (!rect || !panelRect || (!rect.width && !rect.height)) {
+      setSelectionQuote(null);
+      return;
+    }
+    setSelectionQuote({
+      text: text.length > 2000 ? `${text.slice(0, 2000)}…` : text,
+      // Centred over the selection, kept inside the panel.
+      x: Math.min(Math.max(rect.left + rect.width / 2, panelRect.left + 64), panelRect.right - 64),
+      y: Math.min(rect.bottom + 8, panelRect.bottom - 40),
+    });
+  }, []);
+
+  const quoteSelection = useCallback(() => {
+    if (!selectionQuote) {
+      return;
+    }
+    const quoted = selectionQuote.text
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+    appendToDraft(quoted);
+    setSelectionQuote(null);
+    window.getSelection?.()?.removeAllRanges?.();
+  }, [appendToDraft, selectionQuote]);
 
   const addImageFiles = useCallback(
     async (files) => {
@@ -393,7 +561,7 @@ export default function AcpAgentPanel({ acp }) {
     if (!activeConversation) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-3 px-4 py-6 text-center">
-          {envMissing ? <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} /> : null}
+          {envMissing ? <AcpEnvWarningCard env={runtimeEnv} onRecheck={() => refreshRuntimeEnv(true)} /> : null}
           {standaloneNotices.map((entry) => (
             <AcpNoticeRow key={entry.id} entry={entry} />
           ))}
@@ -440,7 +608,7 @@ export default function AcpAgentPanel({ acp }) {
       return (
         <div className="space-y-2">
           {envMissing ? (
-            <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} />
+            <AcpEnvWarningCard env={runtimeEnv} onRecheck={() => refreshRuntimeEnv(true)} />
           ) : null}
           <div className="rounded-lg border border-warning/35 bg-warning/8 px-3 py-2.5 text-xs">
             <div className="flex items-center gap-2 text-warning">
@@ -488,7 +656,7 @@ export default function AcpAgentPanel({ acp }) {
     return (
       <div className="space-y-2">
         {envMissing ? (
-          <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} />
+          <AcpEnvWarningCard env={runtimeEnv} onRecheck={() => refreshRuntimeEnv(true)} />
         ) : null}
         {authActive ? (
           <AcpAuthCard
@@ -517,7 +685,10 @@ export default function AcpAgentPanel({ acp }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface">
+    <div
+      ref={panelRef}
+      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-surface"
+    >
       <AcpSessionTabs
         conversations={conversations}
         activeKey={activeKey}
@@ -562,6 +733,7 @@ export default function AcpAgentPanel({ acp }) {
         <div
           ref={scrollRef}
           onScroll={handleScroll}
+          onMouseUp={handleTranscriptSelection}
           className="scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3"
         >
           {renderBody()}
@@ -754,6 +926,17 @@ export default function AcpAgentPanel({ acp }) {
                     }}
                   />
                 ) : null}
+                {ready ? (
+                  <button
+                    type="button"
+                    onClick={() => void pickFiles()}
+                    title={t("Attach file paths")}
+                    aria-label={t("Attach file paths")}
+                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-muted transition-colors hover:bg-hover hover:text-text"
+                  >
+                    <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                ) : null}
               </div>
               {turnActive ? (
                 <button
@@ -778,6 +961,24 @@ export default function AcpAgentPanel({ acp }) {
           </div>
         </form>
       </div>
+
+      {/* Quoting lives next to the selection, like a chat app's "ask about
+          this" affordance: pick a paragraph, hit the pill, and it lands in the
+          composer as a blockquote ready for the question. */}
+      {selectionQuote ? (
+        <button
+          type="button"
+          data-quote-popover="true"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={quoteSelection}
+          style={{ left: selectionQuote.x, top: selectionQuote.y }}
+          title={t("Quote in reply")}
+          className="fixed z-40 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-strong bg-elevated px-2.5 py-1 text-[11px] font-medium text-text shadow-overlay transition-colors hover:bg-hover"
+        >
+          <Quote className="h-3 w-3 text-accent" aria-hidden="true" />
+          {t("Quote in reply")}
+        </button>
+      ) : null}
     </div>
   );
 }
