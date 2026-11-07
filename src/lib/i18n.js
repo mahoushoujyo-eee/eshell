@@ -27,6 +27,8 @@ const zhMessages = {
   "and all of its messages will be removed permanently.": "及其所有消息都将被永久删除。",
   "and everything inside it will be removed from the remote server immediately.":
     "以及其中的所有内容都会立即从远端服务器删除。",
+  "is a folder. Open it and download the files inside one by one.":
+    "是一个文件夹。请先打开它，再逐个下载里面的文件。",
   "approval required": "需要审批",
   "Approval mode": "审批模式",
   "Approve": "批准",
@@ -145,6 +147,7 @@ const zhMessages = {
   "File Editor": "文件编辑器",
   "Folder": "文件夹",
   "Folder Actions": "文件夹操作",
+  "Folder download is not supported": "不支持下载文件夹",
   "Folder name": "文件夹名",
   "Created folder {name}": "已新建文件夹 {name}",
   "Forest Haze": "林雾",
@@ -303,6 +306,7 @@ const zhMessages = {
   "Reload all": "全部重载",
   "Reloadable while the app is running": "应用运行时可重载",
   "Reloaded with changes.": "已重载，内容有变化。",
+  "Saved and applied.": "已保存并立即生效。",
   "Reloaded, nothing changed.": "已重载，内容无变化。",
   "File not found — the current value was kept.": "文件不存在 —— 已保留当前值。",
   "Could not apply: {reason}": "无法应用：{reason}",
@@ -406,7 +410,9 @@ const zhMessages = {
   "No shell session selected": "未选择 Shell 会话",
   "No status data": "没有状态数据",
   "No transfer tasks yet.": "还没有传输任务。",
+  "OK": "确定",
   "Only image files are supported.": "仅支持图片文件。",
+  "Only single files can be downloaded": "目前仅支持下载单个文件",
   "Open": "打开",
   "Open file as text?": "要按文本方式打开这个文件吗？",
   "Open Folder": "打开文件夹",
@@ -483,6 +489,7 @@ const zhMessages = {
   "Script path": "脚本路径",
   "Scripts": "脚本",
   "Selected file": "已选文件",
+  "Selected folder": "已选文件夹",
   "Server Status": "服务器状态",
   "Server AGENTS.md": "服务器 AGENTS.md",
   "Server-specific context, paths, policies...":
@@ -724,6 +731,42 @@ zhMessages[
   "Could not find {tools} on this machine. The built-in agents are launched through npx and cannot start until Node.js is installed."
 ] =
   "本机找不到 {tools}。内置 agent 通过 npx 启动，安装 Node.js 之前无法运行。";
+
+// ACP conversation tabs and history (see panels/acp/AcpSessionTabs.jsx,
+// panels/acp/AcpHistoryPanel.jsx and panels/acp/AcpTranscript.jsx).
+zhMessages["New conversation"] = "新建会话";
+zhMessages["Start a conversation with"] = "选择 Agent 开始会话";
+zhMessages["Conversations"] = "会话";
+zhMessages["Conversation options"] = "会话选项";
+zhMessages["Close conversation"] = "关闭会话";
+zhMessages["Close conversation {name}"] = "关闭会话「{name}」";
+zhMessages["Open conversation"] = "打开会话";
+zhMessages["No conversations yet"] = "还没有会话";
+zhMessages["Start a conversation"] = "开始一段会话";
+zhMessages["Default path"] = "默认路径";
+zhMessages["Each agent's own directory"] = "各 Agent 自己配置的目录";
+zhMessages["Start a conversation first"] = "请先开始一段会话";
+zhMessages["Could not start this conversation"] = "会话启动失败";
+zhMessages["Start again"] = "重新开始";
+zhMessages["Session ended"] = "会话已结束";
+zhMessages["Waiting for approval"] = "等待审批";
+zhMessages["Agent working…"] = "Agent 正在工作…";
+zhMessages["New reply"] = "新回复";
+zhMessages["No agent configured"] = "尚未配置 Agent";
+zhMessages["Agent process running"] = "Agent 进程运行中";
+zhMessages["Stop agent process"] = "停止 Agent 进程";
+zhMessages["Ends every conversation of this agent."] = "会结束该 Agent 的全部会话。";
+zhMessages["No project"] = "无项目";
+zhMessages["New project"] = "新建项目";
+zhMessages["New conversation in this project"] = "在此项目中新建会话";
+zhMessages["Remove project"] = "移除项目";
+zhMessages["No projects yet. Add a local folder to keep its sessions together."] =
+  "还没有项目。添加一个本地文件夹，把它的会话归在一起。";
+zhMessages["Show less"] = "收起";
+zhMessages["just now"] = "刚刚";
+zhMessages["{count} min"] = "{count} 分钟前";
+zhMessages["{count} h"] = "{count} 小时前";
+zhMessages["{count} d"] = "{count} 天前";
 
 const defaultContextValue = {
   language: "en",

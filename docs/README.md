@@ -45,6 +45,7 @@ Root project introductions:
 - [Ops Agent Guide](guides/features/ops_agent.md) — Ops Agent request flow, approvals, streaming, attachments, and cancellation
 - [ACP Agent Guide](guides/features/acp_agent.md) — Agent Client Protocol integration: protocol support matrix, auth flow, session history/resume, images, MCP bridge tools, multi-agent config
 - [ACP Panel Frontend Guide](guides/features/acp_panel_frontend.md) — UI handoff doc for the ACP chat panel: component map, state contract, interaction inventory, and UI backlog
+- [Standalone MCP Server And CLI](guides/features/standalone_mcp_cli.md) — The `eshell-mcp` and `eshell-cli` binaries that run eShell's server operations without the desktop app: config directory resolution, client setup, host-key policy, and the shared MCP core
 - [Webshell Session Guide](guides/features/webshell_session.md) — PTY keepalive-based disconnect detection, in-place session recovery, and terminal clipboard shortcuts
 - [eshell-config Skill](../skills/eshell-config/SKILL.md) — Agent-facing reference for editing `.eshell-data/*.json` (SSH/ACP schemas, wire formats, server-operation norms, non-hot-reload restart rule)
 - [eshell-plugin-dev Skill](../skills/eshell-plugin-dev/SKILL.md) — Agent-facing reference for writing an eShell external plugin (manifest schema, API v1 facade, lifecycle, install/enable flow, trust model)
@@ -52,6 +53,7 @@ Root project introductions:
 - [Built-in Extension Migration Validation](reports/builtin-extension-migration.md) — Compatibility checks, regression tests, browser comparisons, and remaining manual coverage
 - [Improvement Plan](reports/improvement_plan.md) — Prioritized remediation backlog from code-wide review
 - [Unreleased Notes](releases/unreleased.md) — Current branch user-facing changes
+- [Release Notes 1.7.4](releases/v1.7.4.md) — ACP conversations as tabs (no more stopping the agent to switch), per-project agent choice, a path picker on the starter screen, in-app config editing with Monaco, and the standalone CLI/MCP binaries in the installer
 - [Release Notes 1.7.3](releases/v1.7.3.md) — Node.js preflight for the ACP panel, an error card with a title and a body, failures reported once, and rounded window corners on Linux and macOS
 - [Release Notes 1.7.2](releases/v1.7.2.md) — ACP panel rework: tool rows lose the status rail and the `OTHER` chip, the composer can be enlarged, and Server Status network traffic becomes a detail tab
 - [Release Notes 1.7.1](releases/v1.7.1.md) — SSH local port forwarding (panel + plugin API), Monaco editor with explicit save, faster start with no white window, and the macOS download/Gatekeeper note

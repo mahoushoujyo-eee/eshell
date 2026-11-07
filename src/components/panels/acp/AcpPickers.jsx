@@ -1,17 +1,19 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Settings2, SlidersHorizontal } from "lucide-react";
-import AcpAgentLogo from "../../ai/AcpAgentLogo";
-import { formatAcpAgentSpawn } from "../../../lib/acpAgentBrands";
 import { configOptionCurrentLabel, configSelectGroups } from "../../../lib/acpConfigOptions";
 import { useI18n } from "../../../lib/i18n";
 
 /**
- * Pickers for the ACP panel: the agent chooser in the header, and the
- * session-mode chooser plus the session-settings menu (model, thought level,
- * model config) in the composer footer.
+ * Pickers for the ACP panel: the session-mode chooser and the session-settings
+ * menu (model, thought level, model config) in the composer footer.
  *
- * All are controlled by the panel, which keeps a single "which menu is open"
+ * Both are controlled by the panel, which keeps a single "which menu is open"
  * value so only one opens at a time and owns outside-click / Escape handling.
+ *
+ * The agent chooser used to live here too. It was removed with the
+ * multi-conversation model: an agent is now chosen when a conversation is
+ * opened (the tab strip's "+" menu), so there is no global agent selection
+ * left to lock or unlock.
  *
  * Positioning: each menu is placed by a full-width [`MenuLayer`] rather than by
  * its trigger. The dock is only 320-760px wide and the panel root clips
@@ -36,13 +38,6 @@ const optionClass = (selected) =>
     "focus:outline-none focus-visible:ring-1 focus-visible:ring-accent/60",
     selected ? "bg-accent-soft text-text" : "text-text/90 hover:bg-hover",
   ].join(" ");
-
-// Small green dot marking an agent whose process is already running.
-function RunningDot({ title }) {
-  return (
-    <span title={title} className="h-1.5 w-1.5 shrink-0 rounded-full bg-success ring-2 ring-success/20" />
-  );
-}
 
 /**
  * Panel-wide positioning layer for one menu, or for a menu plus the column it
@@ -161,84 +156,6 @@ function ValueRow({ name, description, selected, onSelect }) {
         <Check className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
       ) : null}
     </button>
-  );
-}
-
-export function AcpAgentPicker({ agents, activeAgentId, locked, open, onToggle, onSelect }) {
-  const { t } = useI18n();
-  const activeAgent = agents.find((agent) => agent.id === activeAgentId) || null;
-  const disabled = locked || agents.length === 0;
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={onToggle}
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        title={
-          locked
-            ? t("Stop the agent to switch")
-            : activeAgent
-              ? formatAcpAgentSpawn(activeAgent)
-              : t("No agent configured")
-        }
-        className={triggerClass(open, disabled)}
-        data-tauri-no-drag
-      >
-        <AcpAgentLogo agent={activeAgent} className="h-5 w-5" />
-        <span className="min-w-0 truncate font-medium">
-          {activeAgent?.name || t("No agent configured")}
-        </span>
-        {activeAgent?.running ? <RunningDot title={t("Agent process running")} /> : null}
-        {disabled ? null : (
-          <ChevronDown
-            className={["h-3.5 w-3.5 shrink-0 text-muted transition-transform", open ? "rotate-180" : ""].join(
-              " ",
-            )}
-            aria-hidden="true"
-          />
-        )}
-      </button>
-
-      {open ? (
-        <MenuLayer side="bottom" align="start">
-          <MenuPanel label={t("ACP Agent")} className="w-[17rem] min-w-0 shrink">
-            {agents.map((agent) => {
-              const selected = agent.id === activeAgentId;
-              const spawn = formatAcpAgentSpawn(agent);
-              return (
-                <button
-                  key={agent.id}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  title={spawn}
-                  onClick={() => onSelect(agent.id)}
-                  className={optionClass(selected)}
-                  data-tauri-no-drag
-                >
-                  <AcpAgentLogo agent={agent} className="h-7 w-7" />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="truncate text-[13px] font-medium">{agent.name}</span>
-                      {agent.running ? <RunningDot title={t("Agent process running")} /> : null}
-                    </span>
-                    <span className="mt-0.5 block truncate font-mono text-[10px] text-muted">
-                      {spawn}
-                    </span>
-                  </span>
-                  {selected ? (
-                    <Check className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
-                  ) : null}
-                </button>
-              );
-            })}
-          </MenuPanel>
-        </MenuLayer>
-      ) : null}
-    </>
   );
 }
 

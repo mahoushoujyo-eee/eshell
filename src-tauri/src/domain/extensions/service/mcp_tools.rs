@@ -36,20 +36,23 @@ type PluginToolHandler =
         Value,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, String>> + Send>>;
 
+/// The `sessionId` description used by the desktop app's bridge.
+pub(crate) const DEFAULT_SESSION_DOC: &str = "Shell session id from list_shell_sessions";
+
 /// The tools each plugin contributes, in the order the default
 /// `tools/list` exposed them before the migration.
 ///
 /// Order matters: SFTP tools precede the status tool, matching the
 /// pre-migration list (`read_remote_file`, `write_remote_file`,
 /// `list_remote_dir`, `get_server_status`).
-fn sftp_tools() -> Vec<PluginTool> {
+fn sftp_tools(session_doc: &str) -> Vec<PluginTool> {
     vec![
         PluginTool {
             definition: tool(
                 "read_remote_file",
                 "Read a text file from the remote server of an open session via SFTP.",
                 json!({
-                    "sessionId": session_id_property(),
+                    "sessionId": session_id_property(session_doc),
                     "path": {"type": "string", "description": "Absolute remote path"},
                 }),
                 &["sessionId", "path"],
@@ -61,7 +64,7 @@ fn sftp_tools() -> Vec<PluginTool> {
                 "write_remote_file",
                 "Write (create or overwrite) a text file on the remote server of an open session via SFTP.",
                 json!({
-                    "sessionId": session_id_property(),
+                    "sessionId": session_id_property(session_doc),
                     "path": {"type": "string", "description": "Absolute remote path"},
                     "content": {"type": "string", "description": "Full file content to write"},
                 }),
@@ -74,7 +77,7 @@ fn sftp_tools() -> Vec<PluginTool> {
                 "list_remote_dir",
                 "List a directory on the remote server of an open session via SFTP.",
                 json!({
-                    "sessionId": session_id_property(),
+                    "sessionId": session_id_property(session_doc),
                     "path": {"type": "string", "description": "Absolute remote directory path"},
                 }),
                 &["sessionId", "path"],
@@ -84,12 +87,12 @@ fn sftp_tools() -> Vec<PluginTool> {
     ]
 }
 
-fn status_tools() -> Vec<PluginTool> {
+fn status_tools(session_doc: &str) -> Vec<PluginTool> {
     vec![PluginTool {
         definition: tool(
             "get_server_status",
             "Fetch live CPU, memory, disk, network, and top-process metrics for the remote server of an open session.",
-            json!({ "sessionId": session_id_property() }),
+            json!({ "sessionId": session_id_property(session_doc) }),
             &["sessionId"],
         ),
         handler: status::mcp_get_server_status,
@@ -100,13 +103,35 @@ fn status_tools() -> Vec<PluginTool> {
 ///
 /// An inactive plugin contributes nothing: its tools disappear from
 /// `tools/list` exactly as if it had never registered.
+#[cfg(test)]
 pub(crate) fn plugin_tool_definitions(state: &Arc<AppState>) -> Vec<Value> {
+    plugin_tool_definitions_with_doc(state, DEFAULT_SESSION_DOC)
+}
+
+/// The plugin-contributed tool definitions with an explicit `sessionId`
+/// description.
+///
+/// The desktop app's bridge describes the argument as a session id; the
+/// standalone server also accepts an SSH profile name, so it passes its own
+/// wording. Nothing else about the definitions differs.
+pub(crate) fn plugin_tool_definitions_with_doc(
+    state: &Arc<AppState>,
+    session_doc: &str,
+) -> Vec<Value> {
     let mut definitions = Vec::new();
     if sftp::is_active(state) {
-        definitions.extend(sftp_tools().into_iter().map(|tool| tool.definition));
+        definitions.extend(
+            sftp_tools(session_doc)
+                .into_iter()
+                .map(|tool| tool.definition),
+        );
     }
     if status::is_active(state) {
-        definitions.extend(status_tools().into_iter().map(|tool| tool.definition));
+        definitions.extend(
+            status_tools(session_doc)
+                .into_iter()
+                .map(|tool| tool.definition),
+        );
     }
     definitions
 }
@@ -122,13 +147,13 @@ pub(crate) async fn dispatch_plugin_tool(
     args: &Value,
 ) -> Option<Result<Value, String>> {
     let tools: Vec<PluginTool> = if sftp::is_active(state) {
-        let mut tools = sftp_tools();
+        let mut tools = sftp_tools(DEFAULT_SESSION_DOC);
         if status::is_active(state) {
-            tools.extend(status_tools());
+            tools.extend(status_tools(DEFAULT_SESSION_DOC));
         }
         tools
     } else if status::is_active(state) {
-        status_tools()
+        status_tools(DEFAULT_SESSION_DOC)
     } else {
         Vec::new()
     };
@@ -154,10 +179,10 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str]) -> 
     })
 }
 
-fn session_id_property() -> Value {
+fn session_id_property(doc: &str) -> Value {
     json!({
         "type": "string",
-        "description": "Shell session id from list_shell_sessions",
+        "description": doc,
     })
 }
 

@@ -120,7 +120,7 @@ describe("SftpPanel static markup (pre-migration baseline)", () => {
     expect(markup).toMatchSnapshot();
   });
 
-  it("enables the download action only for a selected file entry", () => {
+  it("keeps the download action enabled for any selected entry", () => {
     const fileEntry = SFTP_ENTRIES.find((entry) => entry.entryType === "file");
     const directoryEntry = SFTP_ENTRIES.find((entry) => entry.entryType === "directory");
 
@@ -135,7 +135,9 @@ describe("SftpPanel static markup (pre-migration baseline)", () => {
     const disabledCount = (markup) => (markup.match(/disabled=""/g) || []).length;
     expect(disabledCount(noneSelected)).toBe(1); // download only (session active)
     expect(disabledCount(fileSelected)).toBe(0);
-    expect(disabledCount(directorySelected)).toBe(1);
+    // A folder stays clickable: the request is answered with the "folder
+    // download is not supported" popup instead of a dead disabled button.
+    expect(disabledCount(directorySelected)).toBe(0);
     expect(noneSelected).toMatchSnapshot();
     expect(fileSelected).toMatchSnapshot();
     expect(directorySelected).toMatchSnapshot();

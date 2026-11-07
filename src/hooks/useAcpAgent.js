@@ -1,23 +1,36 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { normalizeShellContextAttachment } from "../lib/ops-agent-shell-context";
 import { api } from "../lib/tauri-api";
 
 /**
- * State machine for one ACP agent session, backed by the `acp-agent-stream`
- * Tauri event and the `acp_*` commands.
+ * Multi-conversation state machine for the ACP panel.
  *
- * Transcript entries (in arrival order):
+ * One agent subprocess can host several conversations at once (measured with
+ * `scripts/acp-concurrency-probe.mjs`: two `session/new` on one connection run
+ * their turns concurrently and `session/close` really releases them). The state
+ * is therefore a list of conversations, each with its own transcript, plan,
+ * config options, usage, turn state and composer draft — plus one `activeKey`
+ * pointing at the one the panel is showing.
+ *
+ * Why this shape: the previous single-session model forced every switch (new
+ * conversation, different agent, reopening history) to stop the whole process
+ * first, which lost the live conversation and cost a full handshake. Nothing
+ * in the protocol required that.
+ *
+ * Conversation entries:
  * - { id, type: "user", text, images?, context? }  — context: attached terminal selection
- * - { id, type: "assistant", text }            — streamed, merged per segment
- * - { id, type: "thought", text }              — agent reasoning, merged per segment
- * - { id, type: "tool", tool }                 — updated in place by toolCallId
+ * - { id, type: "assistant", text }               — streamed, merged per segment
+ * - { id, type: "thought", text }                 — agent reasoning, merged per segment
+ * - { id, type: "tool", tool }                    — updated in place by toolCallId
  * - { id, type: "permission", requestId, toolCall, options, resolution, resolving }
- * - { id, type: "notice", tone, code, detail } — codes translated by the panel
+ * - { id, type: "notice", tone, code, detail }    — codes translated by the panel
  *
- * Finished transcripts persist to `.eshell-data/acp_sessions/`; reopening a
- * session attempts a native `session/load` resume (the agent replays history
- * as stream events) and falls back to a fresh session when unsupported.
+ * Stream events carry both `agentId` and `sessionId`; `sessionId` routes an
+ * update to its conversation. The one exception is `stopped`, which is
+ * connection-scoped: its `sessionId` is whichever session the backend last
+ * created, so it must be routed by `agentId` and it ends every conversation of
+ * that agent.
  */
 
 const STREAM_EVENT = "acp-agent-stream";
@@ -32,6 +45,15 @@ let entrySeq = 0;
 const nextEntryId = () => {
   entrySeq += 1;
   return `acp-entry-${entrySeq}`;
+};
+
+// Local conversation id. Deliberately not the agent's session id: a
+// conversation exists (in "starting") before the agent has created it, and a
+// failed start or an ended conversation still keeps its place in the list.
+let conversationSeq = 0;
+const nextConversationKey = () => {
+  conversationSeq += 1;
+  return `c${conversationSeq}`;
 };
 
 const normalizeTool = (view) => ({
@@ -72,73 +94,119 @@ const sanitizeEntriesForHistory = (entries) =>
       return entry;
     });
 
+const emptyDraft = () => ({ text: "", attachments: [], shellContext: null });
+
+const titleFromTranscript = (transcript) => {
+  const firstUser = transcript.find((entry) => entry.type === "user");
+  return firstUser ? String(firstUser.text || "").replaceAll("\n", " ").slice(0, HISTORY_TITLE_LENGTH) : "";
+};
+
 export function useAcpAgent() {
   const [agents, setAgents] = useState([]);
+  // Agent used by the "new conversation" entry point; no longer a property of
+  // the panel as a whole, because every conversation carries its own agent.
   const [activeAgentId, setActiveAgentId] = useState(null);
-  // idle | starting | auth (sign-in required) | authenticating | ready
-  const [phase, setPhase] = useState("idle");
-  // { agentId, agentName, id, modes, agentInfo, capabilities, createdAt }
-  const [session, setSession] = useState(null);
-  const [authMethods, setAuthMethods] = useState([]);
-  const [transcript, setTranscript] = useState([]);
-  const [plan, setPlan] = useState(null);
-  const [commands, setCommands] = useState([]);
-  // Session config options (model, thought level, ...). Agents replace the
-  // whole set on every change, so this is never merged.
-  const [configOptions, setConfigOptions] = useState([]);
-  const [usage, setUsage] = useState(null);
-  const [turnActive, setTurnActive] = useState(false);
+  const [conversations, setConversations] = useState([]);
+  const [activeKey, setActiveKey] = useState(null);
   const [history, setHistory] = useState([]);
   // Local directories ACP sessions can run in ({id, name, path, createdAt}).
   const [projects, setProjects] = useState([]);
-  // Terminal selection staged for the next prompt ({sessionId, sessionName, content}).
-  const [shellContext, setShellContext] = useState(null);
   // Node.js toolchain probe result ({ ok, node, npx }); null until probed.
   const [runtimeEnv, setRuntimeEnv] = useState(null);
+  // Failures that happen with no conversation to attach them to (project
+  // registry errors, mostly). Rendered above the empty state.
+  const [standaloneNotices, setStandaloneNotices] = useState([]);
 
-  // Agent id the panel is engaged with; set as soon as start begins so events
-  // arriving during the handshake (e.g. session/load replay) are kept.
-  const engagedAgentRef = useRef(null);
-  const pendingResumeRef = useRef(null);
-  // Project ({id, path}) the pending start belongs to; survives the sign-in
-  // detour so a post-auth session still lands in the right folder.
-  const projectRef = useRef(null);
-  const sessionRef = useRef(null);
-  sessionRef.current = session;
-  const phaseRef = useRef(phase);
-  phaseRef.current = phase;
-  const transcriptRef = useRef(transcript);
-  transcriptRef.current = transcript;
+  const conversationsRef = useRef(conversations);
+  conversationsRef.current = conversations;
+  const activeKeyRef = useRef(activeKey);
+  activeKeyRef.current = activeKey;
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
-  const shellContextRef = useRef(shellContext);
-  shellContextRef.current = shellContext;
+  const activeAgentIdRef = useRef(activeAgentId);
+  activeAgentIdRef.current = activeAgentId;
 
-  // Stages a terminal selection as context for the next prompt (replaces any
-  // previously staged selection, mirroring the legacy assistant behavior).
-  const attachShellContext = useCallback((selection) => {
-    const normalized = normalizeShellContextAttachment(selection);
-    if (normalized) {
-      setShellContext(normalized);
-    }
-  }, []);
-
-  const clearShellContext = useCallback(() => setShellContext(null), []);
-
-  const pushNotice = useCallback((tone, code, detail = "") => {
-    setTranscript((prev) => [
-      ...prev,
-      { id: nextEntryId(), type: "notice", tone, code, detail: String(detail || "") },
-    ]);
-  }, []);
-
-  // When a failure was reported this recently, the same failure arriving
-  // again is the same problem, not a new one.
+  // A terminal selection made while every conversation is closed rides along
+  // into the next conversation the user opens.
+  const pendingShellContextRef = useRef(null);
+  // One start chain per agent: `acp_agent_start` refuses when that agent
+  // already has a live runner, so two quick "new conversation" clicks would
+  // otherwise race into `already has an active session`.
+  const startQueuesRef = useRef(new Map());
+  // Agents this hook has a live process for. `agents[].running` comes from an
+  // async list refresh that may not have landed yet when the next conversation
+  // starts; without this, the second click would take the `acp_agent_start`
+  // path and fail on a process that is already running.
+  const liveAgentsRef = useRef(new Set());
   const failureReportedAtRef = useRef(0);
 
+  /** Applies a patch to one conversation. */
+  const patchConversation = useCallback((key, patch) => {
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.key === key ? { ...conversation, ...patch } : conversation,
+      ),
+    );
+  }, []);
+
+  /** Functional update for one conversation (append to transcript, etc.). */
+  const updateConversation = useCallback((key, updater) => {
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.key === key ? updater(conversation) : conversation,
+      ),
+    );
+  }, []);
+
+  // sessionId -> conversation key, and agentId -> its conversation keys. The
+  // stream listener reads these through a ref, so it stays registered once.
+  const routing = useMemo(() => {
+    const bySession = new Map();
+    const byAgent = new Map();
+    for (const conversation of conversations) {
+      if (conversation.sessionId) {
+        bySession.set(conversation.sessionId, conversation.key);
+      }
+      const keys = byAgent.get(conversation.agentId) || [];
+      keys.push(conversation.key);
+      byAgent.set(conversation.agentId, keys);
+    }
+    return { bySession, byAgent };
+  }, [conversations]);
+  const routingRef = useRef(routing);
+  routingRef.current = routing;
+
+  /* ---------------------------------------------------------------- notices */
+
+  const pushNotice = useCallback(
+    (tone, code, detail = "", key = null) => {
+      const entry = {
+        id: nextEntryId(),
+        type: "notice",
+        tone,
+        code,
+        detail: String(detail || ""),
+      };
+      const targetKey =
+        key ||
+        activeKeyRef.current ||
+        conversationsRef.current[conversationsRef.current.length - 1]?.key ||
+        null;
+      if (!targetKey) {
+        setStandaloneNotices((prev) => [...prev, entry]);
+        return;
+      }
+      updateConversation(targetKey, (conversation) => ({
+        ...conversation,
+        transcript: [...conversation.transcript, entry],
+      }));
+    },
+    [updateConversation],
+  );
+
   const reportFailure = useCallback(
-    (code, err) => {
-      pushNotice("error", code, err);
+    (code, err, key = null) => {
+      pushNotice("error", code, err, key);
       failureReportedAtRef.current = Date.now();
     },
     [pushNotice],
@@ -149,92 +217,96 @@ export function useAcpAgent() {
     [],
   );
 
-  // Names of the tools that are missing, shared by the warning card and the
-  // notice row.
-  const missingEnvTools = (env) =>
-    !env || env.ok
-      ? []
-      : [env.node, env.npx].filter((tool) => tool && !tool.found).map((tool) => tool.command);
+  /* ------------------------------------------------------------- transcript */
 
-  // Last probe conclusion, so the notice is pushed on the transition only.
-  const lastEnvOkRef = useRef(null);
-
-  const refreshRuntimeEnv = useCallback(async () => {
-    let env = null;
-    try {
-      const probed = await api.acpRuntimeEnv();
-      env = probed && typeof probed === "object" ? probed : null;
-    } catch {
-      setRuntimeEnv(null);
-      return null;
-    }
-    setRuntimeEnv(env);
-    // Only on the transition into missing: otherwise every panel open would
-    // push another identical notice.
-    if (env && !env.ok && lastEnvOkRef.current !== false) {
-      pushNotice("warning", "env-missing", missingEnvTools(env).join(", "));
-    }
-    lastEnvOkRef.current = Boolean(env?.ok);
-    return env;
-  }, [pushNotice]);
-
-  const appendStreamText = useCallback((type, chunk) => {
-    if (typeof chunk !== "string" || chunk.length === 0) {
-      return;
-    }
-    setTranscript((prev) => {
-      const last = prev[prev.length - 1];
-      if (last && last.type === type) {
-        const next = prev.slice(0, -1);
-        next.push({ ...last, text: last.text + chunk });
-        return next;
+  const appendStreamText = useCallback(
+    (key, type, chunk) => {
+      if (typeof chunk !== "string" || chunk.length === 0) {
+        return;
       }
-      return [...prev, { id: nextEntryId(), type, text: chunk }];
-    });
-  }, []);
+      const background = key !== activeKeyRef.current;
+      updateConversation(key, (conversation) => {
+        const last = conversation.transcript[conversation.transcript.length - 1];
+        if (last && last.type === type) {
+          const transcript = conversation.transcript.slice(0, -1);
+          transcript.push({ ...last, text: last.text + chunk });
+          return { ...conversation, transcript };
+        }
+        // A new segment of agent text on a background conversation is what the
+        // tab's unread dot is counting.
+        const unread = background && type === "assistant" ? conversation.unread + 1 : conversation.unread;
+        return {
+          ...conversation,
+          unread,
+          transcript: [...conversation.transcript, { id: nextEntryId(), type, text: chunk }],
+        };
+      });
+    },
+    [updateConversation],
+  );
 
-  const mergeToolCall = useCallback((view) => {
-    if (!view || !view.toolCallId) {
-      return;
-    }
-    setTranscript((prev) => {
-      const index = prev.findIndex(
-        (entry) => entry.type === "tool" && entry.tool.toolCallId === view.toolCallId,
-      );
-      if (index === -1) {
-        return [...prev, { id: nextEntryId(), type: "tool", tool: normalizeTool(view) }];
+  const mergeToolCall = useCallback(
+    (key, view) => {
+      if (!view || !view.toolCallId) {
+        return;
       }
-      const next = [...prev];
-      next[index] = { ...next[index], tool: mergeToolView(next[index].tool, view) };
-      return next;
-    });
-  }, []);
+      updateConversation(key, (conversation) => {
+        const index = conversation.transcript.findIndex(
+          (entry) => entry.type === "tool" && entry.tool.toolCallId === view.toolCallId,
+        );
+        if (index === -1) {
+          return {
+            ...conversation,
+            transcript: [
+              ...conversation.transcript,
+              { id: nextEntryId(), type: "tool", tool: normalizeTool(view) },
+            ],
+          };
+        }
+        const transcript = [...conversation.transcript];
+        transcript[index] = {
+          ...transcript[index],
+          tool: mergeToolView(transcript[index].tool, view),
+        };
+        return { ...conversation, transcript };
+      });
+    },
+    [updateConversation],
+  );
 
-  const resolvePermissionEntry = useCallback((resolution) => {
-    if (!resolution || !resolution.requestId) {
-      return;
-    }
-    setTranscript((prev) =>
-      prev.map((entry) =>
-        entry.type === "permission" && entry.requestId === resolution.requestId
-          ? {
-              ...entry,
-              resolving: false,
-              resolution: {
-                optionId: resolution.optionId ?? null,
-                cancelled: Boolean(resolution.cancelled),
-              },
-            }
-          : entry,
-      ),
-    );
-  }, []);
+  const resolvePermissionEntry = useCallback(
+    (key, resolution) => {
+      if (!resolution || !resolution.requestId) {
+        return;
+      }
+      updateConversation(key, (conversation) => ({
+        ...conversation,
+        transcript: conversation.transcript.map((entry) =>
+          entry.type === "permission" && entry.requestId === resolution.requestId
+            ? {
+                ...entry,
+                resolving: false,
+                resolution: {
+                  optionId: resolution.optionId ?? null,
+                  cancelled: Boolean(resolution.cancelled),
+                },
+              }
+            : entry,
+        ),
+      }));
+    },
+    [updateConversation],
+  );
+
+  /* ----------------------------------------------------------------- agents */
 
   const refreshAgents = useCallback(async () => {
     try {
       const rows = await api.acpAgentList();
       if (Array.isArray(rows)) {
         setAgents(rows);
+        // The list is the authority on which processes are alive.
+        liveAgentsRef.current = new Set(rows.filter((row) => row.running).map((row) => row.id));
         setActiveAgentId((current) => current || rows[0]?.id || null);
       }
     } catch {
@@ -264,6 +336,449 @@ export function useAcpAgent() {
     }
   }, []);
 
+  useEffect(() => {
+    void refreshAgents();
+    void refreshHistory();
+    void refreshProjects();
+  }, [refreshAgents, refreshHistory, refreshProjects]);
+
+  /* ------------------------------------------------------------ runtime env */
+
+  const missingEnvTools = (env) =>
+    !env || env.ok
+      ? []
+      : [env.node, env.npx].filter((tool) => tool && !tool.found).map((tool) => tool.command);
+
+  // Last probe conclusion, so the notice is pushed on the transition only.
+  const lastEnvOkRef = useRef(null);
+
+  const refreshRuntimeEnv = useCallback(async () => {
+    let env = null;
+    try {
+      const probed = await api.acpRuntimeEnv();
+      env = probed && typeof probed === "object" ? probed : null;
+    } catch {
+      setRuntimeEnv(null);
+      return null;
+    }
+    setRuntimeEnv(env);
+    // Only on the transition into missing: otherwise every panel open would
+    // push another identical notice.
+    if (env && !env.ok && lastEnvOkRef.current !== false) {
+      pushNotice("warning", "env-missing", missingEnvTools(env).join(", "));
+    }
+    lastEnvOkRef.current = Boolean(env?.ok);
+    return env;
+  }, [pushNotice]);
+
+  /* --------------------------------------------------------------- history */
+
+  /** Persists one conversation's transcript under its agent session id. */
+  const saveHistoryFor = useCallback(
+    async (conversation) => {
+      if (!conversation?.sessionId || !conversation?.agentId) {
+        return;
+      }
+      const title = titleFromTranscript(conversation.transcript);
+      if (!title) {
+        return;
+      }
+      try {
+        await api.acpHistorySave({
+          id: conversation.sessionId,
+          agentId: conversation.agentId,
+          agentName: conversation.agentName || conversation.agentId,
+          title,
+          createdAt: conversation.createdAt || "",
+          updatedAt: "",
+          projectId: conversation.projectId ?? null,
+          cwd: conversation.cwd ?? null,
+          transcript: sanitizeEntriesForHistory(conversation.transcript),
+        });
+        void refreshHistory();
+      } catch {
+        // Persistence is best-effort; the live conversation is unaffected.
+      }
+    },
+    [refreshHistory],
+  );
+
+  /* ----------------------------------------------------------- conversation */
+
+  const frameConversation = useCallback(
+    (agentId, { project = null, resume = null } = {}) => {
+      const agentName = agentsRef.current.find((agent) => agent.id === agentId)?.name || agentId;
+      return {
+        key: nextConversationKey(),
+        agentId,
+        agentName,
+        sessionId: null,
+        phase: "starting",
+        cwd: project?.path ?? resume?.cwd ?? null,
+        projectId: project?.id ?? resume?.projectId ?? null,
+        transcript: [],
+        plan: null,
+        commands: [],
+        configOptions: [],
+        usage: null,
+        modes: null,
+        authMethods: [],
+        agentInfo: null,
+        capabilities: null,
+        turnActive: false,
+        unread: 0,
+        ended: false,
+        failed: false,
+        resumeRequested: Boolean(resume?.id),
+        draft: { ...emptyDraft(), shellContext: pendingShellContextRef.current },
+        title: resume?.title ?? "",
+        createdAt: new Date().toISOString(),
+      };
+    },
+    [],
+  );
+
+  const applyStartInfo = useCallback(
+    (key, info, project) => {
+      updateConversation(key, (conversation) => ({
+        ...conversation,
+        sessionId: info.sessionId,
+        phase: "ready",
+        modes: info.modes || null,
+        agentInfo: info.agentInfo || null,
+        capabilities: info.capabilities || null,
+        configOptions: Array.isArray(info.configOptions) ? info.configOptions : [],
+        cwd: project?.path ?? info.cwd ?? conversation.cwd,
+        projectId: project?.id ?? conversation.projectId,
+        authMethods: [],
+        ended: false,
+        failed: false,
+      }));
+      void refreshAgents();
+    },
+    [refreshAgents, updateConversation],
+  );
+
+  /**
+   * Creates the agent-side session for one conversation, reusing the running
+   * process when there is one and spawning only when there is not. Runs inside
+   * the per-agent start chain.
+   */
+  const startInto = useCallback(
+    async (key, agentId, { project = null, resume = null } = {}) => {
+      const agentRunning =
+        liveAgentsRef.current.has(agentId) ||
+        agentsRef.current.find((agent) => agent.id === agentId)?.running === true;
+      const resumeId = resume?.id && resume.agentId === agentId ? resume.id : null;
+      try {
+        let info;
+        if (agentRunning) {
+          if (resumeId) {
+            try {
+              info = await api.acpSessionLoad(agentId, resumeId, resume.cwd ?? null);
+            } catch {
+              // The agent no longer knows this conversation (pruned history,
+              // different host). Open a fresh one in the same folder and say
+              // so, rather than leaving the tab blank.
+              info = await api.acpSessionNew(agentId, resume.cwd ?? project?.path ?? null);
+              pushNotice("info", "resume-fallback", "", key);
+            }
+          } else {
+            info = await api.acpSessionNew(agentId, project?.path ?? null);
+          }
+        } else {
+          try {
+            info = await api.acpAgentStart(
+              agentId,
+              resumeId,
+              project?.path ?? resume?.cwd ?? null,
+            );
+          } catch (err) {
+            // The list said no process, but one is alive (a runner started
+            // outside this window, or a refresh that raced the start). Reuse it
+            // instead of surfacing "already has an active session".
+            if (/already has an active session/i.test(String(err))) {
+              info = await api.acpSessionNew(
+                agentId,
+                project?.path ?? resume?.cwd ?? null,
+              );
+              liveAgentsRef.current.add(agentId);
+            } else {
+              throw err;
+            }
+          }
+        }
+
+        if (info?.authRequired) {
+          // The process is up but parked waiting for sign-in: it is live, and
+          // the next conversation must reuse it rather than spawn again.
+          liveAgentsRef.current.add(agentId);
+          updateConversation(key, (conversation) => ({
+            ...conversation,
+            phase: "auth",
+            authMethods: Array.isArray(info.authMethods) ? info.authMethods : [],
+            capabilities: info.capabilities || conversation.capabilities,
+          }));
+          return;
+        }
+
+        applyStartInfo(key, info, project);
+        liveAgentsRef.current.add(agentId);
+      } catch (err) {
+        updateConversation(key, (conversation) => ({
+          ...conversation,
+          phase: "ended",
+          ended: true,
+          failed: true,
+          turnActive: false,
+        }));
+        reportFailure("start-failed", err, key);
+        // The failure may be "this agent already has an active session"; the
+        // refreshed `running` flag is what makes the retry path work.
+        void refreshAgents();
+      }
+    },
+    [applyStartInfo, pushNotice, refreshAgents, reportFailure, updateConversation],
+  );
+
+  const enqueueAgentStart = useCallback((agentId, task) => {
+    const previous = startQueuesRef.current.get(agentId) || Promise.resolve();
+    const next = previous.then(task, task);
+    startQueuesRef.current.set(agentId, next.then(
+      () => {},
+      () => {},
+    ));
+    return next;
+  }, []);
+
+  /**
+   * Opens one conversation and makes it active. Never stops anything: another
+   * conversation of the same agent simply keeps running alongside.
+   */
+  const openSession = useCallback(
+    async ({ agentId = null, project = null, resume = null } = {}) => {
+      const targetAgent =
+        agentId || activeAgentIdRef.current || agentsRef.current[0]?.id || null;
+      if (!targetAgent) {
+        return null;
+      }
+      const conversation = frameConversation(targetAgent, { project, resume });
+      pendingShellContextRef.current = null;
+      setConversations((prev) => [...prev, conversation]);
+      setActiveKey(conversation.key);
+      await enqueueAgentStart(targetAgent, () =>
+        startInto(conversation.key, targetAgent, { project, resume }),
+      );
+      return conversation.key;
+    },
+    [enqueueAgentStart, frameConversation, startInto],
+  );
+
+  /**
+   * Ends one conversation and drops its tab. The agent process is stopped only
+   * once its last conversation is gone, so closing one tab never takes the
+   * others down with it.
+   */
+  const closeSession = useCallback(
+    async (key) => {
+      const conversation = conversationsRef.current.find((row) => row.key === key);
+      if (!conversation) {
+        return;
+      }
+      await saveHistoryFor(conversation);
+      if (conversation.sessionId && !conversation.ended) {
+        try {
+          await api.acpSessionClose(conversation.agentId, conversation.sessionId);
+        } catch {
+          // The process may already be gone; the tab is removed either way.
+        }
+      }
+      const remaining = conversationsRef.current.filter((row) => row.key !== key);
+      setConversations(remaining);
+      setActiveKey((current) => {
+        if (current !== key) {
+          return current;
+        }
+        const sameAgent = remaining.filter((row) => row.agentId === conversation.agentId);
+        return (sameAgent[sameAgent.length - 1] || remaining[remaining.length - 1])?.key ?? null;
+      });
+      if (!remaining.some((row) => row.agentId === conversation.agentId)) {
+        try {
+          await api.acpAgentStop(conversation.agentId);
+        } catch {
+          // Stopping an already-dead process is not an error worth a notice.
+        }
+        liveAgentsRef.current.delete(conversation.agentId);
+        void refreshAgents();
+      }
+    },
+    [refreshAgents, saveHistoryFor],
+  );
+
+  /** Marks every conversation of one agent as ended (process stopped/crashed). */
+  const endAgentConversations = useCallback(
+    (agentId, error) => {
+      const rows = conversationsRef.current.filter((row) => row.agentId === agentId);
+      liveAgentsRef.current.delete(agentId);
+      if (rows.length === 0) {
+        return false;
+      }
+      // A tab that was already ended needs no second "session ended" line.
+      const wasLive = rows.some((row) => row.phase !== "ended");
+      const keys = new Set(rows.map((row) => row.key));
+      setConversations((prev) =>
+        prev.map((conversation) =>
+          keys.has(conversation.key)
+            ? {
+                ...conversation,
+                phase: "ended",
+                ended: true,
+                turnActive: false,
+                authMethods: [],
+              }
+            : conversation,
+        ),
+      );
+      const target =
+        rows.find((row) => row.key === activeKeyRef.current) || rows[rows.length - 1];
+      if (error) {
+        // The command's own rejection usually reported this already.
+        if (!failureAlreadyReported()) {
+          reportFailure("agent-error", error, target.key);
+        }
+      } else if (wasLive) {
+        pushNotice("info", "session-ended", "", target.key);
+      }
+      void refreshAgents();
+      return true;
+    },
+    [failureAlreadyReported, pushNotice, refreshAgents, reportFailure],
+  );
+
+  /* -------------------------------------------------------------- streaming */
+
+  useEffect(() => {
+    const unlistenPromise = listen(STREAM_EVENT, (event) => {
+      const payload = event?.payload;
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+      const { agentId, stage } = payload;
+
+      // Connection-scoped, and its `sessionId` is whatever the backend last
+      // established — never trust it for routing.
+      if (stage === "stopped") {
+        endAgentConversations(agentId, payload.error);
+        return;
+      }
+
+      const route = routingRef.current;
+      let key = route.bySession.get(payload.sessionId) || null;
+      if (!key) {
+        // Handshake-phase events (a `session/load` replay, the initial
+        // available-commands push) can arrive before the start call has
+        // returned the session id. Starts are serialised per agent, so at most
+        // one conversation of that agent is still starting.
+        const starting = conversationsRef.current.find(
+          (conversation) => conversation.agentId === agentId && conversation.phase === "starting",
+        );
+        key = starting?.key ?? null;
+      }
+      if (!key) {
+        return;
+      }
+
+      switch (stage) {
+        case "delta":
+          appendStreamText(key, "assistant", payload.chunk);
+          break;
+        case "thought":
+          appendStreamText(key, "thought", payload.chunk);
+          break;
+        case "user":
+          // User chunks only arrive as `session/load` replay (during start);
+          // live turns already pushed the entry locally.
+          appendStreamText(key, "user", payload.chunk);
+          break;
+        case "tool_call":
+        case "tool_call_update":
+          mergeToolCall(key, payload.toolCall);
+          break;
+        case "plan":
+          patchConversation(key, { plan: Array.isArray(payload.plan) ? payload.plan : [] });
+          break;
+        case "commands":
+          patchConversation(key, {
+            commands: Array.isArray(payload.commands) ? payload.commands : [],
+          });
+          break;
+        case "config_options":
+          patchConversation(key, {
+            configOptions: Array.isArray(payload.configOptions) ? payload.configOptions : [],
+          });
+          break;
+        case "mode":
+          if (payload.currentModeId) {
+            updateConversation(key, (conversation) => ({
+              ...conversation,
+              modes: {
+                availableModes: conversation.modes?.availableModes || [],
+                currentModeId: payload.currentModeId,
+              },
+            }));
+          }
+          break;
+        case "usage":
+          patchConversation(key, { usage: payload.usage || null });
+          break;
+        case "permission_request":
+          if (payload.permission?.requestId) {
+            updateConversation(key, (conversation) => ({
+              ...conversation,
+              transcript: [
+                ...conversation.transcript,
+                {
+                  id: nextEntryId(),
+                  type: "permission",
+                  requestId: payload.permission.requestId,
+                  toolCall: payload.permission.toolCall
+                    ? normalizeTool(payload.permission.toolCall)
+                    : null,
+                  options: Array.isArray(payload.permission.options)
+                    ? payload.permission.options
+                    : [],
+                  resolution: null,
+                  resolving: false,
+                },
+              ],
+            }));
+          }
+          break;
+        case "permission_resolved":
+          resolvePermissionEntry(key, payload.permissionResolution);
+          break;
+        default:
+          break;
+      }
+    });
+    return () => {
+      void unlistenPromise.then((unlisten) => {
+        if (typeof unlisten === "function") {
+          unlisten();
+        }
+      });
+    };
+  }, [
+    appendStreamText,
+    endAgentConversations,
+    mergeToolCall,
+    patchConversation,
+    resolvePermissionEntry,
+    updateConversation,
+  ]);
+
+  /* --------------------------------------------------------------- projects */
+
   // Registers a directory picked in the OS folder dialog. The backend rejects
   // non-directories and returns the existing entry for a duplicate path.
   const createProject = useCallback(
@@ -277,7 +792,7 @@ export function useAcpAgent() {
         return null;
       }
     },
-    [pushNotice, refreshProjects, reportFailure],
+    [refreshProjects, reportFailure],
   );
 
   // "New project" flow: OS folder picker, then register the chosen directory.
@@ -293,7 +808,7 @@ export function useAcpAgent() {
       reportFailure("project-create-failed", err);
       return null;
     }
-  }, [createProject, pushNotice, reportFailure]);
+  }, [createProject, reportFailure]);
 
   // Removes the project entry only; its transcripts survive as ungrouped
   // sessions, which is what the backend does too.
@@ -306,398 +821,124 @@ export function useAcpAgent() {
         reportFailure("project-delete-failed", err);
       }
     },
-    [pushNotice, refreshProjects, reportFailure],
+    [refreshProjects, reportFailure],
   );
 
-  useEffect(() => {
-    void refreshAgents();
-    void refreshHistory();
-    void refreshProjects();
-  }, [refreshAgents, refreshHistory, refreshProjects]);
+  /* ---------------------------------------------------------------- actions */
 
-  // Persists the current transcript; called after each turn and on stop.
-  const saveHistory = useCallback(async () => {
-    const current = sessionRef.current;
-    if (!current?.id) {
-      return;
-    }
-    const entries = transcriptRef.current;
-    const firstUser = entries.find((entry) => entry.type === "user");
-    if (!firstUser) {
-      return;
-    }
-    const title =
-      firstUser.text.replaceAll("\n", " ").slice(0, HISTORY_TITLE_LENGTH) ||
-      firstUser.text.slice(0, HISTORY_TITLE_LENGTH);
-    try {
-      await api.acpHistorySave({
-        id: current.id,
-        agentId: current.agentId,
-        agentName: current.agentName || current.agentId,
-        title,
-        createdAt: current.createdAt || "",
-        updatedAt: "",
-        // Grouping + resume need to know which project (and folder) this ran in.
-        projectId: current.projectId ?? null,
-        cwd: current.cwd ?? null,
-        transcript: sanitizeEntriesForHistory(entries),
-      });
-      void refreshHistory();
-    } catch {
-      // Persistence is best-effort; the live session is unaffected.
-    }
-  }, [refreshHistory]);
-
-  // Route stream events for the engaged agent into panel state.
-  useEffect(() => {
-    const unlistenPromise = listen(STREAM_EVENT, (event) => {
-      const payload = event?.payload;
-      if (!payload || typeof payload !== "object") {
-        return;
-      }
-      if (!engagedAgentRef.current || payload.agentId !== engagedAgentRef.current) {
-        return;
-      }
-      switch (payload.stage) {
-        case "delta":
-          appendStreamText("assistant", payload.chunk);
-          break;
-        case "thought":
-          appendStreamText("thought", payload.chunk);
-          break;
-        case "user":
-          // User chunks only arrive as `session/load` replay (during start);
-          // live turns already pushed the entry locally.
-          if (phaseRef.current !== "ready") {
-            appendStreamText("user", payload.chunk);
-          }
-          break;
-        case "tool_call":
-        case "tool_call_update":
-          mergeToolCall(payload.toolCall);
-          break;
-        case "plan":
-          setPlan(Array.isArray(payload.plan) ? payload.plan : []);
-          break;
-        case "commands":
-          setCommands(Array.isArray(payload.commands) ? payload.commands : []);
-          break;
-        case "config_options":
-          setConfigOptions(Array.isArray(payload.configOptions) ? payload.configOptions : []);
-          break;
-        case "mode":
-          if (payload.currentModeId) {
-            setSession((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    modes: {
-                      availableModes: prev.modes?.availableModes || [],
-                      currentModeId: payload.currentModeId,
-                    },
-                  }
-                : prev,
-            );
-          }
-          break;
-        case "usage":
-          setUsage(payload.usage || null);
-          break;
-        case "permission_request":
-          if (payload.permission?.requestId) {
-            setTranscript((prev) => [
-              ...prev,
-              {
-                id: nextEntryId(),
-                type: "permission",
-                requestId: payload.permission.requestId,
-                toolCall: payload.permission.toolCall
-                  ? normalizeTool(payload.permission.toolCall)
-                  : null,
-                options: Array.isArray(payload.permission.options)
-                  ? payload.permission.options
-                  : [],
-                resolution: null,
-                resolving: false,
-              },
-            ]);
-          }
-          break;
-        case "permission_resolved":
-          resolvePermissionEntry(payload.permissionResolution);
-          break;
-        case "stopped":
-          void saveHistory();
-          engagedAgentRef.current = null;
-          pendingResumeRef.current = null;
-          projectRef.current = null;
-          setPhase("idle");
-          setTurnActive(false);
-          setSession(null);
-          setAuthMethods([]);
-          setPlan(null);
-          setCommands([]);
-          setConfigOptions([]);
-          setUsage(null);
-          if (payload.error) {
-            // The command's own rejection usually reported this already; the
-            // stream event just says the same thing a moment later.
-            if (!failureAlreadyReported()) {
-              reportFailure("agent-error", payload.error);
-            }
-          } else {
-            pushNotice("info", "session-ended");
-          }
-          void refreshAgents();
-          break;
-        default:
-          break;
-      }
-    });
-    return () => {
-      void unlistenPromise.then((unlisten) => {
-        if (typeof unlisten === "function") {
-          unlisten();
-        }
-      });
-    };
-  }, [
-    appendStreamText,
-    failureAlreadyReported,
-    mergeToolCall,
-    pushNotice,
-    refreshAgents,
-    resolvePermissionEntry,
-    saveHistory,
-  ]);
-
-  const applyStartInfo = useCallback(
-    (agentId, info, project = null) => {
-      const agentName =
-        agentsRef.current.find((agent) => agent.id === agentId)?.name || agentId;
-      setSession({
-        agentId,
-        agentName,
-        id: info.sessionId,
-        modes: info.modes || null,
-        agentInfo: info.agentInfo || null,
-        capabilities: info.capabilities || null,
-        projectId: project?.id ?? null,
-        // The backend echoes the directory the session actually got, which is
-        // the agent's default when no project was named.
-        cwd: project?.path ?? info.cwd ?? null,
-        createdAt: new Date().toISOString(),
-      });
-      setAuthMethods([]);
-      setConfigOptions(Array.isArray(info.configOptions) ? info.configOptions : []);
-      setPhase("ready");
-      if (pendingResumeRef.current && !info.resumed) {
-        pushNotice("info", "resume-fallback");
-      }
-      pendingResumeRef.current = null;
-      void refreshAgents();
-    },
-    [pushNotice, refreshAgents],
+  const start = useCallback(
+    () => openSession({ agentId: activeAgentIdRef.current }),
+    [openSession],
   );
 
-  const startAgent = useCallback(
-    async (agentId, resumeSessionId = null, project = null) => {
-      if (!agentId || phaseRef.current !== "idle") {
-        return;
-      }
-      setPhase("starting");
-      setTranscript([]);
-      setAuthMethods([]);
-      setPlan(null);
-      setCommands([]);
-      setConfigOptions([]);
-      setUsage(null);
-      engagedAgentRef.current = agentId;
-      pendingResumeRef.current = resumeSessionId;
-      projectRef.current = project;
-      try {
-        const info = await api.acpAgentStart(agentId, resumeSessionId, project?.path ?? null);
-        if (info.authRequired) {
-          // Connection stays alive parked; the user picks a sign-in method and
-          // `authenticate` completes the session (retrying the resume too).
-          setAuthMethods(Array.isArray(info.authMethods) ? info.authMethods : []);
-          setPhase("auth");
-          return;
-        }
-        applyStartInfo(agentId, info, project);
-      } catch (err) {
-        engagedAgentRef.current = null;
-        pendingResumeRef.current = null;
-        setPhase("idle");
-        reportFailure("start-failed", err);
-        // The failure may be "this agent already has an active session"; the
-        // refreshed `running` flag is what lets the panel offer to reclaim it.
-        void refreshAgents();
-      }
-    },
-    [applyStartInfo, pushNotice, refreshAgents, reportFailure],
-  );
-
-  const start = useCallback(() => startAgent(activeAgentId), [activeAgentId, startAgent]);
-
-  // Reopens a persisted session: native `session/load` resume when the agent
-  /// supports it (transcript rebuilds from the replay), fresh session otherwise.
-  const resumeHistory = useCallback(
-    async (record) => {
-      if (!record?.id || !record?.agentId || phaseRef.current !== "idle") {
-        return;
-      }
-      setActiveAgentId(record.agentId);
-      // Reopen in the folder the session originally ran in, so the agent's
-      // working tree matches the resumed conversation.
-      await startAgent(record.agentId, record.id, {
-        id: record.projectId ?? null,
-        path: record.cwd ?? null,
-      });
-    },
-    [startAgent],
-  );
-
-  const authenticate = useCallback(
-    async (methodId) => {
-      const agentId = engagedAgentRef.current;
-      if (!agentId || !methodId) {
-        return;
-      }
-      setPhase("authenticating");
-      try {
-        const info = await api.acpAgentAuthenticate(agentId, methodId);
-        applyStartInfo(agentId, info, projectRef.current);
-      } catch (err) {
-        // The agent may have died mid sign-in; `stopped` already reset state.
-        if (engagedAgentRef.current === agentId) {
-          setPhase("auth");
-          reportFailure("auth-failed", err);
-        }
-      }
-    },
-    [applyStartInfo, pushNotice, reportFailure],
-  );
-
-  // Stops the engaged agent, or an explicitly named one. The explicit form
-  // exists to reclaim an orphaned backend runner: the Rust registry outlives
-  // the webview, so a reload (dev HMR, devtools) leaves a live agent process
-  // that no frontend state points at any more — `acp_agent_start` then refuses
-  // with "already has an active session" and nothing here could clear it.
-  const stop = useCallback(
-    async (agentId = null) => {
-      // Works from the sign-in phases too, where no session exists yet.
-      const targetId = agentId || sessionRef.current?.agentId || engagedAgentRef.current;
-      if (!targetId) {
-        return;
-      }
-      try {
-        // The resulting `stopped` stream event resets phase/session state, but
-        // only when that agent is the engaged one — the stream handler filters
-        // on `engagedAgentRef`. Reclaiming an orphan is invisible to it, so
-        // refresh the list here to pick up `running: false`.
-        await api.acpAgentStop(targetId);
-        if (targetId !== engagedAgentRef.current) {
-          void refreshAgents();
-        }
-      } catch (err) {
-        reportFailure("agent-error", err);
-      }
-    },
-    [pushNotice, refreshAgents, reportFailure],
-  );
-
-  // Reclaims an orphaned runner and immediately opens a fresh session on it.
-  const reclaimAndStart = useCallback(
-    async (agentId) => {
-      const targetId = agentId || activeAgentId;
-      if (!targetId) {
-        return;
-      }
-      await stop(targetId);
-      await startAgent(targetId);
-    },
-    [activeAgentId, startAgent, stop],
-  );
-
-  // Opens a session, reusing the agent process when one is already running for
-  // the target agent (a second `session/new` on the live connection) and
-  // spawning otherwise. `project` ({id, path}) picks the working directory.
   const startSession = useCallback(
-    async ({ agentId = null, project = null } = {}) => {
-      const targetAgent = agentId || activeAgentId;
-      if (!targetAgent) {
-        return;
-      }
-      const current = sessionRef.current;
-
-      if (phaseRef.current === "ready" && current?.agentId === targetAgent) {
-        if (turnActive) {
-          return;
-        }
-        try {
-          // Persists the outgoing transcript under its own session id before
-          // the session state (and transcript) is replaced below.
-          await saveHistory();
-          const info = await api.acpSessionNew(targetAgent, project?.path ?? null);
-          setTranscript([]);
-          setPlan(null);
-          setUsage(null);
-          setTurnActive(false);
-          setSession((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  id: info.sessionId,
-                  modes: info.modes || null,
-                  projectId: project?.id ?? null,
-                  cwd: project?.path ?? info.cwd ?? null,
-                  createdAt: new Date().toISOString(),
-                }
-              : prev,
-          );
-          // Slash commands and the model/thought selectors are agent-level, so
-          // the previous values stay unless the new session advertises its own.
-          if (Array.isArray(info.configOptions)) {
-            setConfigOptions(info.configOptions);
-          }
-        } catch (err) {
-          reportFailure("new-session-failed", err);
-        }
-        return;
-      }
-
-      // No live session for this agent: start one. A runner left over from a
-      // window reload has to be stopped first, or the backend refuses.
-      if (phaseRef.current !== "idle") {
-        return;
-      }
-      if (agentsRef.current.find((agent) => agent.id === targetAgent)?.running) {
-        await stop(targetAgent);
-      }
-      await startAgent(targetAgent, null, project);
-    },
-    [activeAgentId, pushNotice, reportFailure, saveHistory, startAgent, stop, turnActive],
+    ({ agentId = null, project = null } = {}) =>
+      openSession({ agentId: agentId || activeAgentIdRef.current, project }),
+    [openSession],
   );
 
-  // Header button: same agent and project as the live session, just a clean slate.
+  // "New conversation" in the panel header: same agent and folder as the
+  // conversation in front of the user, because that is the context they are in.
   const newSession = useCallback(() => {
-    const current = sessionRef.current;
-    return startSession({
-      agentId: current?.agentId ?? null,
+    const current =
+      conversationsRef.current.find((row) => row.key === activeKeyRef.current) || null;
+    return openSession({
+      agentId: current?.agentId ?? activeAgentIdRef.current,
       project: current
         ? { id: current.projectId ?? null, path: current.cwd ?? null }
         : null,
     });
-  }, [startSession]);
+  }, [openSession]);
+
+  const resumeHistory = useCallback(
+    (record) => {
+      if (!record?.id || !record?.agentId) {
+        return null;
+      }
+      // Already open in another tab: focus it instead of opening a duplicate.
+      const open = conversationsRef.current.find(
+        (row) => row.agentId === record.agentId && row.sessionId === record.id,
+      );
+      if (open) {
+        setActiveKey(open.key);
+        return Promise.resolve(open.key);
+      }
+      return openSession({ agentId: record.agentId, resume: record });
+    },
+    [openSession],
+  );
+
+  // Stops an agent process: the explicit form reclaims an orphaned backend
+  // runner left behind by a reload, and each conversation of that agent becomes
+  // an ended tab rather than disappearing.
+  const stop = useCallback(
+    async (agentId = null) => {
+      const targetId =
+        agentId ||
+        conversationsRef.current.find((row) => row.key === activeKeyRef.current)?.agentId ||
+        activeAgentIdRef.current;
+      if (!targetId) {
+        return;
+      }
+      try {
+        await api.acpAgentStop(targetId);
+        // The `stopped` stream event normally ends the tabs; doing it here too
+        // keeps a stop from an unengaged agent (whose event is dropped by the
+        // backend) from leaving them "ready" forever.
+        endAgentConversations(targetId, null);
+      } catch (err) {
+        reportFailure("agent-error", err);
+      }
+    },
+    [endAgentConversations, reportFailure],
+  );
+
+  // Reclaims an orphaned runner and immediately opens a fresh conversation.
+  const reclaimAndStart = useCallback(
+    async (agentId) => {
+      const targetId = agentId || activeAgentIdRef.current;
+      if (!targetId) {
+        return;
+      }
+      await stop(targetId);
+      await openSession({ agentId: targetId });
+    },
+    [openSession, stop],
+  );
+
+  const authenticate = useCallback(
+    async (methodId) => {
+      const key = activeKeyRef.current;
+      const conversation = conversationsRef.current.find((row) => row.key === key);
+      if (!conversation || !methodId) {
+        return;
+      }
+      patchConversation(key, { phase: "authenticating" });
+      try {
+        const info = await api.acpAgentAuthenticate(conversation.agentId, methodId);
+        applyStartInfo(key, info, null);
+      } catch (err) {
+        // The agent may have died mid sign-in; `stopped` already ended the tab.
+        if (conversationsRef.current.some((row) => row.key === key && !row.ended)) {
+          patchConversation(key, { phase: "auth" });
+          reportFailure("auth-failed", err, key);
+        }
+      }
+    },
+    [applyStartInfo, patchConversation, reportFailure],
+  );
 
   const sendPrompt = useCallback(
     async (text, images = []) => {
-      const current = sessionRef.current;
+      const key = activeKeyRef.current;
+      const conversation = conversationsRef.current.find((row) => row.key === key);
+      if (!conversation || conversation.phase !== "ready" || !conversation.sessionId) {
+        return false;
+      }
       const trimmed = String(text || "").trim();
       const attachments = Array.isArray(images) ? images : [];
-      const context = shellContextRef.current;
-      if (!current || (!trimmed && attachments.length === 0 && !context) || turnActive) {
+      const context = conversation.draft?.shellContext ?? null;
+      if ((!trimmed && attachments.length === 0 && !context) || conversation.turnActive) {
         return false;
       }
       // The staged terminal selection travels as a fenced block appended to
@@ -705,55 +946,59 @@ export function useAcpAgent() {
       const outgoing = context
         ? `${trimmed}${trimmed ? "\n\n" : ""}Terminal selection from "${context.sessionName}":\n\`\`\`\n${context.content}\n\`\`\``
         : trimmed;
-      setShellContext(null);
-      setTranscript((prev) => [
-        ...prev,
-        {
-          id: nextEntryId(),
-          type: "user",
-          text: trimmed,
-          images: attachments.map((image) => ({
-            mimeType: image.mimeType,
-            previewUrl: image.previewUrl,
-          })),
-          ...(context
-            ? { context: { sessionName: context.sessionName, content: context.content } }
-            : {}),
-        },
-      ]);
-      setTurnActive(true);
+      updateConversation(key, (row) => ({
+        ...row,
+        turnActive: true,
+        draft: { ...emptyDraft() },
+        transcript: [
+          ...row.transcript,
+          {
+            id: nextEntryId(),
+            type: "user",
+            text: trimmed,
+            images: attachments.map((image) => ({
+              mimeType: image.mimeType,
+              previewUrl: image.previewUrl,
+            })),
+            ...(context
+              ? { context: { sessionName: context.sessionName, content: context.content } }
+              : {}),
+          },
+        ],
+      }));
       try {
         const result = await api.acpSessionPrompt(
-          current.agentId,
-          current.id,
+          conversation.agentId,
+          conversation.sessionId,
           outgoing,
           attachments.map((image) => ({ data: image.data, mimeType: image.mimeType })),
         );
         const stopReason = result?.stopReason;
         if (stopReason && stopReason !== "end_turn") {
-          pushNotice("info", "turn-stopped", stopReason);
+          pushNotice("info", "turn-stopped", stopReason, key);
         }
       } catch (err) {
         // A stop that raced the prompt already reported through `stopped`.
-        if (sessionRef.current) {
-          reportFailure("turn-failed", err);
+        if (conversationsRef.current.some((row) => row.key === key && !row.ended)) {
+          reportFailure("turn-failed", err, key);
         }
       } finally {
-        setTurnActive(false);
-        void saveHistory();
+        updateConversation(key, (row) => ({ ...row, turnActive: false }));
+        const saved = conversationsRef.current.find((row) => row.key === key) || conversation;
+        void saveHistoryFor(saved);
       }
       return true;
     },
-    [pushNotice, reportFailure, saveHistory, turnActive],
+    [pushNotice, reportFailure, saveHistoryFor, updateConversation],
   );
 
   const cancelTurn = useCallback(async () => {
-    const current = sessionRef.current;
-    if (!current) {
+    const conversation = conversationsRef.current.find((row) => row.key === activeKeyRef.current);
+    if (!conversation?.sessionId) {
       return;
     }
     try {
-      await api.acpSessionCancel(current.agentId, current.id);
+      await api.acpSessionCancel(conversation.agentId, conversation.sessionId);
     } catch {
       // Cancellation is best-effort; prompt settling clears the turn state.
     }
@@ -761,40 +1006,29 @@ export function useAcpAgent() {
 
   const setMode = useCallback(
     async (modeId) => {
-      const current = sessionRef.current;
-      if (!current || !modeId) {
+      const key = activeKeyRef.current;
+      const conversation = conversationsRef.current.find((row) => row.key === key);
+      if (!conversation?.sessionId || !modeId) {
         return;
       }
-      const previousModeId = current.modes?.currentModeId ?? null;
-      setSession((prev) =>
-        prev
-          ? {
-              ...prev,
-              modes: {
-                availableModes: prev.modes?.availableModes || [],
-                currentModeId: modeId,
-              },
-            }
-          : prev,
-      );
+      const previousModeId = conversation.modes?.currentModeId ?? null;
+      updateConversation(key, (row) => ({
+        ...row,
+        modes: { availableModes: row.modes?.availableModes || [], currentModeId: modeId },
+      }));
       try {
-        await api.acpSessionSetMode(current.agentId, current.id, modeId);
+        await api.acpSessionSetMode(conversation.agentId, conversation.sessionId, modeId);
       } catch (err) {
-        setSession((prev) =>
-          prev && previousModeId
-            ? {
-                ...prev,
-                modes: {
-                  availableModes: prev.modes?.availableModes || [],
-                  currentModeId: previousModeId,
-                },
-              }
-            : prev,
-        );
-        reportFailure("mode-failed", err);
+        if (previousModeId) {
+          updateConversation(key, (row) => ({
+            ...row,
+            modes: { availableModes: row.modes?.availableModes || [], currentModeId: previousModeId },
+          }));
+        }
+        reportFailure("mode-failed", err, key);
       }
     },
-    [pushNotice, reportFailure],
+    [reportFailure, updateConversation],
   );
 
   // Applies one config option. The agent answers with the full updated set, so
@@ -802,64 +1036,114 @@ export function useAcpAgent() {
   // previous set untouched.
   const setConfigOption = useCallback(
     async (configId, value) => {
-      const current = sessionRef.current;
-      if (!current || !configId) {
+      const key = activeKeyRef.current;
+      const conversation = conversationsRef.current.find((row) => row.key === key);
+      if (!conversation?.sessionId || !configId) {
         return;
       }
       try {
         const updated = await api.acpSessionSetConfigOption(
-          current.agentId,
-          current.id,
+          conversation.agentId,
+          conversation.sessionId,
           configId,
           value,
         );
         if (Array.isArray(updated)) {
-          setConfigOptions(updated);
+          patchConversation(key, { configOptions: updated });
         }
       } catch (err) {
-        reportFailure("config-option-failed", err);
+        reportFailure("config-option-failed", err, key);
       }
     },
-    [pushNotice, reportFailure],
+    [patchConversation, reportFailure],
   );
 
   const respondPermission = useCallback(
     async (requestId, optionId) => {
-      const current = sessionRef.current;
-      if (!current || !requestId) {
+      const key = activeKeyRef.current;
+      const conversation = conversationsRef.current.find((row) => row.key === key);
+      if (!conversation?.sessionId || !requestId) {
         return;
       }
-      setTranscript((prev) =>
-        prev.map((entry) =>
+      updateConversation(key, (row) => ({
+        ...row,
+        transcript: row.transcript.map((entry) =>
           entry.type === "permission" && entry.requestId === requestId
             ? { ...entry, resolving: true }
             : entry,
         ),
-      );
+      }));
       try {
-        await api.acpPermissionRespond(current.agentId, requestId, optionId ?? null);
-        resolvePermissionEntry({
+        await api.acpPermissionRespond(conversation.agentId, requestId, optionId ?? null);
+        resolvePermissionEntry(key, {
           requestId,
           optionId: optionId ?? null,
           cancelled: optionId == null,
         });
       } catch (err) {
-        setTranscript((prev) =>
-          prev.map((entry) =>
+        updateConversation(key, (row) => ({
+          ...row,
+          transcript: row.transcript.map((entry) =>
             entry.type === "permission" && entry.requestId === requestId
               ? { ...entry, resolving: false }
               : entry,
           ),
-        );
-        reportFailure("permission-failed", err);
+        }));
+        reportFailure("permission-failed", err, key);
       }
     },
-    [pushNotice, reportFailure, resolvePermissionEntry],
+    [reportFailure, resolvePermissionEntry, updateConversation],
   );
 
-  const getHistoryRecord = useCallback(async (id) => {
-    return api.acpHistoryGet(id);
-  }, []);
+  /* ----------------------------------------------------------------- drafts */
+
+  const setDraft = useCallback((patch) => {
+    const key = activeKeyRef.current;
+    if (!key) {
+      return;
+    }
+    updateConversation(key, (row) => ({ ...row, draft: { ...row.draft, ...patch } }));
+  }, [updateConversation]);
+
+  // Stages a terminal selection as context for the next prompt (replaces any
+  // previously staged selection, mirroring the legacy assistant behavior).
+  const attachShellContext = useCallback(
+    (selection) => {
+      const normalized = normalizeShellContextAttachment(selection);
+      if (!normalized) {
+        return;
+      }
+      const key = activeKeyRef.current;
+      if (!key) {
+        pendingShellContextRef.current = normalized;
+        return;
+      }
+      updateConversation(key, (row) => ({
+        ...row,
+        draft: { ...row.draft, shellContext: normalized },
+      }));
+    },
+    [updateConversation],
+  );
+
+  const clearShellContext = useCallback(() => {
+    const key = activeKeyRef.current;
+    if (!key) {
+      pendingShellContextRef.current = null;
+      return;
+    }
+    updateConversation(key, (row) => ({ ...row, draft: { ...row.draft, shellContext: null } }));
+  }, [updateConversation]);
+
+  // Reading a conversation clears its unread dot.
+  useEffect(() => {
+    if (!activeKey) {
+      return;
+    }
+    updateConversation(activeKey, (row) => (row.unread === 0 ? row : { ...row, unread: 0 }));
+  }, [activeKey, updateConversation]);
+
+  const getHistoryRecord = useCallback(async (id) => api.acpHistoryGet(id), []);
 
   const deleteHistoryRecord = useCallback(
     async (id) => {
@@ -869,33 +1153,83 @@ export function useAcpAgent() {
     [refreshHistory],
   );
 
+  /* ---------------------------------------------------------------- surface */
+
+  const activeConversation = useMemo(
+    () => conversations.find((row) => row.key === activeKey) || null,
+    [conversations, activeKey],
+  );
+
+  // Any conversation working, for the dock/title-bar busy indicator. The
+  // per-conversation flag stays on the conversation itself, because the
+  // composer's send-vs-stop button belongs to one conversation only.
+  const anyTurnActive = useMemo(
+    () => conversations.some((row) => row.turnActive),
+    [conversations],
+  );
+
+  // The panel still reads the single-conversation fields: they mirror whichever
+  // tab is in front. `sessions` / `activeKey` are what the tab strip uses.
+  const session = useMemo(
+    () =>
+      activeConversation
+        ? {
+            agentId: activeConversation.agentId,
+            agentName: activeConversation.agentName,
+            id: activeConversation.sessionId,
+            modes: activeConversation.modes,
+            agentInfo: activeConversation.agentInfo,
+            capabilities: activeConversation.capabilities,
+            projectId: activeConversation.projectId,
+            cwd: activeConversation.cwd,
+            createdAt: activeConversation.createdAt,
+          }
+        : null,
+    [activeConversation],
+  );
+
   return {
+    // Multi-conversation surface.
+    conversations,
+    activeKey,
+    setActiveKey,
+    activeConversation,
+    openSession,
+    closeSession,
+    stopAgent: stop,
+
+    // Derived single-conversation surface (the tab in front).
     agents,
     activeAgentId,
     setActiveAgentId,
-    phase,
+    phase: activeConversation?.phase ?? "idle",
     session,
-    authMethods,
-    transcript,
-    plan,
-    commands,
-    configOptions,
-    usage,
-    turnActive,
+    authMethods: activeConversation?.authMethods ?? [],
+    transcript: activeConversation?.transcript ?? [],
+    plan: activeConversation?.plan ?? null,
+    commands: activeConversation?.commands ?? [],
+    configOptions: activeConversation?.configOptions ?? [],
+    usage: activeConversation?.usage ?? null,
+    turnActive: activeConversation?.turnActive ?? false,
+    anyTurnActive,
+    draft: activeConversation?.draft ?? emptyDraft(),
+    standaloneNotices,
+
     history,
     projects,
     refreshProjects,
     createProject,
     addProject,
     deleteProject,
-    shellContext,
+    shellContext: activeConversation?.draft?.shellContext ?? null,
     attachShellContext,
     clearShellContext,
+    setDraft,
     start,
+    startSession,
     stop,
     reclaimAndStart,
     newSession,
-    startSession,
     authenticate,
     resumeHistory,
     getHistoryRecord,

@@ -7,6 +7,8 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 /src-tauri/.eshell-data/
+# Staged by scripts/stage-cli-tools.mjs before `tauri build` bundles them.
+/src-tauri/binaries/
 /docs/refer_proj/claude-code-main/
 /docs/refer_proj/oxideterm/
 /garbage

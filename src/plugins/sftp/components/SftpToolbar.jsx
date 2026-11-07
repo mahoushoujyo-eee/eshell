@@ -9,7 +9,7 @@ export default function SftpToolbar({
   refreshSftp,
   uploadFile,
   createSftpEntry,
-  downloadFile,
+  onDownload,
   selectedEntry,
   showTransferPanel,
   onToggleTransferPanel,
@@ -45,8 +45,15 @@ export default function SftpToolbar({
           <IconButton
             label={t("Download")}
             size="xs"
-            onClick={downloadFile}
-            disabled={!activeSessionId || !selectedEntry || selectedEntry.entryType === "directory"}
+            // The handler is wrapped, not passed by reference: a bare
+            // `onClick={downloadFile}` hands the click event to the download
+            // operation, which then reads it as a remote entry and tries to
+            // download the remote root ("/") instead of the selected file.
+            onClick={() => onDownload?.()}
+            // Folders stay clickable on purpose: the panel explains that
+            // folder download is not supported instead of silently ignoring
+            // the click.
+            disabled={!activeSessionId || !selectedEntry}
           >
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
           </IconButton>

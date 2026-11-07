@@ -683,6 +683,50 @@ async fn read_agent_context_returns_global_md_and_skill() {
         .ends_with("SKILL.md"));
 }
 
+/// The two servers must not hand the agent the same guidance.
+///
+/// The in-app bridge serves the sessions the user opened, so its instructions
+/// say to look for one. The standalone server has no tabs at all: an agent
+/// that followed the in-app wording there would call `list_shell_sessions`,
+/// get an empty list, and have no target left to work with.
+#[tokio::test]
+async fn initialize_instructions_match_the_servers_they_describe() {
+    let state = test_state();
+    let response = handle_rpc(&state, &rpc("initialize", json!({}))).await;
+    let in_app = response["result"]["instructions"].as_str().unwrap().to_string();
+    assert!(
+        in_app.contains("list_shell_sessions"),
+        "the app's bridge serves the sessions the user opened: {in_app}"
+    );
+    assert!(
+        in_app.contains("list_ssh_profiles"),
+        "the app's bridge should still point at the profile list: {in_app}"
+    );
+
+    // The standalone server: same tool surface, different target policy.
+    let standalone = crate::cli::runtime::StandaloneSessionResolver::new(Arc::new(
+        crate::cli::runtime::StandaloneRuntime::new(
+            std::env::temp_dir().join(format!("eshell-agent-test-{}", uuid::Uuid::new_v4().simple())),
+            crate::cli::hostkey::HostKeyPolicy::AcceptAny,
+        )
+        .expect("create runtime"),
+    ));
+    let server = crate::domain::agent::service::mcp_server::McpServer::standalone(
+        Arc::clone(&state),
+        Arc::new(standalone),
+    );
+    let response = server.handle(&rpc("initialize", json!({}))).await;
+    let text = response["result"]["instructions"].as_str().unwrap().to_string();
+    assert!(
+        text.contains("list_ssh_profiles"),
+        "the standalone server must point at the profiles: {text}"
+    );
+    assert!(
+        !text.contains("list_shell_sessions before"),
+        "the standalone server must not send the agent after a terminal tab: {text}"
+    );
+}
+
 #[tokio::test]
 async fn resource_and_prompt_probes_get_empty_lists_not_errors() {
     let state = test_state();

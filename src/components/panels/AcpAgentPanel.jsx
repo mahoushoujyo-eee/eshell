@@ -1,38 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
 import {
-  ArrowLeft,
-  Bot,
-  Brain,
-  Check,
-  ChevronDown,
-  ChevronRight,
   CircleStop,
   Folder,
-  FolderKanban,
-  FolderPlus,
-  KeyRound,
-  ListTodo,
   Loader2,
   Maximize2,
-  MessageSquarePlus,
   Minimize2,
-  Play,
-  Plus,
-  RotateCcw,
   Send,
-  ShieldQuestion,
   Square,
   TerminalSquare,
-  Trash2,
   TriangleAlert,
   X,
-  XCircle,
+  Plus,
 } from "lucide-react";
-import { MARKDOWN_COMPONENTS } from "./ai-assistant/aiAssistantUtils";
-import { AcpAgentPicker, AcpModePicker, AcpSessionSettingsMenu } from "./acp/AcpPickers";
+import { AcpModePicker, AcpSessionSettingsMenu } from "./acp/AcpPickers";
+import AcpHistoryPanel from "./acp/AcpHistoryPanel";
+import AcpPathPicker from "./acp/AcpPathPicker";
+import AcpSessionTabs from "./acp/AcpSessionTabs";
+import TranscriptEntry, { AcpAuthCard, PlanCard } from "./acp/AcpTranscript";
 import AcpNoticeRow from "./acp/AcpNoticeRow";
 import AcpAgentLogo from "../ai/AcpAgentLogo";
 import AcpEnvWarningCard from "../ai/AcpEnvWarningCard";
@@ -42,33 +26,15 @@ import { formatShellContextPreview } from "../../lib/ops-agent-shell-context";
 import { useI18n } from "../../lib/i18n";
 
 /**
- * ACP agent chat panel, docked where the legacy AI assistant lived.
+ * ACP chat panel: a tab strip of live conversations over one shared state
+ * machine (`useAcpAgent`).
  *
- * Pure view over the `useAcpAgent` hook: renders the transcript (markdown
- * messages, collapsible thoughts, tool-call cards with diffs/output,
- * interactive permission requests), the live plan, session modes, slash
- * command completion, and the composer.
+ * The panel is a pure view. Everything it shows comes from the active
+ * conversation; every action targets that conversation by key. Conversations
+ * are independent — opening a new one, switching tabs, or opening a historical
+ * one never stops another, which is the whole point of the multi-conversation
+ * model.
  */
-
-const TOOL_STATUS_META = {
-  pending: { labelKey: "Pending", className: "text-muted" },
-  in_progress: { labelKey: "Running", className: "text-warning" },
-  completed: { labelKey: "Completed", className: "text-success" },
-  failed: { labelKey: "Failed", className: "text-danger" },
-};
-
-// Status is a 6px dot in a fixed 12px slot, the way Claude Code renders tool
-// state (docs/refer_proj/claude-code/src/components/ToolUseLoader.tsx:30-37):
-// one glyph whose only job is colour, in a fixed slot so stacked rows stay
-// aligned. Shape carries the state too — pending is hollow, running pulses —
-// so it survives without colour. The 2px left rail this replaced put a
-// saturated colour bar on every row, and a run of them read as a fence.
-const TOOL_STATUS_DOT = {
-  pending: "border border-muted/60",
-  in_progress: "bg-warning animate-pulse",
-  completed: "bg-success/65",
-  failed: "bg-danger",
-};
 
 // Reads one image file into a prompt attachment (base64 payload + preview URL).
 // Oversized images are downscaled/re-encoded client-side: Codex-side image
@@ -127,842 +93,46 @@ const readImageFile = (file) =>
     reader.readAsDataURL(file);
   });
 
-function ToolStatusIcon({ status }) {
-  return (
-    <span className="flex size-3 shrink-0 items-center justify-center" aria-hidden="true">
-      <span
-        className={`size-1.5 rounded-full ${
-          TOOL_STATUS_DOT[status] || TOOL_STATUS_DOT.pending
-        }`}
-      />
-    </span>
-  );
-}
-
-function Markdown({ text }) {
-  return (
-    <div className="ai-markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>
-        {text}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
-function DiffBlock({ diff, t }) {
-  return (
-    <div className="overflow-hidden rounded-md border border-border">
-      <div className="border-b border-border bg-hover px-2 py-1 font-mono text-[10px] text-muted">
-        {diff.path}
-      </div>
-      {diff.oldText ? (
-        <pre className="max-h-40 overflow-auto whitespace-pre-wrap bg-danger/10 px-2 py-1 font-mono text-[11px] leading-snug text-danger">
-          {diff.oldText}
-        </pre>
-      ) : null}
-      <pre className="max-h-40 overflow-auto whitespace-pre-wrap bg-success/10 px-2 py-1 font-mono text-[11px] leading-snug text-success">
-        {diff.newText || t("(empty)")}
-      </pre>
-    </div>
-  );
-}
-
-function ToolContentBlocks({ content, t }) {
-  if (!Array.isArray(content) || content.length === 0) {
-    return null;
-  }
-  return (
-    <div className="space-y-1.5">
-      {content.map((block, index) => {
-        if (block.type === "diff") {
-          return <DiffBlock key={index} diff={block} t={t} />;
-        }
-        if (block.type === "terminal") {
-          return (
-            <div key={index} className="font-mono text-[11px] text-muted">
-              {t("Terminal")}: {block.terminalId}
-            </div>
-          );
-        }
-        if (!block.text) {
-          return null;
-        }
-        return (
-          <pre
-            key={index}
-            className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-panel px-2 py-1.5 font-mono text-[11px] leading-snug text-text/88"
-          >
-            {block.text}
-          </pre>
-        );
-      })}
-    </div>
-  );
-}
-
-// MCP tool names arrive as `mcp__{server}__{tool}`. Claude Code strips that
-// prefix for display (getMcpDisplayName in
-// docs/refer_proj/claude-code/src/services/mcp/mcpStringUtils.ts:75-81) and
-// shows the server separately; splitting on the LAST `__` rather than the
-// first keeps servers whose own name contains an underscore intact.
-function splitToolTitle(title) {
-  const rest = String(title || "");
-  if (!rest.startsWith("mcp__")) {
-    return { name: rest, server: null };
-  }
-  const body = rest.slice(5);
-  const cut = body.lastIndexOf("__");
-  return cut > 0
-    ? { name: body.slice(cut + 2), server: body.slice(0, cut) }
-    : { name: rest, server: null };
-}
-
-// The kind badge this replaced was dead weight: every MCP tool gets the kind
-// "other" (src-tauri/src/domain/agent/service/acp_client.rs:869), so the chip
-// read "OTHER" on nearly every row while the real signal — the tool name —
-// sat beside it in mono and got less attention. The name now carries the row.
-//
-// The server is deliberately not shown per row. Claude Code's transcript shows
-// the stripped name only and surfaces the server in its tool picker, and
-// repeating it down a stack of five `execute_command` rows just trades one
-// piece of noise for another. The full name stays in the row's tooltip.
-function ToolCallSummary({ tool }) {
-  const { name } = splitToolTitle(tool.title);
-  return (
-    <span className="min-w-0 flex-1 truncate text-left font-medium text-text/90">{name}</span>
-  );
-}
-
-function ToolCallCard({ tool }) {
-  const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
-  const statusMeta = TOOL_STATUS_META[tool.status] || TOOL_STATUS_META.pending;
-  const hasDetails =
-    (tool.content && tool.content.length > 0) ||
-    (tool.locations && tool.locations.length > 0) ||
-    tool.rawInput != null;
-
-  return (
-    <div className="text-xs">
-      <button
-        type="button"
-        onClick={() => hasDetails && setExpanded((prev) => !prev)}
-        title={tool.title || undefined}
-        className={[
-          "group flex w-full items-center gap-2 rounded-md py-1.5 pr-1.5 pl-1",
-          hasDetails ? "cursor-pointer hover:bg-hover" : "cursor-default",
-        ].join(" ")}
-      >
-        <ToolStatusIcon status={tool.status} />
-        <ToolCallSummary tool={tool} />
-        {/* The status word used to sit in the row in full colour. Three signals
-            for one fact — rail, icon, text — and "已完成" is tautological in
-            Chinese. The dot now carries it visually; this keeps it for screen
-            readers and the hover title. */}
-        <span className="sr-only">{t(statusMeta.labelKey)}</span>
-        {hasDetails ? (
-          expanded ? (
-            <ChevronDown
-              className="h-3.5 w-3.5 shrink-0 text-subtle transition-transform group-hover:text-muted"
-              aria-hidden="true"
-            />
-          ) : (
-            <ChevronRight
-              className="h-3.5 w-3.5 shrink-0 text-subtle transition-transform group-hover:text-muted"
-              aria-hidden="true"
-            />
-          )
-        ) : null}
-      </button>
-      {expanded ? (
-        /* Flush with the row above it (same pl-1 inset), not indented under
-           the tool name. The rule this replaced doubled as a status rail, and
-           an indent to match it just swapped one misalignment for another. */
-        <div className="space-y-2 pt-0.5 pr-1 pb-2 pl-1">
-          {tool.locations && tool.locations.length > 0 ? (
-            <div className="space-y-0.5">
-              {tool.locations.map((location, index) => (
-                <div key={index} className="truncate font-mono text-[10px] text-muted">
-                  {location.path}
-                  {location.line != null ? `:${location.line}` : ""}
-                </div>
-              ))}
-            </div>
-          ) : null}
-          <ToolContentBlocks content={tool.content} t={t} />
-          {tool.rawInput != null ? (
-            <details className="text-[11px] text-muted">
-              <summary className="cursor-pointer select-none">{t("Raw input")}</summary>
-              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-panel px-2 py-1 font-mono text-[10px]">
-                {JSON.stringify(tool.rawInput, null, 2)}
-              </pre>
-            </details>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-// Sign-in card shown when the agent rejected session creation with
-// AUTH_REQUIRED: one button per advertised auth method, plus manual fallbacks.
-function AcpAuthCard({ methods, authenticating, onAuthenticate, onCancel }) {
+function StarterRow({ agent, onPick }) {
   const { t } = useI18n();
   return (
-    <div className="rounded-lg border border-warning/35 bg-warning/8 px-3 py-2.5 text-xs">
-      <div className="flex items-center gap-2 text-warning">
-        <KeyRound className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="text-sm font-semibold">{t("Sign-in required")}</span>
-      </div>
-      <p className="mt-1.5 leading-relaxed text-text/88">
-        {t("The agent needs to authenticate before it can create a session. Choose a sign-in method:")}
-      </p>
-      {authenticating ? (
-        <div className="mt-2 flex items-center gap-2 text-text/88">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          <span className="flex-1">
-            {t("Waiting for sign-in to complete (a browser window may have opened)…")}
-          </span>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="shrink-0 rounded-md border border-border-strong bg-transparent px-2 py-1 font-medium text-text/88 hover:bg-danger/10 hover:text-danger"
-          >
-            {t("Cancel")}
-          </button>
-        </div>
-      ) : (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {methods.length > 0 ? (
-            methods.map((method) => (
-              <button
-                key={method.id}
-                type="button"
-                onClick={() => onAuthenticate(method.id)}
-                title={method.description || undefined}
-                className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-on-accent hover:bg-accent/88"
-              >
-                {method.name}
-              </button>
-            ))
-          ) : (
-            <span className="text-muted">{t("The agent did not advertise any sign-in method.")}</span>
-          )}
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md border border-border-strong bg-transparent px-2.5 py-1 font-medium text-text/88 hover:bg-hover"
-          >
-            {t("Cancel")}
-          </button>
-        </div>
-      )}
-      <p className="mt-2 leading-relaxed text-muted">
-        {t("Alternatively, sign in from a terminal first (e.g. codex login), or set CODEX_API_KEY / OPENAI_API_KEY in the agent's env in .eshell-data/acp_agents.json, then restart the agent.")}
-      </p>
-    </div>
-  );
-}
-
-/**
- * Recovery card for an orphaned backend runner.
- *
- * The Rust agent registry outlives the webview, so a reload (dev HMR, devtools,
- * a crashed frontend) leaves the agent process running with no frontend state
- * pointing at it. `acp_agent_start` then refuses with "already has an active
- * session" and the session can only be reclaimed by stopping that runner —
- * which is what this card offers, since nothing else in the panel can reach an
- * agent it is not engaged with.
- */
-function OrphanedSessionCard({ agent, busy, onReclaim, onStop }) {
-  const { t } = useI18n();
-  return (
-    <div className="rounded-lg border border-warning/35 bg-warning/8 px-3 py-2.5 text-xs">
-      <div className="flex items-center gap-2 text-warning">
-        <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="text-sm font-semibold">{t("Orphaned session")}</span>
-      </div>
-      <p className="mt-1.5 leading-relaxed text-text/88">
-        {t(
-          "This agent's process is still running but no window is driving it any more (usually left over after a reload). Stop it to open a new session.",
-        )}
-      </p>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onReclaim}
-          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1 text-xs font-medium text-on-accent hover:bg-accent/88 disabled:opacity-50"
-        >
-          {busy ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          ) : (
-            <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-          {busy ? t("Starting…") : t("Stop and start")}
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onStop}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-transparent px-2.5 py-1 font-medium text-text/88 hover:bg-danger/10 hover:text-danger disabled:opacity-50"
-        >
-          <CircleStop className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("Stop session")}
-        </button>
-      </div>
-      {agent ? (
-        <p className="mt-2 break-all font-mono text-[10px] leading-relaxed text-muted">
-          {formatAcpAgentSpawn(agent)}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function permissionButtonClass(kind, resolving) {
-  const base =
-    "rounded-md px-2.5 py-1 text-xs font-medium transition-colors wrap-anywhere disabled:opacity-50";
-  if (kind === "allow_once" || kind === "allow_always") {
-    return `${base} bg-accent text-on-accent hover:bg-accent/88 ${resolving ? "" : ""}`;
-  }
-  return `${base} border border-danger/50 text-danger hover:bg-danger/10`;
-}
-
-function PermissionCard({ entry, onRespond }) {
-  const { t } = useI18n();
-  const resolved = entry.resolution != null;
-  const chosen = resolved
-    ? entry.options.find((option) => option.optionId === entry.resolution.optionId) || null
-    : null;
-
-  return (
-    <div className="rounded-lg border border-warning/35 bg-warning/8 px-3 py-2 text-xs">
-      <div className="flex items-center gap-2 text-warning">
-        <ShieldQuestion className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="font-semibold">{t("Permission request")}</span>
-      </div>
-      {entry.toolCall ? (
-        <div className="mt-1.5 flex items-center gap-2">
-          <ToolCallSummary tool={entry.toolCall} />
-        </div>
-      ) : null}
-      {entry.toolCall?.content?.length ? (
-        <div className="mt-1.5">
-          <ToolContentBlocks content={entry.toolCall.content} t={t} />
-        </div>
-      ) : null}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {resolved ? (
-          <span className="inline-flex items-center gap-1 text-muted">
-            {entry.resolution.cancelled ? (
-              <>
-                <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
-                {t("Cancelled")}
-              </>
-            ) : (
-              <>
-                <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" />
-                {chosen ? chosen.name : t("Resolved")}
-              </>
-            )}
-          </span>
-        ) : (
-          entry.options.map((option) => (
-            <button
-              key={option.optionId}
-              type="button"
-              disabled={entry.resolving}
-              onClick={() => onRespond(entry.requestId, option.optionId)}
-              className={permissionButtonClass(option.kind, entry.resolving)}
-            >
-              {option.name}
-            </button>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ThoughtEntry({ text }) {
-  const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className="text-xs">
-      <button
-        type="button"
-        onClick={() => setExpanded((prev) => !prev)}
-        className="group flex w-full items-center gap-2 rounded-md py-1.5 pr-1.5 pl-1 text-muted hover:bg-hover"
-      >
-        {/* Same 12px slot as the tool rows' status dot, so thoughts and tool
-            calls still line up when they interleave in one transcript. */}
-        <span className="flex size-3 shrink-0 items-center justify-center" aria-hidden="true">
-          <Brain className="h-3 w-3" />
-        </span>
-        <span className="min-w-0 flex-1 truncate text-left">
-          {expanded ? t("Thinking") : text.replaceAll("\n", " ").slice(0, 80)}
-        </span>
-        {expanded ? (
-          <ChevronDown
-            className="h-3.5 w-3.5 shrink-0 text-subtle transition-transform group-hover:text-muted"
-            aria-hidden="true"
-          />
-        ) : (
-          <ChevronRight
-            className="h-3.5 w-3.5 shrink-0 text-subtle transition-transform group-hover:text-muted"
-            aria-hidden="true"
-          />
-        )}
-      </button>
-      {expanded ? (
-        <div className="pt-0.5 pr-1 pb-2 pl-1 leading-relaxed wrap-anywhere whitespace-pre-wrap text-muted italic">
-          {text}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function PlanCard({ plan }) {
-  const { t } = useI18n();
-  const [expanded, setExpanded] = useState(true);
-  const completed = plan.filter((entry) => entry.status === "completed").length;
-  return (
-    <div className="shrink-0 border-t border-border bg-panel px-3 py-1.5 text-xs">
-      <button
-        type="button"
-        onClick={() => setExpanded((prev) => !prev)}
-        className="flex w-full items-center gap-2 text-text/88"
-      >
-        <ListTodo className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
-        <span className="flex-1 text-left font-medium">
-          {t("Plan")} · {completed}/{plan.length}
-        </span>
-        {expanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
-        )}
-      </button>
-      {expanded ? (
-        <ul className="mt-1.5 max-h-36 space-y-1 overflow-x-hidden overflow-y-auto pb-0.5">
-          {plan.map((entry, index) => (
-            <li key={index} className="flex items-start gap-2">
-              <span className="mt-0.5 shrink-0">
-                <ToolStatusIcon status={entry.status} />
-              </span>
-              <span
-                className={[
-                  "min-w-0 wrap-anywhere",
-                  entry.status === "completed" ? "text-muted line-through" : "text-text/88",
-                ].join(" ")}
-              >
-                {entry.content}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
-function TranscriptEntry({ entry, onRespondPermission }) {
-  const { t } = useI18n();
-  if (entry.type === "user") {
-    const images = Array.isArray(entry.images) ? entry.images : [];
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-xl rounded-br-sm bg-accent-soft px-3 py-2 text-[13.5px] leading-relaxed text-text">
-          {images.length > 0 ? (
-            <div className="mb-1.5 flex flex-wrap gap-1.5">
-              {images.map((image, index) =>
-                image.previewUrl ? (
-                  <img
-                    key={index}
-                    src={image.previewUrl}
-                    alt=""
-                    className="h-16 w-16 rounded-md border border-border object-cover"
-                  />
-                ) : (
-                  <span
-                    key={index}
-                    className="rounded border border-border-strong bg-transparent px-1.5 py-0.5 font-mono text-[10px] text-muted"
-                  >
-                    {image.mimeType || "image"}
-                  </span>
-                ),
-              )}
-            </div>
-          ) : null}
-          {entry.text ? (
-            <span className="wrap-anywhere whitespace-pre-wrap">{entry.text}</span>
-          ) : null}
-          {entry.context ? (
-            <details className="mt-1.5 text-xs">
-              <summary className="cursor-pointer select-none text-text/70">
-                <TerminalSquare className="mr-1 inline h-3 w-3 align-[-2px]" aria-hidden="true" />
-                {t("Terminal selection")} · {entry.context.sessionName}
-              </summary>
-              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-panel px-2 py-1 font-mono text-[11px] leading-snug">
-                {entry.context.content}
-              </pre>
-            </details>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-  if (entry.type === "assistant") {
-    return (
-      <div className="px-0.5 py-0.5 text-text">
-        <Markdown text={entry.text} />
-      </div>
-    );
-  }
-  if (entry.type === "thought") {
-    return <ThoughtEntry text={entry.text} />;
-  }
-  if (entry.type === "tool") {
-    return <ToolCallCard tool={entry.tool} />;
-  }
-  if (entry.type === "permission") {
-    return <PermissionCard entry={entry} onRespond={onRespondPermission} />;
-  }
-  if (entry.type === "notice") {
-    return <AcpNoticeRow entry={entry} />;
-  }
-  return null;
-}
-
-// Relative timestamps for the browser rows ("刚刚" / "11 分钟" / "3 天").
-function formatRelativeTime(iso, t) {
-  const then = Date.parse(iso || "");
-  if (Number.isNaN(then)) {
-    return "";
-  }
-  const minutes = Math.floor((Date.now() - then) / 60000);
-  if (minutes < 1) {
-    return t("just now");
-  }
-  if (minutes < 60) {
-    return t("{count} min", { count: minutes });
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return t("{count} h", { count: hours });
-  }
-  const days = Math.floor(hours / 24);
-  if (days < 30) {
-    return t("{count} d", { count: days });
-  }
-  return (iso || "").slice(0, 10);
-}
-
-// One session row inside a project (or the ungrouped section): title plus a
-// relative timestamp, with resume/delete revealed on hover like the mockup.
-function AcpSessionRow({ row, active, canResume, onView, onResume, onDelete }) {
-  const { t } = useI18n();
-  return (
-    <div
-      className={[
-        "group flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs",
-        active ? "bg-accent-soft" : "hover:bg-hover",
-      ].join(" ")}
+    <button
+      type="button"
+      onClick={() => onPick(agent.id)}
+      title={formatAcpAgentSpawn(agent)}
+      className="flex w-full items-center gap-2.5 rounded-lg border border-border px-2.5 py-2 text-left transition-colors hover:border-border-strong hover:bg-hover"
     >
-      <button
-        type="button"
-        onClick={() => onView(row)}
-        title={t("View transcript")}
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-      >
-        {active ? (
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
-        ) : null}
-        <span className="min-w-0 flex-1 truncate text-text/88">{row.title || row.id}</span>
-        <span className="shrink-0 text-[10px] text-muted">
-          {formatRelativeTime(row.updatedAt, t)}
-        </span>
-      </button>
-      <button
-        type="button"
-        disabled={!canResume}
-        onClick={() => onResume(row)}
-        title={canResume ? t("Resume session") : t("Stop the current session first")}
-        className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-hover hover:text-text group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
-      >
-        <Play className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={() => onDelete(row)}
-        title={t("Delete")}
-        className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger group-hover:opacity-100 focus:opacity-100"
-      >
-        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
-    </div>
-  );
-}
-
-// One collapsible project group: folder header + its sessions, with a
-// new-session shortcut and the folder path as the tooltip.
-function AcpProjectGroup({
-  project,
-  label,
-  pathTitle,
-  removable = true,
-  sessions,
-  activeSessionId,
-  canResume,
-  onView,
-  onResume,
-  onDelete,
-  onNewSession,
-  onDeleteProject,
-  busy,
-}) {
-  const { t } = useI18n();
-  const [expanded, setExpanded] = useState(true);
-  const [showAll, setShowAll] = useState(false);
-  const VISIBLE = 3;
-  const visible = showAll ? sessions : sessions.slice(0, VISIBLE);
-  const hidden = sessions.length - visible.length;
-
-  return (
-    <div className="space-y-0.5">
-      <div className="group flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-hover">
-        <button
-          type="button"
-          onClick={() => setExpanded((prev) => !prev)}
-          title={pathTitle}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-        >
-          {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
-          )}
-          <Folder className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-text">{label}</span>
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onNewSession(project)}
-          title={t("New session in this project")}
-          className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-hover hover:text-text group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-        {removable ? (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onDeleteProject(project)}
-            title={t("Remove project")}
-            className="shrink-0 rounded p-1 text-muted opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger group-hover:opacity-100 focus:opacity-100 disabled:opacity-0"
-          >
-            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
-        ) : null}
-      </div>
-      {expanded ? (
-        <div className="pl-4">
-          {sessions.length === 0 ? (
-            <p className="px-2 py-1 text-[11px] text-muted">{t("No sessions yet")}</p>
-          ) : (
-            visible.map((row) => (
-              <AcpSessionRow
-                key={row.id}
-                row={row}
-                active={row.id === activeSessionId}
-                canResume={canResume}
-                onView={onView}
-                onResume={onResume}
-                onDelete={onDelete}
-              />
-            ))
-          )}
-          {hidden > 0 || showAll ? (
-            <button
-              type="button"
-              onClick={() => setShowAll((prev) => !prev)}
-              className="px-2 py-1 text-[11px] text-accent hover:underline"
-            >
-              {showAll ? t("Show less") : t("Show more")}
-            </button>
+      <AcpAgentLogo agent={agent} className="h-7 w-7 shrink-0" />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span className="truncate text-[13px] font-medium text-text">{agent.name}</span>
+          {agent.running ? (
+            <span
+              title={t("Agent process running")}
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-success"
+            />
           ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-// Project browser: registered folders with their past sessions, plus a section
-// for sessions started without a project. Replaces the old flat history list.
-function AcpProjectBrowser({
-  projects,
-  history,
-  activeAgentId,
-  activeAgentName,
-  activeAgentCwd,
-  activeSessionId,
-  phase,
-  onView,
-  onResume,
-  onDelete,
-  onNewSession,
-  onAddProject,
-  onDeleteProject,
-  onClose,
-}) {
-  const { t } = useI18n();
-  const canResume = phase === "idle";
-  const busy = phase === "starting" || phase === "authenticating";
-  const knownProjectIds = useMemo(
-    () => new Set(projects.map((project) => project.id)),
-    [projects],
-  );
-  // Sessions are per-agent state: a codex session cannot be resumed by Claude
-  // Code, so the browser only ever shows the selected agent's own history.
-  const agentHistory = useMemo(
-    () => history.filter((row) => !activeAgentId || row.agentId === activeAgentId),
-    [history, activeAgentId],
-  );
-  // Everything without a project (legacy records, or sessions whose project was
-  // removed) lives in the pinned "Sessions" group, which runs in the agent's
-  // default working directory.
-  const ungrouped = agentHistory.filter(
-    (row) => !row.projectId || !knownProjectIds.has(row.projectId),
-  );
-  const defaultGroup = { id: null, name: t("Sessions"), path: null, virtual: true };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex items-center gap-1 rounded-md border border-border-strong bg-transparent px-2 py-1 text-xs text-text/88 hover:bg-hover"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("Back")}
-        </button>
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">
-          {t("Projects")}
         </span>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void onAddProject()}
-          title={t("Add a local folder as a project")}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs font-medium text-on-accent hover:bg-accent/88 disabled:opacity-50"
-        >
-          <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("New project")}
-        </button>
-      </div>
-
-      {activeAgentName ? (
-        <p className="px-2 text-[10px] text-muted">
-          {t("{name} sessions", { name: activeAgentName })}
-        </p>
-      ) : null}
-
-      <AcpProjectGroup
-        project={defaultGroup}
-        label={defaultGroup.name}
-        pathTitle={activeAgentCwd || t("Default working directory")}
-        removable={false}
-        sessions={ungrouped}
-        activeSessionId={activeSessionId}
-        canResume={canResume}
-        busy={busy}
-        onView={onView}
-        onResume={onResume}
-        onDelete={onDelete}
-        onNewSession={onNewSession}
-        onDeleteProject={onDeleteProject}
-      />
-
-      {projects.map((project) => (
-        <AcpProjectGroup
-          key={project.id}
-          project={project}
-          label={project.name}
-          pathTitle={project.path}
-          sessions={agentHistory.filter((row) => row.projectId === project.id)}
-          activeSessionId={activeSessionId}
-          canResume={canResume}
-          busy={busy}
-          onView={onView}
-          onResume={onResume}
-          onDelete={onDelete}
-          onNewSession={onNewSession}
-          onDeleteProject={onDeleteProject}
-        />
-      ))}
-
-      {projects.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border px-3 py-3 text-center text-[11px] leading-relaxed text-muted">
-          {t("No projects yet. Add a local folder to keep its sessions together.")}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-// Read-only transcript of one persisted session.
-function AcpHistoryRecordView({ record, phase, onBack, onResume }) {
-  const { t } = useI18n();
-  const entries = Array.isArray(record.transcript) ? record.transcript : [];
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex items-center gap-1 rounded-md border border-border-strong bg-transparent px-2 py-1 text-xs text-text/88 hover:bg-hover"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
-          {t("Back")}
-        </button>
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-text">
-          {record.title || record.id}
+        <span className="mt-0.5 block truncate font-mono text-[10px] text-muted">
+          {formatAcpAgentSpawn(agent)}
         </span>
-        {phase === "idle" ? (
-          <button
-            type="button"
-            onClick={() => onResume(record)}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent hover:bg-accent/88"
-          >
-            <Play className="h-3.5 w-3.5" aria-hidden="true" />
-            {t("Resume session")}
-          </button>
-        ) : null}
-      </div>
-      <div className="rounded-md border border-border bg-panel px-2 py-1 text-[11px] text-muted">
-        {t("Read-only transcript. Resuming reopens the session with the agent when it supports session/load.")}
-      </div>
-      {entries.map((entry, index) => (
-        <TranscriptEntry
-          key={entry.id || index}
-          entry={entry}
-          onRespondPermission={() => {}}
-        />
-      ))}
-    </div>
+      </span>
+      <Plus className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden="true" />
+    </button>
   );
 }
 
 export default function AcpAgentPanel({ acp }) {
   const { t } = useI18n();
   const {
+    conversations,
+    activeKey,
+    setActiveKey,
+    activeConversation,
     agents,
-    activeAgentId,
-    setActiveAgentId,
+    openSession,
+    closeSession,
+    stopAgent,
     phase,
     session,
     authMethods,
@@ -972,69 +142,96 @@ export default function AcpAgentPanel({ acp }) {
     configOptions,
     usage,
     turnActive,
+    draft,
+    standaloneNotices,
     history,
     projects,
     addProject,
     deleteProject,
     startSession,
-    shellContext,
-    clearShellContext,
-    start,
-    stop,
-    reclaimAndStart,
-    newSession,
-    authenticate,
     resumeHistory,
-    getHistoryRecord,
     deleteHistoryRecord,
     sendPrompt,
     cancelTurn,
     setMode,
     setConfigOption,
     respondPermission,
+    clearShellContext,
+    setDraft,
+    authenticate,
     runtimeEnv,
     envMissing,
     refreshRuntimeEnv,
   } = acp;
 
-  const [question, setQuestion] = useState("");
-  const [attachments, setAttachments] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [viewingRecord, setViewingRecord] = useState(null);
-  // Header popovers: null | "agent" | "mode" (only one open at a time).
+  // Where the next conversation started from the starter screen should run:
+  // null = the agent's own configured directory, otherwise a project row.
+  const [starterProject, setStarterProject] = useState(null);
+  // Composer popovers: null | "mode" | "settings".
   const [openMenu, setOpenMenu] = useState(null);
   // A long draft scrolls inside the 2-row composer, which hides the text being
-  // edited. The box therefore grows on demand via a top-right toggle; the
-  // scrollbar is kept either way, so expansion only ever adds room.
+  // edited. The box therefore grows on demand via a top-right toggle.
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerOverflows, setComposerOverflows] = useState(false);
   const textareaRef = useRef(null);
   const composerRef = useRef(null);
+  const composerMenuRef = useRef(null);
   const scrollRef = useRef(null);
   const nearBottomRef = useRef(true);
-  // Menus live in two places now: agent in the header, mode in the composer.
-  const headerMenuRef = useRef(null);
-  const composerMenuRef = useRef(null);
 
   const ready = phase === "ready" && session != null;
   const starting = phase === "starting";
   const authActive = phase === "auth" || phase === "authenticating";
-  const activeAgent = useMemo(
-    () => agents.find((agent) => agent.id === activeAgentId) || null,
-    [agents, activeAgentId],
-  );
-  // Backend runner alive while this panel holds no session: the process is
-  // orphaned and a plain start would fail with "already has an active session".
-  const orphanedSession = phase === "idle" && Boolean(activeAgent?.running);
-  const stopTargetId = session?.agentId || activeAgentId;
+  const ended = phase === "ended";
 
-  // Autoscroll while streaming unless the user scrolled up to read.
+  const activeAgent = useMemo(
+    () => agents.find((agent) => agent.id === activeConversation?.agentId) || null,
+    [agents, activeConversation],
+  );
+  const supportsImages = Boolean(session?.capabilities?.promptImage);
+  const modes = session?.modes;
+  // Agent-advertised selectors (model, thought level, ...). The mode mirror is
+  // filtered out here because `modes` above already drives that same setting.
+  const sessionConfigOptions = useMemo(
+    () => (ready ? visibleConfigOptions(configOptions) : []),
+    [configOptions, ready],
+  );
+
+  const attachments = draft?.attachments ?? [];
+  const shellContext = draft?.shellContext ?? null;
+  const question = draft?.text ?? "";
+
+  const canSend =
+    ready &&
+    !turnActive &&
+    (question.trim().length > 0 || attachments.length > 0 || shellContext != null);
+  const usagePercent =
+    usage && usage.size > 0 ? Math.min(100, Math.round((usage.used / usage.size) * 100)) : null;
+
+  const openHistoryKeys = useMemo(
+    () =>
+      new Set(
+        conversations
+          .filter((row) => row.sessionId)
+          .map((row) => `${row.agentId}:${row.sessionId}`),
+      ),
+    [conversations],
+  );
+
+  // Autoscroll while streaming unless the user scrolled up to read. Switching
+  // conversations also jumps to the newest message, which is what makes a tab
+  // click feel like switching rather than scrolling a shared transcript.
   useEffect(() => {
     const node = scrollRef.current;
     if (node && nearBottomRef.current) {
       node.scrollTop = node.scrollHeight;
     }
-  }, [transcript]);
+  }, [transcript, activeKey]);
+
+  useEffect(() => {
+    nearBottomRef.current = true;
+  }, [activeKey]);
 
   const handleScroll = useCallback((event) => {
     const node = event.currentTarget;
@@ -1043,8 +240,7 @@ export default function AcpAgentPanel({ acp }) {
 
   // The expand affordance only earns its corner once the draft really
   // overflows, so measure instead of guessing from its length: how much wraps
-  // depends on the panel width, which the user can drag at any time. Observed
-  // on the box, not the textarea, whose own box never changes height.
+  // depends on the panel width, which the user can drag at any time.
   useEffect(() => {
     const node = textareaRef.current;
     const box = composerRef.current;
@@ -1059,18 +255,16 @@ export default function AcpAgentPanel({ acp }) {
     const observer = new ResizeObserver(measure);
     observer.observe(box);
     return () => observer.disconnect();
-  }, [question, composerExpanded]);
+  }, [question, composerExpanded, activeKey]);
 
-  // Dismiss the header popovers on outside click or Escape. Escape is captured
-  // here so it closes the menu instead of bubbling up to App's "close dock".
+  // Dismiss the composer popovers on outside click or Escape. Escape is
+  // captured here so it closes the menu instead of bubbling up to App's
+  // "close dock".
   useEffect(() => {
     if (!openMenu) {
       return undefined;
     }
     const handlePointerDown = (event) => {
-      if (headerMenuRef.current?.contains(event.target)) {
-        return;
-      }
       if (composerMenuRef.current?.contains(event.target)) {
         return;
       }
@@ -1090,32 +284,18 @@ export default function AcpAgentPanel({ acp }) {
     };
   }, [openMenu]);
 
-  // The agent choice is locked while a session is live; a stale popover would
-  // otherwise stay open across a start.
-  useEffect(() => {
-    if (openMenu === "agent" && (ready || starting)) {
-      setOpenMenu(null);
-    }
-  }, [openMenu, ready, starting]);
-
   const handleSend = useCallback(
     async (event) => {
       event?.preventDefault?.();
-      const text = question.trim();
-      if ((!text && attachments.length === 0 && !shellContext) || !ready || turnActive) {
+      if (!canSend) {
         return;
       }
-      setQuestion("");
       setComposerExpanded(false);
-      const images = attachments;
-      setAttachments([]);
       nearBottomRef.current = true;
-      await sendPrompt(text, images);
+      await sendPrompt(question, attachments);
     },
-    [attachments, question, ready, sendPrompt, shellContext, turnActive],
+    [attachments, canSend, question, sendPrompt],
   );
-
-  const supportsImages = Boolean(session?.capabilities?.promptImage);
 
   const addImageFiles = useCallback(
     async (files) => {
@@ -1128,36 +308,77 @@ export default function AcpAgentPanel({ acp }) {
       }
       try {
         const loaded = await Promise.all(imageFiles.map(readImageFile));
-        setAttachments((prev) => [...prev, ...loaded]);
+        setDraft({ attachments: [...attachments, ...loaded] });
       } catch {
         // Unreadable files are dropped silently; the picker can be retried.
       }
     },
-    [supportsImages],
+    [attachments, setDraft, supportsImages],
   );
 
-  const openHistoryRecord = useCallback(
-    async (row) => {
-      try {
-        const record = await getHistoryRecord(row.id);
-        setViewingRecord(record);
-      } catch {
-        setViewingRecord(null);
-      }
-    },
-    [getHistoryRecord],
-  );
-
-  const handleResumeHistory = useCallback(
-    async (record) => {
+  const handleNewConversation = useCallback(
+    (agentId) => {
       setHistoryOpen(false);
-      setViewingRecord(null);
-      await resumeHistory(record);
+      void openSession({ agentId });
+    },
+    [openSession],
+  );
+
+  // The starter screen's agent rows honour the path picked next to the title;
+  // the tab strip's "+" keeps starting in the agent's own directory, because no
+  // path picker is visible while tabs are open and silently reusing a choice
+  // made in another screen would be a surprise.
+  const handleStarterStart = useCallback(
+    (agentId) => {
+      void openSession({ agentId, project: starterProject });
+    },
+    [openSession, starterProject],
+  );
+
+  // The agents' directories only differ when the user configured them to, so a
+  // shared one can stand in for "default path" instead of an abstract label.
+  const commonAgentCwd = useMemo(() => {
+    const first = agents[0]?.cwd;
+    if (!first) {
+      return null;
+    }
+    return agents.every((agent) => (agent.cwd || "") === first) ? first : null;
+  }, [agents]);
+
+  const handleCloseConversation = useCallback(
+    (key) => {
+      void closeSession(key);
+    },
+    [closeSession],
+  );
+
+  const handleOpenHistoryRecord = useCallback(
+    (record) => {
+      setHistoryOpen(false);
+      void resumeHistory(record);
     },
     [resumeHistory],
   );
 
-  // Slash command completion: filter advertised commands by the typed prefix.
+  const handleNewSessionInProject = useCallback(
+    (project, agentId) => {
+      setHistoryOpen(false);
+      void startSession({ project, agentId });
+    },
+    [startSession],
+  );
+
+  // Retry = drop this tab (which stops the process if it was the last one) and
+  // open a fresh conversation with the same agent and folder.
+  const handleRetry = useCallback(async () => {
+    if (!activeConversation) {
+      return;
+    }
+    const { key, agentId, projectId, cwd } = activeConversation;
+    await closeSession(key);
+    await openSession({ agentId, project: { id: projectId ?? null, path: cwd ?? null } });
+  }, [activeConversation, closeSession, openSession]);
+
   const commandSuggestions = useMemo(() => {
     if (!question.startsWith("/") || question.includes(" ") || commands.length === 0) {
       return [];
@@ -1168,254 +389,204 @@ export default function AcpAgentPanel({ acp }) {
       .slice(0, 6);
   }, [commands, question]);
 
-  const modes = session?.modes;
-  // Agent-advertised selectors (model, thought level, ...). The mode mirror is
-  // filtered out here because `modes` above already drives that same setting.
-  const sessionConfigOptions = useMemo(
-    () => (ready ? visibleConfigOptions(configOptions) : []),
-    [configOptions, ready],
-  );
-  const canSend =
-    ready &&
-    !turnActive &&
-    (question.trim().length > 0 || attachments.length > 0 || shellContext != null);
-  const usagePercent =
-    usage && usage.size > 0 ? Math.min(100, Math.round((usage.used / usage.size) * 100)) : null;
+  const renderBody = () => {
+    if (!activeConversation) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 px-4 py-6 text-center">
+          {envMissing ? <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} /> : null}
+          {standaloneNotices.map((entry) => (
+            <AcpNoticeRow key={entry.id} entry={entry} />
+          ))}
+          {agents.length === 0 ? (
+            <p className="text-sm text-muted">{t("No agent configured")}</p>
+          ) : (
+            <div className="w-full max-w-full space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-text">{t("Start a conversation")}</p>
+                <AcpPathPicker
+                  projects={projects}
+                  value={starterProject}
+                  defaultHint={commonAgentCwd}
+                  onChange={setStarterProject}
+                  onAddProject={addProject}
+                />
+              </div>
+              <div className="space-y-1.5 text-left">
+                {agents.map((agent) => (
+                  <StarterRow key={agent.id} agent={agent} onPick={handleStarterStart} />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (starting) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted">
+          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+          <span>{t("Starting…")}</span>
+          {activeAgent ? (
+            <span className="max-w-full break-all px-4 text-center font-mono text-[10px] text-subtle">
+              {formatAcpAgentSpawn(activeAgent)}
+            </span>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (ended) {
+      return (
+        <div className="space-y-2">
+          {envMissing ? (
+            <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} />
+          ) : null}
+          <div className="rounded-lg border border-warning/35 bg-warning/8 px-3 py-2.5 text-xs">
+            <div className="flex items-center gap-2 text-warning">
+              <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="text-sm font-semibold">
+                {activeConversation.failed
+                  ? t("Could not start this conversation")
+                  : t("Session ended")}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 font-medium text-on-accent hover:bg-accent/88"
+              >
+                {t("Start again")}
+              </button>
+              {activeConversation.failed ? (
+                <button
+                  type="button"
+                  onClick={() => void stopAgent(activeConversation.agentId)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 font-medium text-text/88 hover:bg-hover"
+                >
+                  <CircleStop className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t("Stop agent process")}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => handleCloseConversation(activeConversation.key)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1 font-medium text-text/88 hover:bg-hover"
+              >
+                {t("Close conversation")}
+              </button>
+            </div>
+          </div>
+          {transcript.map((entry) => (
+            <TranscriptEntry key={entry.id} entry={entry} onRespondPermission={respondPermission} />
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        {envMissing ? (
+          <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} />
+        ) : null}
+        {authActive ? (
+          <AcpAuthCard
+            methods={authMethods}
+            authenticating={phase === "authenticating"}
+            onAuthenticate={authenticate}
+            onCancel={() => handleCloseConversation(activeConversation.key)}
+          />
+        ) : null}
+        {transcript.map((entry) => (
+          <TranscriptEntry key={entry.id} entry={entry} onRespondPermission={respondPermission} />
+        ))}
+        {turnActive ? (
+          <div className="flex items-center gap-2 px-1 text-xs text-muted">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            {t("Agent working…")}
+          </div>
+        ) : null}
+        {ready && transcript.length === 0 ? (
+          <div className="pt-8 text-center text-xs text-muted">
+            {t("Session ready — message the agent to get started.")}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface">
-      <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-2.5">
-        {/* The agent picker carries the panel's visible identity (brand mark +
-            name), so the heading only needs to exist for assistive tech. */}
-        <h2 className="sr-only">{t("ACP Agent")}</h2>
-        <div
-          ref={headerMenuRef}
-          className="relative flex min-w-0 flex-1 items-center gap-1.5"
-          title={session ? `${t("Session")}: ${session.id}` : undefined}
-        >
-          <AcpAgentPicker
-            agents={agents}
-            activeAgentId={activeAgentId}
-            locked={ready || starting}
-            open={openMenu === "agent"}
-            onToggle={() => setOpenMenu((prev) => (prev === "agent" ? null : "agent"))}
-            onSelect={(agentId) => {
-              setActiveAgentId(agentId);
-              setOpenMenu(null);
-            }}
-          />
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {usagePercent != null ? (
-            <span
-              className="rounded bg-hover px-1.5 py-0.5 font-mono text-[10px] text-muted tabular-nums"
-              title={`${usage.used} / ${usage.size}`}
-            >
-              {usagePercent}%
-            </span>
-          ) : null}
-          {ready ? (
-            <button
-              type="button"
-              onClick={() => {
-                setViewingRecord(null);
-                setHistoryOpen(false);
-                void newSession();
-              }}
-              disabled={turnActive}
-              title={t("New session")}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-hover hover:text-text disabled:opacity-40"
-            >
-              <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              setViewingRecord(null);
-              setHistoryOpen((prev) => !prev);
-            }}
-            title={t("Projects")}
-            className={[
-              "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors",
-              historyOpen ? "bg-accent-soft text-accent" : "text-muted hover:bg-hover hover:text-text",
-            ].join(" ")}
-          >
-            <FolderKanban className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
-          {ready || orphanedSession ? (
-            <button
-              type="button"
-              onClick={() => stop(stopTargetId)}
-              title={orphanedSession ? t("Stop session") : t("Stop agent")}
-              className={[
-                "inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-danger/10 hover:text-danger",
-                orphanedSession ? "text-warning" : "text-muted",
-              ].join(" ")}
-            >
-              <CircleStop className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
-          ) : null}
-        </div>
-      </header>
+      <AcpSessionTabs
+        conversations={conversations}
+        activeKey={activeKey}
+        agents={agents}
+        historyOpen={historyOpen}
+        onSelect={setActiveKey}
+        onClose={handleCloseConversation}
+        onNewConversation={handleNewConversation}
+        onOpenHistory={() => setHistoryOpen((prev) => !prev)}
+        onStopAgent={(agentId) => void stopAgent(agentId)}
+      />
 
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3"
-      >
+      {activeConversation ? (
+        <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border/70 px-2.5 text-[11px] text-muted">
+          <AcpAgentLogo agent={activeAgent} className="h-3.5 w-3.5 shrink-0" />
+          <span className="shrink-0 font-medium text-text/88">
+            {activeAgent?.name || activeConversation.agentName}
+          </span>
+          <span
+            className="flex min-w-0 items-center gap-1"
+            title={activeConversation.cwd || t("Default working directory")}
+          >
+            <Folder className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="truncate font-mono text-[10px]">
+              {activeConversation.cwd || t("Default working directory")}
+            </span>
+          </span>
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            {usagePercent != null ? (
+              <span
+                className="rounded bg-hover px-1.5 py-0.5 font-mono text-[10px] tabular-nums"
+                title={`${usage.used} / ${usage.size}`}
+              >
+                {usagePercent}%
+              </span>
+            ) : null}
+          </span>
+        </div>
+      ) : null}
+
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3"
+        >
+          {renderBody()}
+        </div>
+
         {historyOpen ? (
-          viewingRecord ? (
-            <AcpHistoryRecordView
-              record={viewingRecord}
-              phase={phase}
-              onBack={() => setViewingRecord(null)}
-              onResume={handleResumeHistory}
-            />
-          ) : (
-            <AcpProjectBrowser
-              projects={projects}
-              history={history}
-              activeAgentId={activeAgentId}
-              activeAgentName={activeAgent?.name ?? activeAgentId}
-              activeAgentCwd={activeAgent?.cwd ?? null}
-              activeSessionId={session?.id ?? null}
-              phase={phase}
-              onView={openHistoryRecord}
-              onResume={handleResumeHistory}
-              onDelete={(row) => void deleteHistoryRecord(row.id)}
-              onNewSession={(project) => {
-                setHistoryOpen(false);
-                setViewingRecord(null);
-                void startSession({ project });
-              }}
-              onAddProject={() => void addProject()}
-              onDeleteProject={(project) => void deleteProject(project.id)}
-              onClose={() => setHistoryOpen(false)}
-            />
-          )
-        ) : authActive ? (
-          <div className="space-y-2">
-            <AcpAuthCard
-              methods={authMethods}
-              authenticating={phase === "authenticating"}
-              onAuthenticate={authenticate}
-              onCancel={stop}
-            />
-            {transcript.map((entry) => (
-              <TranscriptEntry
-                key={entry.id}
-                entry={entry}
-                onRespondPermission={respondPermission}
-              />
-            ))}
-          </div>
-        ) : !ready && transcript.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-muted">
-            {/* No Node.js means the built-in agents cannot start at all — say
-                so up front instead of letting the user read a spawn error. */}
-            {envMissing ? (
-              <div className="w-full max-w-full">
-                <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} />
-              </div>
-            ) : null}
-            {activeAgent ? (
-              <AcpAgentLogo agent={activeAgent} className="h-12 w-12 rounded-xl" />
-            ) : (
-              <Bot className="h-8 w-8 opacity-40" aria-hidden="true" />
-            )}
-            {activeAgent ? (
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-text">{activeAgent.name}</p>
-                <p
-                  className="mx-auto max-w-full break-all font-mono text-[10px] leading-relaxed text-muted/80"
-                  title={formatAcpAgentSpawn(activeAgent)}
-                >
-                  {formatAcpAgentSpawn(activeAgent)}
-                </p>
-              </div>
-            ) : null}
-            {orphanedSession ? (
-              <div className="w-full max-w-full text-left">
-                <OrphanedSessionCard
-                  agent={activeAgent}
-                  busy={starting}
-                  onReclaim={() => void reclaimAndStart(activeAgentId)}
-                  onStop={() => void stop(activeAgentId)}
-                />
-              </div>
-            ) : (
-              <>
-                <p>{t("Start an ACP agent to begin a session.")}</p>
-                <button
-                  type="button"
-                  onClick={start}
-                  disabled={starting || !activeAgentId}
-                  className="rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-on-accent hover:bg-accent/88 disabled:opacity-50"
-                >
-                  {starting ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                      {t("Starting…")}
-                    </span>
-                  ) : (
-                    t("Start")
-                  )}
-                </button>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {/* The card outlives a failed start: the notice row explains what
-                happened, this says what to do about it. */}
-            {envMissing ? (
-              <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} />
-            ) : null}
-            {!ready && transcript.length > 0 ? (
-              orphanedSession ? (
-                <OrphanedSessionCard
-                  agent={activeAgent}
-                  busy={starting}
-                  onReclaim={() => void reclaimAndStart(activeAgentId)}
-                  onStop={() => void stop(activeAgentId)}
-                />
-              ) : (
-                <div className="flex justify-center pb-1">
-                  <button
-                    type="button"
-                    onClick={start}
-                    disabled={starting || !activeAgentId}
-                    className="rounded-md border border-border-strong bg-transparent px-3 py-1 text-xs font-medium text-text/88 hover:bg-hover disabled:opacity-50"
-                  >
-                    {starting ? t("Starting…") : t("Restart agent")}
-                  </button>
-                </div>
-              )
-            ) : null}
-            {transcript.map((entry) => (
-              <TranscriptEntry
-                key={entry.id}
-                entry={entry}
-                onRespondPermission={respondPermission}
-              />
-            ))}
-            {turnActive ? (
-              <div className="flex items-center gap-2 px-1 text-xs text-muted">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                {t("Agent working…")}
-              </div>
-            ) : null}
-            {ready && transcript.length === 0 ? (
-              <div className="pt-8 text-center text-xs text-muted">
-                {t("Session ready — message the agent to get started.")}
-              </div>
-            ) : null}
-          </div>
-        )}
+          <AcpHistoryPanel
+            projects={projects}
+            history={history}
+            agents={agents}
+            activeAgentId={activeConversation?.agentId ?? null}
+            activeAgentName={activeAgent?.name ?? null}
+            activeAgentCwd={activeAgent?.cwd ?? null}
+            openKeys={openHistoryKeys}
+            onOpen={handleOpenHistoryRecord}
+            onDelete={(row) => void deleteHistoryRecord(row.id)}
+            onPickAgent={handleNewSessionInProject}
+            onAddProject={() => void addProject()}
+            onDeleteProject={(project) => void deleteProject(project.id)}
+            onClose={() => setHistoryOpen(false)}
+          />
+        ) : null}
       </div>
 
-      {plan && plan.length > 0 ? <PlanCard plan={plan} /> : null}
+      {activeConversation && plan && plan.length > 0 ? <PlanCard plan={plan} /> : null}
 
       <div className="relative shrink-0 border-t border-border">
         {commandSuggestions.length > 0 ? (
@@ -1424,7 +595,7 @@ export default function AcpAgentPanel({ acp }) {
               <button
                 key={command.name}
                 type="button"
-                onClick={() => setQuestion(`/${command.name} `)}
+                onClick={() => setDraft({ text: `/${command.name} ` })}
                 className="flex w-full items-baseline gap-2 rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-hover"
               >
                 <span className="shrink-0 font-mono font-medium text-accent">
@@ -1473,7 +644,9 @@ export default function AcpAgentPanel({ acp }) {
                   <button
                     type="button"
                     onClick={() =>
-                      setAttachments((prev) => prev.filter((item) => item.id !== image.id))
+                      setDraft({
+                        attachments: attachments.filter((item) => item.id !== image.id),
+                      })
                     }
                     aria-label={t("Remove image")}
                     className="absolute -right-1.5 -top-1.5 rounded-full border border-border bg-panel p-0.5 text-muted hover:text-danger"
@@ -1491,15 +664,13 @@ export default function AcpAgentPanel({ acp }) {
             ref={composerRef}
             className={[
               "relative flex flex-col overflow-visible rounded-lg border border-border-strong bg-panel transition-colors focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15",
-              // Grows on demand; the transcript above is `flex-1 min-h-0`, so it
-              // gives up the space instead of the composer overflowing the panel.
               composerExpanded ? "h-[min(52vh,26rem)]" : "",
             ].join(" ")}
           >
             <textarea
               ref={textareaRef}
               value={question}
-              onChange={(event) => setQuestion(event.target.value)}
+              onChange={(event) => setDraft({ text: event.target.value })}
               onKeyDown={(event) => {
                 // Collapse first: App's own Escape handler closes the whole dock,
                 // so this must not bubble.
@@ -1528,12 +699,12 @@ export default function AcpAgentPanel({ acp }) {
                   ? t("Message the agent…")
                   : authActive
                     ? t("Sign in to continue")
-                    : t("Start the agent first")
+                    : starting
+                      ? t("Starting…")
+                      : t("Start a conversation first")
               }
               className={[
                 "min-h-0 w-full resize-none border-0 bg-transparent px-3 py-2.5 text-[13px] leading-6 text-text outline-none placeholder:text-subtle",
-                // Keep the draft clear of the toggle; without this the last
-                // words of a full line sit underneath it.
                 composerOverflows || composerExpanded ? "pr-9" : "",
                 composerExpanded ? "flex-1" : "",
               ].join(" ")}
@@ -1557,10 +728,7 @@ export default function AcpAgentPanel({ acp }) {
                 )}
               </button>
             ) : null}
-            <div
-              ref={composerMenuRef}
-              className="relative flex items-end gap-1.5 px-2 pb-1.5"
-            >
+            <div ref={composerMenuRef} className="relative flex items-end gap-1.5 px-2 pb-1.5">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
                 {ready && modes?.availableModes?.length ? (
                   <AcpModePicker

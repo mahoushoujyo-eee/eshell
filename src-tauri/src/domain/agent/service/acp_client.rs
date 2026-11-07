@@ -23,15 +23,15 @@ use std::sync::{Arc, Mutex as StdMutex, Weak};
 
 use agent_client_protocol::schema::v1::{
     AuthMethod, AuthenticateRequest, AvailableCommand, AvailableCommandInput, CancelNotification,
-    ClientCapabilities, ContentBlock, FileSystemCapabilities, ImageContent, Implementation,
-    InitializeRequest, LoadSessionRequest, McpServer, NewSessionRequest, NewSessionResponse,
-    PermissionOption, Plan, PromptRequest, ReadTextFileRequest, ReadTextFileResponse,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionConfigId, SessionConfigOption, SessionConfigOptionValue,
-    SessionId, SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
-    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-    TextContent, ToolCall, ToolCallLocation, ToolCallUpdate, UsageUpdate, WriteTextFileRequest,
-    WriteTextFileResponse,
+    ClientCapabilities, CloseSessionRequest, ContentBlock, FileSystemCapabilities, ImageContent,
+    Implementation, InitializeRequest, LoadSessionRequest, McpServer, NewSessionRequest,
+    NewSessionResponse, PermissionOption, Plan, PromptRequest, ReadTextFileRequest,
+    ReadTextFileResponse, RequestPermissionOutcome, RequestPermissionRequest,
+    RequestPermissionResponse, SelectedPermissionOutcome, SessionConfigId, SessionConfigOption,
+    SessionConfigOptionValue, SessionId, SessionModeId, SessionModeState, SessionNotification,
+    SessionUpdate, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
+    SetSessionModeRequest, TextContent, ToolCall, ToolCallLocation, ToolCallUpdate, UsageUpdate,
+    WriteTextFileRequest, WriteTextFileResponse,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, ErrorCode, Responder};
@@ -64,6 +64,18 @@ enum SessionRequest {
     NewSession {
         cwd: Option<PathBuf>,
         reply: oneshot::Sender<Result<AcpStartInfo, String>>,
+    },
+    /// Reopens a session that already exists on the agent, so a historical
+    /// conversation can be opened beside the live ones.
+    LoadSession {
+        session_id: String,
+        cwd: Option<PathBuf>,
+        reply: oneshot::Sender<Result<AcpStartInfo, String>>,
+    },
+    /// Ends one session without touching the process or its sibling sessions.
+    CloseSession {
+        session_id: String,
+        reply: oneshot::Sender<Result<(), String>>,
     },
     SetMode {
         session_id: String,
@@ -220,6 +232,40 @@ impl AcpSessionRunner {
         let (reply, rx) = oneshot::channel();
         self.submit(SessionRequest::NewSession { cwd, reply })
             .await?;
+        rx.await.map_err(|_| "acp connection dropped".to_string())?
+    }
+
+    /// Reopens a session that already exists on the live connection
+    /// (`session/load`), so historical conversations can be opened beside the
+    /// running ones. Unlike the resume attempted during `start`, a failure is
+    /// reported instead of being replaced by a fresh session: the caller asked
+    /// for one specific conversation.
+    pub async fn load_session(
+        &self,
+        session_id: &str,
+        cwd: Option<PathBuf>,
+    ) -> Result<AcpStartInfo, String> {
+        let (reply, rx) = oneshot::channel();
+        self.submit(SessionRequest::LoadSession {
+            session_id: session_id.to_string(),
+            cwd,
+            reply,
+        })
+        .await?;
+        rx.await.map_err(|_| "acp connection dropped".to_string())?
+    }
+
+    /// Ends one session on the live connection. Agents that do not implement
+    /// `session/close` resolve immediately: the conversation is gone from the
+    /// panel's point of view either way, and killing the process to free it
+    /// would take every sibling conversation with it.
+    pub async fn close_session(&self, session_id: &str) -> Result<(), String> {
+        let (reply, rx) = oneshot::channel();
+        self.submit(SessionRequest::CloseSession {
+            session_id: session_id.to_string(),
+            reply,
+        })
+        .await?;
         rx.await.map_err(|_| "acp connection dropped".to_string())?
     }
 
@@ -462,6 +508,9 @@ async fn run_connection(
                 let capabilities = AcpAgentCapsView {
                     load_session: init.agent_capabilities.load_session,
                     prompt_image: init.agent_capabilities.prompt_capabilities.image,
+                    // `session/close` is advertised as an empty capability
+                    // object; anything else (absent or null) means unsupported.
+                    close_session: init.agent_capabilities.session_capabilities.close.is_some(),
                 };
 
                 let context = SessionContext {
@@ -607,6 +656,46 @@ async fn establish_session(
     })
 }
 
+/// Reopens one session that already exists on the agent (`session/load`).
+///
+/// Separate from [`establish_session`] because that one deliberately falls back
+/// to a fresh session when the load fails. Here the caller named the
+/// conversation it wants, so silently substituting a new one would be worse
+/// than reporting the failure and letting the panel ask.
+async fn load_existing_session(
+    connection: &ConnectionTo<Agent>,
+    context: &SessionContext,
+    session_id: &str,
+    cwd: Option<PathBuf>,
+) -> Result<AcpStartInfo, String> {
+    if !context.load_session_supported {
+        return Err("this agent does not support session/load".to_string());
+    }
+    // Reopening in the folder the conversation originally ran in keeps the
+    // agent's working tree consistent with the transcript.
+    let cwd = cwd.unwrap_or_else(|| context.default_cwd.clone());
+    let response = connection
+        .send_request(
+            LoadSessionRequest::new(SessionId::new(session_id.to_string()), cwd.clone())
+                .mcp_servers(context.mcp_servers.clone()),
+        )
+        .block_task()
+        .await
+        .map_err(|e| e.to_string())?;
+    *context.session_id.lock().unwrap() = session_id.to_string();
+    Ok(AcpStartInfo {
+        session_id: Some(session_id.to_string()),
+        auth_required: false,
+        auth_methods: Vec::new(),
+        resumed: true,
+        capabilities: Some(context.capabilities.clone()),
+        modes: response.modes.as_ref().map(modes_view),
+        config_options: response.config_options.clone(),
+        agent_info: context.agent_info.clone(),
+        cwd: Some(cwd.to_string_lossy().to_string()),
+    })
+}
+
 pub(crate) fn is_auth_required_error(error: &agent_client_protocol::Error) -> bool {
     matches!(error.code, ErrorCode::AuthRequired)
         || error
@@ -665,6 +754,42 @@ async fn park_loop(
                     let result = establish_session(&connection_for_new, &context_for_new)
                         .await
                         .map_err(|e| e.to_string());
+                    let _ = reply.send(result);
+                    Ok(())
+                });
+            }
+            SessionRequest::LoadSession {
+                session_id,
+                cwd,
+                reply,
+            } => {
+                let connection_for_load = connection.clone();
+                let context_for_load = context.clone();
+                let _ = connection.spawn(async move {
+                    let result =
+                        load_existing_session(&connection_for_load, &context_for_load, &session_id, cwd)
+                            .await;
+                    let _ = reply.send(result);
+                    Ok(())
+                });
+            }
+            SessionRequest::CloseSession { session_id, reply } => {
+                let connection_for_close = connection.clone();
+                let close_supported = context.capabilities.close_session;
+                let _ = connection.spawn(async move {
+                    let result = if close_supported {
+                        connection_for_close
+                            .send_request(CloseSessionRequest::new(SessionId::new(session_id)))
+                            .block_task()
+                            .await
+                            .map(|_| ())
+                            .map_err(|e| e.to_string())
+                    } else {
+                        // Nothing to send: the agent keeps the session until the
+                        // process exits. Dropping it client-side is all that is
+                        // available, and the caller asked for exactly that.
+                        Ok(())
+                    };
                     let _ = reply.send(result);
                     Ok(())
                 });

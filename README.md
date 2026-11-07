@@ -4,7 +4,7 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.7.3** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
+**eShell v1.7.4** is a desktop operations workbench built with **Tauri 2, React 19, and Rust**.
 
 It combines SSH sessions, PTY terminals, SFTP file operations, server status monitoring, reusable scripts, and an ACP coding agent panel in one local-first application.
 
@@ -36,6 +36,17 @@ The main AI entry point is the ACP panel, which drives an external coding agent 
 - The panel exposes the MCP bridge, so an agent can call eShell's own tools.
 
 All agent work is delegated to external ACP agents; the former self-hosted Ops Agent runtime was removed from the backend.
+
+## Standalone MCP Server And CLI
+
+Two binaries run the same server operations **without the desktop app**:
+
+- `eshell-mcp` — a standard MCP server over stdio, so any MCP client (Claude Code, Codex, Cursor, …) can operate the servers eShell manages. `--http <port>` switches to the same loopback HTTP transport the in-app bridge uses.
+- `eshell-cli` — the same operations from a shell: `profiles`, `exec`, `status`, `ls`, `cat`, `write`.
+
+Both read the same `.eshell-data/` directory, open their own SSH connections on demand (a profile name is enough — no terminal tab required), and expose the same MCP tools as the in-app bridge — nine of them by default, fewer when a plugin is deactivated.
+
+See [Standalone MCP Server And CLI](docs/guides/features/standalone_mcp_cli.md).
 
 ## Tech Stack
 
@@ -242,6 +253,7 @@ Persistence notes:
 - [Webshell Session](docs/guides/features/webshell_session.md)
 - [ACP Agent Guide](docs/guides/features/acp_agent.md)
 - [ACP Panel Frontend](docs/guides/features/acp_panel_frontend.md)
+- [Standalone MCP Server And CLI](docs/guides/features/standalone_mcp_cli.md)
 - [Project Dev Guide](docs/guides/PROJECT_DEV_GUIDE.md)
 - [Project Description](docs/specs/project_description.md)
 - [OpenAPI-style RPC Spec](docs/specs/openapi.yaml)
@@ -249,6 +261,8 @@ Persistence notes:
 - [SFTP Transfer Guide](docs/guides/features/sftp_transfer.md)
 - [Plugin Development](docs/guides/features/plugin_development.md)
 - [Unreleased Notes](docs/releases/unreleased.md)
+- [Release Notes 1.7.4](docs/releases/v1.7.4.md)
+- [Release Notes 1.7.3](docs/releases/v1.7.3.md)
 - [Release Notes 1.7.2](docs/releases/v1.7.2.md)
 - [Release Notes 1.7.1](docs/releases/v1.7.1.md)
 - [Release Notes 1.7.0](docs/releases/v1.7.0.md)

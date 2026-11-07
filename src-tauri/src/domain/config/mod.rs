@@ -9,5 +9,5 @@ pub(crate) mod service;
 #[cfg(test)]
 mod tests;
 
-pub use service::reload::{ConfigFile, ReloadOutcome};
+pub use service::reload::{ConfigFile, ConfigFileContent, ReloadOutcome};
 pub use service::storage::Storage;

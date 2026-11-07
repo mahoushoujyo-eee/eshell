@@ -25,6 +25,33 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn(async () => null) }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn(async () => {}) }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }));
+// The editor itself is Monaco, which the fake DOM cannot host. Stand in for it
+// with the smallest component that reproduces the contract the tab relies on:
+// it shows the text it was given, surfaces the error prop, and can trigger a
+// save.
+vi.mock("../panels/file-editor-loader", () => ({
+  loadFileEditorModal: async () => {
+    const React = await import("react");
+    // React.lazy resolves a module, so the stub has to arrive as `default`.
+    return {
+      default: function StubEditor(props) {
+        return React.createElement(
+          "div",
+          { class: "stub-editor" },
+          React.createElement("span", { class: "stub-editor-content" }, props.fileContent),
+          props.error
+            ? React.createElement("span", { class: "stub-editor-error" }, props.error)
+            : null,
+          React.createElement(
+            "button",
+            { type: "button", onClick: () => props.onSave() },
+            "editor-save",
+          ),
+        );
+      },
+    };
+  },
+}));
 
 import { act } from "react";
 import SettingsModal from "../sidebar/SettingsModal.jsx";
@@ -206,6 +233,91 @@ describe("Settings Config Files tab", () => {
 
     // The pane must not imply that reload == reconnect.
     expect(textOf(mounted.container)).toContain("does not restart anything");
+
+    await mounted.unmount();
+  });
+
+  it("opens a config file in the editor and saves it back", async () => {
+    const reads = [];
+    const writes = [];
+    commandHandlers.set("read_config_file", async (args) => {
+      reads.push(args.input?.file);
+      return {
+        file: "acpAgents",
+        path: "/data/acp_agents.json",
+        exists: true,
+        content: '{"agents":[]}',
+      };
+    });
+    commandHandlers.set("write_config_file", async (args) => {
+      writes.push(args.input);
+      return {
+        file: args.input.file,
+        path: "/data/acp_agents.json",
+        changed: true,
+        missing: false,
+        error: null,
+      };
+    });
+
+    const mounted = await openConfigTab();
+    // Rows are ssh, acpAgents, scripts: the second Edit belongs to the ACP file.
+    const editButtons = findElements(
+      mounted.container,
+      (node) => node.tagName === "BUTTON" && textOf(node).trim() === "Edit",
+    );
+    expect(editButtons.length).toBe(FILES.length);
+    await fireClick(editButtons[1]);
+    await flush();
+
+    expect(reads).toEqual(["acpAgents"]);
+    expect(textOf(mounted.container)).toContain('{"agents":[]}');
+
+    const save = findElement(
+      mounted.container,
+      (node) => node.tagName === "BUTTON" && textOf(node).trim() === "editor-save",
+    );
+    await fireClick(save);
+    await flush();
+
+    expect(writes).toEqual([{ file: "acpAgents", content: '{"agents":[]}' }]);
+    expect(textOf(mounted.container)).toContain("Saved and applied.");
+
+    await mounted.unmount();
+  });
+
+  it("keeps the editor open and explains a rejected save", async () => {
+    commandHandlers.set("read_config_file", async () => ({
+      file: "acpAgents",
+      path: "/data/acp_agents.json",
+      exists: true,
+      content: "{}",
+    }));
+    commandHandlers.set("write_config_file", async () => {
+      throw new Error("expected value at line 1 column 1");
+    });
+
+    const mounted = await openConfigTab();
+    const editButtons = findElements(
+      mounted.container,
+      (node) => node.tagName === "BUTTON" && textOf(node).trim() === "Edit",
+    );
+    await fireClick(editButtons[1]);
+    await flush();
+
+    const save = findElement(
+      mounted.container,
+      (node) => node.tagName === "BUTTON" && textOf(node).trim() === "editor-save",
+    );
+    await fireClick(save);
+    await flush();
+
+    const text = textOf(mounted.container);
+    expect(text).toContain("expected value at line 1 column 1");
+    // The editor is still mounted, so the user can fix the typo instead of
+    // losing what they typed.
+    expect(text).toContain("{}");
+    expect(text).not.toContain("Saved and applied.");
 
     await mounted.unmount();
   });

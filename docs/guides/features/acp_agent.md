@@ -122,14 +122,19 @@ acp/
 - `mcpServers`（可选）：按 ACP 线格式透传给 agent 的 MCP server 列表（http/sse/stdio）。
 - Windows 下 npm 的 `.cmd` shim 需经 `cmd /c` 启动（默认配置已处理）；非 Windows 直接 `npx`。
 
+**应用内编辑**：设置 → Config Files → `acp_agents.json` → 编辑。编辑器就是 SFTP 打开远程文件用的那个 Monaco；保存前由后端校验 JSON（与加载走同一个解析函数），校验不过直接拒写，磁盘上的旧文件保持原样，所以一次手误不会让面板起不来 agent。文件不存在时会给出可用的骨架（`{"agents": []}`），保存即创建。`config_file_read` / `config_file_write` 就是这两个命令。
+
 ### 4.3 Tauri 命令
 
 | 命令 | 说明 |
 | --- | --- |
 | `acp_runtime_env` | 探测本机 Node.js 工具链（`node` / `npx` 是否在、什么版本）。内置 agent 靠 `npx` 拉起，缺了它们就起不来；前端据此显示缺依赖提示卡。纯新增，不影响其它命令 |
 | `acp_agent_list` | 列出配置的 agent 及运行状态 |
-| `acp_agent_start` | spawn + initialize 握手 + 创建会话（传 `resumeSessionId` 时先尝试 `session/load` 恢复），返回 `sessionId` / `modes` / `agentInfo` / `capabilities`（loadSession、promptImage）/ `resumed`；要求登录时返回 `authRequired` + `authMethods`（连接保持存活） |
-| `acp_agent_stop` | 结束会话与子进程 |
+| `acp_agent_start` | spawn + initialize 握手 + 创建会话（传 `resumeSessionId` 时先尝试 `session/load` 恢复），返回 `sessionId` / `modes` / `agentInfo` / `capabilities`（loadSession、promptImage、closeSession）/ `resumed`；要求登录时返回 `authRequired` + `authMethods`（连接保持存活）。该 agent 已有存活 runner 时会被拒绝 —— 此时前端改走 `acp_session_new` |
+| `acp_session_new` | 在**已运行**的连接上再开一个会话（复用登录态与 spawn），用于同一 agent 的第二个 tab |
+| `acp_session_load` | 在**已运行**的连接上重开一个已存在的会话（`session/load`），用于"agent 在跑时打开历史会话"。与 `acp_agent_start` 的恢复不同：失败不会静默降级成新会话 |
+| `acp_session_close` | 结束**单个**会话（`session/close`），不碰进程；agent 未声明 `sessionCapabilities.close` 时直接返回成功（会话在进程退出前仍存活于 agent 侧） |
+| `acp_agent_stop` | 结束**整个 agent 进程**及其全部会话 |
 | `acp_session_prompt` | 发送一条消息，可附带 `images`（base64 + mimeType，按 agent `promptCapabilities.image` 门控）；返回时 turn 结束（`stopReason`） |
 | `acp_session_cancel` | 发送 `session/cancel` 并把挂起权限请求回 `cancelled` |
 | `acp_permission_respond` | 回应一条权限请求（`optionId`，null 表示取消） |
@@ -141,9 +146,9 @@ acp/
 
 ### 4.4 前端
 
-- `src/hooks/useAcpAgent.js`：会话状态机（transcript 合并流式分段、按 `toolCallId` 原位更新工具卡片、权限卡片生命周期、计划/命令/用量/模式状态、`stopped` 复位）；每轮结束与会话停止时自动持久化 transcript；恢复会话时由 `session/load` 回放事件重建消息流。
-- `src/components/panels/AcpAgentPanel.jsx`：完整聊天面板 — Markdown 消息流、可折叠思考、工具调用卡片（diff/输出/位置/原始入参）、内联权限审批、计划卡片、模式下拉、斜杠命令补全、上下文用量徽标、历史会话（列表/只读查看/恢复/删除）、图片附件（选择/粘贴，按 agent 能力显示）、终端选中内容附加（终端「Add To Agent」浮层 → composer chip → 随消息发送）。
-- 挂载位置：`AppAiDock`（右侧可拖宽 dock，标题栏 AI 按钮开关，Esc 关闭），**取代原 AiAssistantPanel**；标题栏繁忙指示与 ACP turn 状态联动。原 AI 配置弹窗入口移至左侧工具栏「配置」区。
+- `src/hooks/useAcpAgent.js`：**多会话**状态机（一个 agent 进程可同时承载多个会话；事件按 `sessionId` 路由、`stopped` 按 `agentId` 结束该 agent 全部会话；每会话独立的 transcript/计划/配置/用量/草稿；每轮结束与会话停止时自动持久化 transcript；恢复会话时由 `session/load` 回放事件重建消息流）。
+- `src/components/panels/AcpAgentPanel.jsx` + `panels/acp/`：tab 条（一个 tab 一个会话，带运行中/未读/待审批角标）、会话正文（Markdown、可折叠思考、工具卡、内联权限审批、计划卡、通知行）、composer（模式/模型/思考强度、斜杠命令补全、上下文用量、终端选中联动、图片粘贴）、历史浮层（按项目分组，点击即开 tab）。
+- 挂载位置：`AppAiDock`（右侧可拖宽 dock，标题栏 AI 按钮开关，Esc 关闭）。**新建、切换、恢复历史都不会停止其它会话**；关闭一个 tab 只结束那个会话，该 agent 的最后一个 tab 关闭时才回收进程。
 - `src/lib/tauri-api.js` 提供全部 `acp*` API 封装；复用现有 Tailwind token 与 i18n。
 - 前端组件结构、状态契约与 UI 待优化清单见 [ACP 面板前端指南](acp_panel_frontend.md)。
 

@@ -4,7 +4,7 @@
   <img src="docs/assets/Shell.png" alt="eShell Logo" width="180" />
 </p>
 
-**eShell v1.7.3** 是一个基于 **Tauri 2、React 19、Rust** 的桌面运维工作台。
+**eShell v1.7.4** 是一个基于 **Tauri 2、React 19、Rust** 的桌面运维工作台。
 
 它把 SSH 会话、PTY 终端、SFTP 文件操作、服务器状态监控、脚本执行，以及 ACP 编码 agent 面板集成在一个本地优先的桌面应用里。
 
@@ -36,6 +36,17 @@
 - 面板暴露 MCP bridge，agent 可以调用 eShell 自身的工具。
 
 所有 Agent 工作均委托给外部 ACP Agent；原自研 Ops Agent 运行时已从后端移除。
+
+## 独立 MCP Server 与 CLI
+
+两个二进制**不依赖桌面应用**也能跑同样的服务器操作：
+
+- `eshell-mcp` —— 标准 MCP server，走 stdio 传输，任意 MCP 客户端（Claude Code、Codex、Cursor…）都能操作 eShell 管理的服务器；加 `--http <port>` 可切换成与内置 bridge 相同的 loopback HTTP 传输。
+- `eshell-cli` —— 同样的操作，从命令行执行：`profiles`、`exec`、`status`、`ls`、`cat`、`write`。
+
+两者读同一份 `.eshell-data/`，自己按需建立 SSH 连接（直接给 profile 名即可，不需要终端标签页），暴露与内置 bridge 完全一致的 MCP 工具——默认 9 个，插件停用后会更少。
+
+详见 [独立 MCP Server 与 CLI 指南](docs/guides/features/standalone_mcp_cli.md)。
 
 ## 技术栈
 
@@ -239,6 +250,7 @@ cargo test
 - [Webshell 会话](docs/guides/features/webshell_session.md)
 - [ACP Agent 指南](docs/guides/features/acp_agent.md)
 - [ACP 面板前端](docs/guides/features/acp_panel_frontend.md)
+- [独立 MCP Server 与 CLI](docs/guides/features/standalone_mcp_cli.md)
 - [项目开发指南](docs/guides/PROJECT_DEV_GUIDE.md)
 - [项目说明](docs/specs/project_description.md)
 - [OpenAPI 风格 RPC 规格](docs/specs/openapi.yaml)

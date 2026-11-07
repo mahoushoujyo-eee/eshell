@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::common::error::to_command_error;
-use crate::domain::config::{ConfigFile, ReloadOutcome};
+use crate::domain::config::{ConfigFile, ConfigFileContent, ReloadOutcome};
 use crate::domain::ssh::model::{SshConfig, SshConfigInput, SshKnownHost, TrustSshHostKeyInput};
 use crate::state::AppState;
 
@@ -16,6 +16,21 @@ use crate::state::AppState;
 #[serde(rename_all = "camelCase")]
 pub struct ReloadConfigInput {
     pub file: Option<String>,
+}
+
+/// `read_config_file` input.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigFileInput {
+    pub file: String,
+}
+
+/// `write_config_file` input.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteConfigFileInput {
+    pub file: String,
+    pub content: String,
 }
 
 /// One reloadable config file, as listed by `list_reloadable_configs`.
@@ -95,6 +110,37 @@ pub fn reload_config(
 #[tauri::command]
 pub fn list_reloadable_configs() -> Vec<ReloadableConfig> {
     reloadable_configs()
+}
+
+/// Reads one config file's raw text for the in-app editor.
+///
+/// A missing file comes back as a valid skeleton with `exists: false`, so the
+/// editor works on a fresh install instead of showing an empty buffer that
+/// cannot be saved.
+#[tauri::command]
+pub fn read_config_file(
+    state: State<'_, Arc<AppState>>,
+    input: ConfigFileInput,
+) -> Result<ConfigFileContent, String> {
+    let file = ConfigFile::parse(&input.file).map_err(to_command_error)?;
+    Ok(state.storage.read_config_file(file))
+}
+
+/// Validates, writes and re-applies one config file.
+///
+/// Invalid content is rejected before anything is written, so a typo leaves the
+/// previous file (and the running app) untouched. On success the file is
+/// reloaded, which is what makes the edit take effect without a restart.
+#[tauri::command]
+pub fn write_config_file(
+    state: State<'_, Arc<AppState>>,
+    input: WriteConfigFileInput,
+) -> Result<ReloadOutcome, String> {
+    let file = ConfigFile::parse(&input.file).map_err(to_command_error)?;
+    state
+        .storage
+        .write_config_file(file, &input.content)
+        .map_err(to_command_error)
 }
 
 /// Shared by the Tauri command and the plugin broker, so both surfaces

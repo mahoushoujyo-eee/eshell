@@ -65,8 +65,29 @@ missing, so a user or agent edit survives) and returned by the MCP
 
 Adding a skill means three edits, not one: the directory under `skills/`, a
 `seed_*_skill` call in `src-tauri/src/storage/mod.rs`, and an entry in
-`BUNDLED_SKILLS` in `src-tauri/src/mcp_bridge/mod.rs` so the agent can read it.
+`BUNDLED_SKILLS` in `src-tauri/src/domain/agent/consts.rs` so the agent can read it.
 `storage::tests::bundled_skills_are_seeded_on_first_run` covers the seed.
+
+## 3.3 Standalone CLI And MCP Server
+
+`eshell-cli` and `eshell-mcp` are two binaries of the same crate that run
+eShell's server operations **without the desktop app**.
+
+- The MCP protocol logic lives in `domain/agent/service/mcp_server.rs`
+  (`McpServer`), which is transport-agnostic. `mcp_bridge.rs` is the desktop
+  app's HTTP transport over it; `cli/mcp_stdio.rs` is the stdio transport.
+  **Add a tool there, not in a transport** — otherwise the two servers drift.
+- The only per-transport difference is how a tool's `sessionId` argument is
+  interpreted, through the `SessionResolver` trait: the in-app resolver passes
+  a terminal tab id through, the standalone resolver resolves an SSH profile
+  and opens the connection on demand.
+- `cli/runtime.rs` owns the headless session cache (one connection per SSH
+  profile, reused across calls).
+- `cli/commands.rs` must go through the same tool implementations the MCP
+  server uses, so the command line and an agent report identical results.
+- A change to the tool surface needs the golden `tools/list` fixtures in
+  `domain/agent/tests.rs` and `domain/extensions/tests.rs` updated in the same
+  change — they pin the wire contract.
 
 ## 4. SFTP Transfer Conventions
 

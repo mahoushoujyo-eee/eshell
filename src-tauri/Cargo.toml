@@ -1,9 +1,14 @@
 [package]
 name = "eshell"
-version = "1.7.3"
+version = "1.7.4"
 description = "A Tauri App"
 authors = ["eee"]
 edition = "2021"
+# The crate ships three binaries (`eshell` plus the standalone `eshell-cli` and
+# `eshell-mcp`). Tauri's dev command runs a bare `cargo run`, which refuses to
+# pick one when the package has several; this makes the desktop app the default
+# and leaves the other two explicit (`cargo run --bin eshell-cli`).
+default-run = "eshell"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -30,8 +35,9 @@ anyhow = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-tokio = { version = "1", features = ["time", "process", "macros", "io-util", "sync", "fs", "net", "rt"] }
+tokio = { version = "1", features = ["time", "process", "macros", "io-util", "io-std", "sync", "fs", "net", "rt", "rt-multi-thread"] }
 toml = "0.8"
 agent-client-protocol = "2.0.0"
 hyper = { version = "1", features = ["http1", "server"] }

@@ -16,8 +16,9 @@ use crate::domain::agent::model::{
 use crate::domain::agent::model::{
     find_config, load_agent_configs, lookup_runner, session_cwd_override, AcpAgentIdInput,
     AcpAgentListEntry, AcpAgentStartInput, AcpAuthenticateInput, AcpHistoryIdInput, AcpHistoryMeta,
-    AcpHistoryRecord, AcpPermissionRespondInput, AcpSessionCancelInput, AcpSessionNewInput,
-    AcpSessionPromptInput, AcpSessionSetConfigOptionInput, AcpSessionSetModeInput,
+    AcpHistoryRecord, AcpPermissionRespondInput, AcpSessionCancelInput, AcpSessionCloseInput,
+    AcpSessionLoadInput, AcpSessionNewInput, AcpSessionPromptInput, AcpSessionSetConfigOptionInput,
+    AcpSessionSetModeInput,
 };
 use crate::domain::agent::service::acp_client::AcpSessionRunner;
 use crate::domain::agent::service::runtime_env;
@@ -166,6 +167,32 @@ pub async fn acp_session_new(
 ) -> Result<AcpStartInfo, String> {
     let runner = get_runner(&state, &input.agent_id)?;
     runner.new_session(session_cwd_override(input.cwd)).await
+}
+
+/// Reopens an existing session on the running agent process (`session/load`),
+/// so a historical conversation can be opened beside the live ones. Without
+/// this, reopening history required stopping the whole agent first.
+#[tauri::command]
+pub async fn acp_session_load(
+    state: tauri::State<'_, Arc<crate::state::AppState>>,
+    input: AcpSessionLoadInput,
+) -> Result<AcpStartInfo, String> {
+    let runner = get_runner(&state, &input.agent_id)?;
+    runner
+        .load_session(&input.session_id, session_cwd_override(input.cwd))
+        .await
+}
+
+/// Ends one session without stopping the agent process, so its sibling
+/// conversations keep running. Agents that do not support `session/close`
+/// resolve immediately (nothing else can be done short of killing the process).
+#[tauri::command]
+pub async fn acp_session_close(
+    state: tauri::State<'_, Arc<crate::state::AppState>>,
+    input: AcpSessionCloseInput,
+) -> Result<(), String> {
+    let runner = get_runner(&state, &input.agent_id)?;
+    runner.close_session(&input.session_id).await
 }
 
 /// Resolves one pending permission request with the user's decision.
