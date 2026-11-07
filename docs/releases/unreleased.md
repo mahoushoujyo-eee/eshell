@@ -1,6 +1,117 @@
 # Unreleased Changes
 
-Last updated: 2026-10-28
+Last updated: 2026-11-07
+
+## Choosing Where A Conversation Runs
+
+The starter screen (what you see before any conversation exists) opened every
+conversation in the agent's own configured directory. The project registry could
+only be reached from the history panel, i.e. after a conversation already
+existed — so a fresh session could not be pointed at a project at all.
+
+There is now a path picker next to "Start a conversation": the default entry
+keeps the old behaviour (each agent's own directory), and picking a registered
+project — or **New project**, which opens the folder dialog and registers it in
+one step — starts the conversation there.
+
+The tab strip's `+` deliberately keeps using the agent's directory: the picker
+is not visible while tabs are open, and silently reusing a choice made on
+another screen would be surprising.
+
+## Starting A Conversation From A Project Now Asks Which Agent
+
+The history panel's per-project `+` used to start the conversation with
+whatever agent happened to be selected — in practice the first one configured,
+which is Codex. The project says *where*, never *which*, so every project
+conversation ended up on the same agent with no way to choose.
+
+It now expands the agent list in place (the same chooser the tab strip's `+`
+uses), and the conversation starts with the agent you pick. It expands inline
+rather than as a popover because the history panel's body scrolls, and a
+popover there gets clipped.
+
+## Config Files Can Be Edited In The App
+
+Settings → Config Files listed the reloadable JSON with a Reload button, which
+assumed the edit happened somewhere else. Each row now has **Edit**, opening the
+file in the same Monaco editor the SFTP browser uses.
+
+- Saving **validates before writing**: the content is parsed with the exact
+  loader that reads it at runtime, so a typo is rejected with the parser's
+  message and the file on disk — the one the running app depends on — is left
+  untouched. Nothing is written that the app could not load back.
+- A valid save is written atomically (temp file + rename) and reloaded
+  immediately, so the change takes effect without a restart.
+- A file that does not exist yet opens as a usable skeleton (`[]` for the list
+  files, `{"agents": []}` for `acp_agents.json`), so "Edit" is also how a fresh
+  install creates the file.
+- New commands: `read_config_file` and `write_config_file`.
+
+## ACP Panel: Conversations Instead Of One Session
+
+The ACP panel used to hold exactly one conversation. Every switch — a new
+conversation, another agent, reopening something from history — had to stop the
+whole agent process first, which archived the live conversation and paid for a
+fresh handshake. Nothing in the protocol required that: one agent subprocess can
+host several sessions at once, and `scripts/acp-concurrency-probe.mjs` measures
+it (two sessions on one connection run their turns concurrently, and
+`session/close` really releases them).
+
+- **Conversation tabs.** One tab per conversation. The previous one keeps
+  streaming in the background; switching is instant. A tab carries the agent's
+  brand mark, the first line of the conversation, and a status badge:
+  pending approvals (a count), running (pulses), ended (grey), unread (a dot).
+- **Nothing stops to make room.** `+` picks an agent and opens a new
+  conversation on that agent's live process (`acp_session_new`), or spawns it if
+  it is not running. The global agent picker — and its "stop the agent to
+  switch" lock — is gone; an agent now belongs to a conversation, not to the
+  panel.
+- **History opens as a tab.** The conversation list is an overlay over the live
+  transcript instead of a mode that replaces it, and picking a record reopens it
+  beside whatever is already running (`acp_session_load`). Reopening a record
+  that is already open focuses that tab instead of duplicating it.
+- **Close and stop are separate.** A tab's `×` ends that one conversation
+  (`acp_session_close`) and keeps its siblings alive; the agent process is
+  stopped only when its last conversation closes. Stopping the whole process is
+  a deliberate action in the tab strip's `⋮` menu, and it leaves the tabs
+  readable instead of deleting them.
+- **Background work is visible.** A conversation waiting for a permission
+  approval no longer blocks unseen: its tab shows a count, and switching to it
+  restores the inline approval card. The title bar's busy indicator now reflects
+  any conversation rather than only the one in front.
+
+Two new commands back this: `acp_session_close` and `acp_session_load`. Both are
+additive — an older frontend keeps working. `AcpAgentCapsView` also reports
+`closeSession`, so the panel knows whether closing actually frees the session on
+the agent side.
+
+See [ACP Panel Frontend Guide](docs/guides/features/acp_panel_frontend.md) for
+the state contract and the interaction inventory.
+
+## Standalone CLI And MCP Server: Installable, And On The Release Page
+
+`eshell-cli` and `eshell-mcp` existed but only for people willing to clone the
+repo and run cargo. They now ship two ways.
+
+- **In the Windows installer.** The setup wizard writes both binaries into
+  `<install dir>\cli\` and, on a new page after the install-location page, asks
+  whether to keep them and add that directory to PATH. Checked is the default;
+  unchecking deletes them and — when an earlier install had registered the
+  directory — takes that entry back out, so a reinstall never leaves PATH
+  pointing at an emptied folder. Silent installs keep the previous behaviour
+  unless `/NO_CLI_TOOLS` is passed. The PATH entry is removed on uninstall, and
+  it is written through .NET's environment API so a terminal opened right after
+  installing already sees the commands.
+- **As a release archive per platform.** `eshell-tools-windows-x64.zip`,
+  `eshell-tools-linux-x64.tar.gz` and `eshell-tools-macos-arm64.tar.gz` carry
+  both binaries for people who only want the server operations. CI runs
+  `--help` on each before archiving, so an unpackable or broken build fails the
+  release instead of the user's first command.
+
+The `.msi` installs the same `cli\` directory but has no wizard page, so it does
+not touch PATH — use the `-setup.exe` when you want the choice.
+
+See [Standalone MCP Server And CLI](docs/guides/features/standalone_mcp_cli.md).
 
 ## Standalone MCP Server And CLI
 
