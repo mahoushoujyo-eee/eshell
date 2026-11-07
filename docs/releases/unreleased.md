@@ -2,7 +2,55 @@
 
 Last updated: 2026-11-07
 
-No user-facing changes on this branch yet.
+## No More Console Windows When The Panel Opens
+
+Opening the ACP panel flashed two black console windows.
+
+The panel probes the Node.js toolchain on open (`node --version` and
+`npx --version`), and eShell is a GUI-subsystem process: on Windows a console
+child of a console-less parent gets a console of its own, visible. The probes now
+pass `CREATE_NO_WINDOW`, like the agent spawn already did, and the result is
+cached for the rest of the process — the probe only runs when the panel is
+opened, so the cache removes the repeated spawns entirely. The panel's "check
+again" button still forces a fresh probe, which is the whole reason it exists.
+
+## The CLI Finds The Desktop App's Configuration
+
+`eshell-cli` and `eshell-mcp` ended up in a different data directory than the
+app, so every command needed `--data-dir` and a first run could create an empty
+second configuration where the user's servers appeared to be missing.
+
+The installer lays both out predictably — `<install>\eshell.exe`,
+`<install>\cli\eshell-cli.exe`, `<install>\.eshell-data` — so the tools now
+derive the app's configuration from their own executable path: look one and two
+levels up for `.eshell-data`, and accept it only when it actually contains
+configuration files (`ssh_configs.json`, `known_hosts.json`, …), so an empty
+directory of the same name is not mistaken for the user's data.
+
+```
+$ eshell-cli config
+Data directory: C:\Users\<you>\AppData\Local\eshell\.eshell-data
+SSH profiles:   9
+```
+
+`--data-dir` and `ESHELL_DATA_DIR` still win when given, and a tool copied away
+from the install layout falls back to the per-user directory as before.
+
+## Files And Quoted Text In The Prompt
+
+Two ways to point the agent at something without retyping it:
+
+- **Drop files onto the panel.** The file paths are staged as chips above the
+  composer and expanded into the prompt on send — the agent runs on the same
+  machine, so it reads the file itself instead of receiving a copy that is stale
+  by the time it answers.
+- **Quote the transcript.** Select any part of the conversation and a "Quote in
+  reply" pill appears next to the selection; clicking it stages the passage as a
+  chip, and sending turns it into a blockquote of the typed question.
+
+Staged context is a chip, never raw marker text in the input box: each one shows
+what it is (file name, first quoted line), carries the full value in its tooltip,
+and can be removed with a single click before sending.
 
 ## How To Use This File
 

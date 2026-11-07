@@ -123,7 +123,9 @@ export const api = {
   listAgentContextFiles: () => invoke("list_agent_context_files"),
 
   // Probes the Node.js toolchain the built-in agents are launched through.
-  acpRuntimeEnv: () => invoke("acp_runtime_env"),
+  // Cached for the rest of the process; `force` re-probes (the "check again"
+  // button exists because the user may have just installed Node.js).
+  acpRuntimeEnv: (force = false) => invoke("acp_runtime_env", { input: { force } }),
   acpAgentList: () => invoke("acp_agent_list"),
   acpAgentStart: (agentId, resumeSessionId = null, cwd = null) =>
     invoke("acp_agent_start", { input: { agentId, resumeSessionId, cwd } }),

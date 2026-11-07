@@ -13,7 +13,13 @@ import { act } from "react";
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 
 import { createElement } from "react";
-import { findElement, findElements, installFakeDom, uninstallFakeDom } from "../../test/fake-dom.js";
+import {
+  FakeEvent,
+  findElement,
+  findElements,
+  installFakeDom,
+  uninstallFakeDom,
+} from "../../test/fake-dom.js";
 import { fireClick, render } from "../../test/react-render.js";
 import { I18nProvider } from "../../lib/i18n.js";
 import AcpAgentPanel from "../panels/AcpAgentPanel.jsx";
@@ -35,7 +41,7 @@ const AGENT_B = {
   cwd: "D:\\proj",
 };
 
-const EMPTY_DRAFT = { text: "", attachments: [], shellContext: null };
+const EMPTY_DRAFT = { text: "", attachments: [], shellContext: null, files: [], quotes: [] };
 
 const conversation = (overrides = {}) => ({
   key: "c1",
@@ -98,6 +104,8 @@ const makeAcp = (overrides = {}) => ({
   setConfigOption: vi.fn(),
   respondPermission: vi.fn(),
   clearShellContext: vi.fn(),
+  attachFiles: vi.fn(),
+  attachQuote: vi.fn(),
   setDraft: vi.fn(),
   authenticate: vi.fn(),
   runtimeEnv: null,
@@ -488,6 +496,108 @@ describe("AcpAgentPanel with live conversations", () => {
       fireClick(method);
     });
     expect(acp.authenticate).toHaveBeenCalledWith("oauth");
+    await unmount();
+  });
+});
+
+/** A ready conversation with a transcript, for the composer affordances. */
+const readyConversation = (overrides = {}) => {
+  const row = conversation({ transcript: [{ id: "t1", type: "assistant", text: "Plan: restart nginx" }] });
+  return { row: { ...row, ...overrides } };
+};
+
+const readyAcp = (setDraft) => {
+  const { row } = readyConversation();
+  return makeAcp({
+    conversations: [row],
+    activeKey: "c1",
+    activeConversation: row,
+    phase: "ready",
+    session: { id: "sess-1", modes: null, capabilities: null },
+    // The panel renders the hook's derived transcript, not the row's copy.
+    transcript: row.transcript,
+    draft: { ...EMPTY_DRAFT },
+    setDraft,
+  });
+};
+
+describe("AcpAgentPanel composer context", () => {
+  it("shows staged files and quotes as chips, not as raw text", async () => {
+    const setDraft = vi.fn();
+    const acp = readyAcp(setDraft);
+    acp.draft = {
+      ...EMPTY_DRAFT,
+      files: [{ id: "f1", path: "C:\\work\\a.ts", name: "a.ts" }],
+      quotes: [{ id: "q1", text: "Plan: restart nginx\nand reload" }],
+    };
+    const { container, unmount } = await mountPanel(acp);
+
+    // Chips carry the basename and the first quoted line; the raw marker text
+    // ("`C:\work\a.ts`", "> Plan: …") must not appear anywhere.
+    expect(container.textContent).toContain("a.ts");
+    expect(container.textContent).toContain("Plan: restart nginx");
+    expect(container.textContent).not.toContain("`C:\\work\\a.ts`");
+    expect(container.textContent).not.toContain("> and reload");
+
+    const removeFile = findElement(
+      container,
+      (node) => node.nodeName === "BUTTON" && node.getAttribute("aria-label") === "Remove file",
+    );
+    await act(async () => {
+      fireClick(removeFile);
+    });
+    expect(setDraft).toHaveBeenCalledWith({ files: [] });
+
+    await unmount();
+  });
+
+  it("quotes the selected transcript text into the composer", async () => {
+    const attachQuote = vi.fn();
+    const acp = readyAcp(vi.fn());
+    acp.attachQuote = attachQuote;
+    const { container, unmount } = await mountPanel(acp);
+
+    // The deepest node holding the reply: an ancestor would not be "inside" the
+    // scroller, and the panel only quotes selections from the transcript.
+    const matches = findElements(
+      container,
+      (node) => (node.textContent || "").includes("Plan: restart nginx"),
+    );
+    const selected = matches[matches.length - 1];
+    const panel = findElement(
+      container,
+      (node) => (node.getAttribute("class") || "").includes("bg-surface"),
+    );
+    const scroller = findElement(
+      container,
+      (node) => (node.getAttribute("class") || "").includes("scroll-region"),
+    );
+    panel.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 600 });
+    window.getSelection = () => ({
+      toString: () => "Plan: restart nginx\nand reload",
+      anchorNode: selected,
+      rangeCount: 1,
+      getRangeAt: () => ({
+        getBoundingClientRect: () => ({ left: 10, top: 10, right: 50, bottom: 20, width: 40, height: 10 }),
+      }),
+      removeAllRanges: () => {},
+    });
+
+    await act(async () => {
+      scroller.dispatchEvent(new FakeEvent("mouseup", { target: selected }));
+    });
+
+    const quote = findElement(
+      container,
+      (node) => node.nodeName === "BUTTON" && (node.textContent || "").includes("Quote in reply"),
+    );
+    expect(quote).toBeTruthy();
+
+    await act(async () => {
+      fireClick(quote);
+    });
+
+    expect(attachQuote).toHaveBeenCalledWith("Plan: restart nginx\nand reload");
     await unmount();
   });
 });

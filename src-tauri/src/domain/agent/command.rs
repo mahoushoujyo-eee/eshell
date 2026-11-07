@@ -5,6 +5,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use serde::Deserialize;
+
 use agent_client_protocol::schema::v1::{
     HttpHeader, McpServer, McpServerHttp, SessionConfigOption,
 };
@@ -23,10 +25,21 @@ use crate::domain::agent::model::{
 use crate::domain::agent::service::acp_client::AcpSessionRunner;
 use crate::domain::agent::service::runtime_env;
 
+/// `acp_runtime_env` input. The answer is cached for the rest of the process;
+/// `force` re-probes, for the panel's "check again" button.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AcpRuntimeEnvInput {
+    pub force: bool,
+}
+
 /// Probes the local Node.js toolchain the built-in agents are launched through.
 #[tauri::command]
-pub async fn acp_runtime_env() -> Result<crate::domain::agent::model::AcpRuntimeEnvView, String> {
-    Ok(runtime_env::probe().await)
+pub async fn acp_runtime_env(
+    input: Option<AcpRuntimeEnvInput>,
+) -> Result<crate::domain::agent::model::AcpRuntimeEnvView, String> {
+    let force = input.map(|input| input.force).unwrap_or(false);
+    Ok(runtime_env::probe(force).await)
 }
 
 #[tauri::command]

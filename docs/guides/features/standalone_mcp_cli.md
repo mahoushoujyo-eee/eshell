@@ -106,22 +106,38 @@ eshell-cli config
 eshell-cli config --json
 ```
 
-### 3.1 与桌面应用的数据目录不是同一个地方
+### 3.1 与桌面应用共用同一份配置
 
-**这一点最容易踩。** 桌面应用用的是**它自己的进程工作目录**下的 `.eshell-data`（见 `src-tauri/src/lib.rs` 的 `resolve_storage_root()`）：
+安装器把两者放在一起：
 
-- 开发模式（`npm run tauri -- dev`）→ `src-tauri/.eshell-data`
-- 安装后的应用 → 取决于应用启动时的工作目录
+```
+<安装目录>\eshell.exe          ← 桌面应用
+<安装目录>\cli\eshell-cli.exe  ← CLI
+<安装目录>\.eshell-data\       ← 配置（桌面应用写入的地方）
+```
 
-而上面第 4 档兜底（用户级目录 `%APPDATA%\eshell\.eshell-data`）**和桌面应用用的位置对不上**。所以想让 CLI 看到桌面应用里那批服务器，必须显式指过去：
+所以工具会从**自己的路径**推出应用的配置目录：在 `cli\` 里（装完的样子）或者和应用并排（手动拷走）时，向上找一层/两层，看到 `.eshell-data` 且里面确实有配置文件（`ssh_configs.json`、`known_hosts.json`、`projects.json` … 之一）就用它。不需要 `--data-dir`，不需要环境变量，也不需要额外写指针文件。
+
+```bash
+eshell-cli config
+# Data directory: C:\Users\<you>\AppData\Local\eshell\.eshell-data
+# SSH profiles:   9
+```
+
+识别条件是"目录里真的有配置文件"，所以不会把一个空的同名目录当成你的配置。
+
+以下情况需要显式指定：
+
+- 你把 `eshell-cli.exe` 单独拷到别处，和安装目录没有相对关系；
+- 桌面应用是被从**别的工作目录**启动的（应用的存储根跟着进程工作目录走，见 `src-tauri/src/lib.rs` 的 `resolve_storage_root()`），此时配置不在安装目录里；
+- Linux 的 AppImage / `.deb` 布局不同（工具在 `/usr/bin`），推断不成立。
 
 ```bash
 eshell-cli --data-dir "D:/path/to/.eshell-data" profiles
-# 或者
-export ESHELL_DATA_DIR="D:/path/to/.eshell-data"
+export ESHELL_DATA_DIR="D:/path/to/.eshell-data"   # 或者
 ```
 
-反过来，CLI 在别的目录跑、桌面应用在另一个目录跑时，两边各读各的 `.eshell-data`，互不可见——**改配置前先确认两边指的是同一份**。
+改了 CLI 的配置文件以后，桌面应用不需要重启：**设置 → Config Files → Reload**（或编辑后保存）。
 
 ---
 

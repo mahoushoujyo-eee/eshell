@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleStop,
+  FileText,
   Folder,
   Loader2,
   Maximize2,
   Minimize2,
+  Quote,
   Send,
   Square,
   TerminalSquare,
@@ -40,6 +42,14 @@ import { useI18n } from "../../lib/i18n";
 // Oversized images are downscaled/re-encoded client-side: Codex-side image
 // preparation silently replaces too-large images with an "omitted" placeholder,
 // and smaller payloads cost fewer tokens anyway.
+/** First line of a quoted passage, for its chip label. */
+const chipLabel = (text) => {
+  const line = String(text || "")
+    .split("\n")[0]
+    .trim();
+  return line.length > 60 ? `${line.slice(0, 60)}…` : line;
+};
+
 const MAX_IMAGE_DIMENSION = 1568;
 const MAX_IMAGE_DATAURL_CHARS = 5 * 1024 * 1024;
 
@@ -157,6 +167,8 @@ export default function AcpAgentPanel({ acp }) {
     setConfigOption,
     respondPermission,
     clearShellContext,
+    attachFiles,
+    attachQuote,
     setDraft,
     authenticate,
     runtimeEnv,
@@ -178,7 +190,10 @@ export default function AcpAgentPanel({ acp }) {
   const composerRef = useRef(null);
   const composerMenuRef = useRef(null);
   const scrollRef = useRef(null);
+  const panelRef = useRef(null);
   const nearBottomRef = useRef(true);
+  // Transcript text selected for quoting: { text, x, y } or null.
+  const [selectionQuote, setSelectionQuote] = useState(null);
 
   const ready = phase === "ready" && session != null;
   const starting = phase === "starting";
@@ -200,12 +215,18 @@ export default function AcpAgentPanel({ acp }) {
 
   const attachments = draft?.attachments ?? [];
   const shellContext = draft?.shellContext ?? null;
+  const draftFiles = draft?.files ?? [];
+  const draftQuotes = draft?.quotes ?? [];
   const question = draft?.text ?? "";
 
   const canSend =
     ready &&
     !turnActive &&
-    (question.trim().length > 0 || attachments.length > 0 || shellContext != null);
+    (question.trim().length > 0 ||
+      attachments.length > 0 ||
+      shellContext != null ||
+      draftFiles.length > 0 ||
+      draftQuotes.length > 0);
   const usagePercent =
     usage && usage.size > 0 ? Math.min(100, Math.round((usage.used / usage.size) * 100)) : null;
 
@@ -236,7 +257,26 @@ export default function AcpAgentPanel({ acp }) {
   const handleScroll = useCallback((event) => {
     const node = event.currentTarget;
     nearBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+    // The quote button is placed from the selection's viewport rect, so it
+    // would float over the wrong paragraph once the text moves.
+    setSelectionQuote(null);
   }, []);
+
+  // Dismiss the quote button on an outside click, the same way the composer
+  // popovers are dismissed — but keep the selection when the button itself is
+  // pressed, or the click would never land.
+  useEffect(() => {
+    if (!selectionQuote) {
+      return undefined;
+    }
+    const dismiss = (event) => {
+      if (!event.target?.closest?.("[data-quote-popover]")) {
+        setSelectionQuote(null);
+      }
+    };
+    window.addEventListener("pointerdown", dismiss, true);
+    return () => window.removeEventListener("pointerdown", dismiss, true);
+  }, [selectionQuote]);
 
   // The expand affordance only earns its corner once the draft really
   // overflows, so measure instead of guessing from its length: how much wraps
@@ -296,6 +336,80 @@ export default function AcpAgentPanel({ acp }) {
     },
     [attachments, canSend, question, sendPrompt],
   );
+
+  // Drops are handled at the webview level: the page never receives real file
+  // paths, only the shell does, so a plain HTML5 drop handler cannot work here.
+  // Only drops inside this panel count — otherwise dragging a file anywhere in
+  // the app would silently type into the agent prompt.
+  useEffect(() => {
+    let unlisten = null;
+    let cancelled = false;
+    const scale = window.devicePixelRatio || 1;
+    void (async () => {
+      try {
+        const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+        const stop = await getCurrentWebview().onDragDropEvent((event) => {
+          if (event.payload?.type !== "drop") {
+            return;
+          }
+          const rect = panelRef.current?.getBoundingClientRect();
+          const point = event.payload.position;
+          if (rect && point) {
+            const x = point.x / scale;
+            const y = point.y / scale;
+            if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+              return;
+            }
+          }
+          void attachFiles(event.payload.paths ?? []);
+        });
+        if (cancelled) {
+          stop?.();
+        } else {
+          unlisten = stop;
+        }
+      } catch {
+        // Outside Tauri (tests, plain browser) there is nothing to listen to.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [attachFiles]);
+
+  /** Turns a transcript selection into a quoted block. */
+  const handleTranscriptSelection = useCallback(() => {
+    const selection = window.getSelection?.();
+    const text = selection?.toString?.().trim() ?? "";
+    const anchor = selection?.anchorNode;
+    const container = scrollRef.current;
+    if (!text || !anchor || !container?.contains(anchor) || selection.rangeCount === 0) {
+      setSelectionQuote(null);
+      return;
+    }
+    const rect = selection.getRangeAt(0).getBoundingClientRect?.();
+    const panelRect = panelRef.current?.getBoundingClientRect?.();
+    if (!rect || !panelRect || (!rect.width && !rect.height)) {
+      setSelectionQuote(null);
+      return;
+    }
+    setSelectionQuote({
+      text: text.length > 2000 ? `${text.slice(0, 2000)}…` : text,
+      // Centred over the selection, kept inside the panel.
+      x: Math.min(Math.max(rect.left + rect.width / 2, panelRect.left + 64), panelRect.right - 64),
+      y: Math.min(rect.bottom + 8, panelRect.bottom - 40),
+    });
+  }, []);
+
+  const quoteSelection = useCallback(() => {
+    if (!selectionQuote) {
+      return;
+    }
+    attachQuote(selectionQuote.text);
+    setSelectionQuote(null);
+    window.getSelection?.()?.removeAllRanges?.();
+  }, [attachQuote, selectionQuote]);
 
   const addImageFiles = useCallback(
     async (files) => {
@@ -393,7 +507,7 @@ export default function AcpAgentPanel({ acp }) {
     if (!activeConversation) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-3 px-4 py-6 text-center">
-          {envMissing ? <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} /> : null}
+          {envMissing ? <AcpEnvWarningCard env={runtimeEnv} onRecheck={() => refreshRuntimeEnv(true)} /> : null}
           {standaloneNotices.map((entry) => (
             <AcpNoticeRow key={entry.id} entry={entry} />
           ))}
@@ -440,7 +554,7 @@ export default function AcpAgentPanel({ acp }) {
       return (
         <div className="space-y-2">
           {envMissing ? (
-            <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} />
+            <AcpEnvWarningCard env={runtimeEnv} onRecheck={() => refreshRuntimeEnv(true)} />
           ) : null}
           <div className="rounded-lg border border-warning/35 bg-warning/8 px-3 py-2.5 text-xs">
             <div className="flex items-center gap-2 text-warning">
@@ -488,7 +602,7 @@ export default function AcpAgentPanel({ acp }) {
     return (
       <div className="space-y-2">
         {envMissing ? (
-          <AcpEnvWarningCard env={runtimeEnv} onRecheck={refreshRuntimeEnv} />
+          <AcpEnvWarningCard env={runtimeEnv} onRecheck={() => refreshRuntimeEnv(true)} />
         ) : null}
         {authActive ? (
           <AcpAuthCard
@@ -517,7 +631,10 @@ export default function AcpAgentPanel({ acp }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface">
+    <div
+      ref={panelRef}
+      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-surface"
+    >
       <AcpSessionTabs
         conversations={conversations}
         activeKey={activeKey}
@@ -562,6 +679,7 @@ export default function AcpAgentPanel({ acp }) {
         <div
           ref={scrollRef}
           onScroll={handleScroll}
+          onMouseUp={handleTranscriptSelection}
           className="scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-3"
         >
           {renderBody()}
@@ -632,7 +750,54 @@ export default function AcpAgentPanel({ acp }) {
               </button>
             </div>
           ) : null}
-          {attachments.length > 0 ? (
+          {draftFiles.length > 0 || draftQuotes.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {draftFiles.map((file) => (
+                <span
+                  key={file.id}
+                  className="inline-flex max-w-[18rem] items-center gap-1 rounded-md border border-border bg-hover/60 px-1.5 py-1 text-[11px] text-text"
+                >
+                  <FileText className="h-3 w-3 shrink-0 text-accent" aria-hidden="true" />
+                  <span className="min-w-0 truncate" title={file.path}>
+                    {file.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraft({ files: draftFiles.filter((item) => item.id !== file.id) })
+                    }
+                    aria-label={t("Remove file")}
+                    title={t("Remove file")}
+                    className="shrink-0 rounded p-0.5 text-muted hover:text-danger"
+                  >
+                    <X className="h-3 w-3" aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+              {draftQuotes.map((quote) => (
+                <span
+                  key={quote.id}
+                  className="inline-flex max-w-[18rem] items-center gap-1 rounded-md border border-border bg-hover/60 px-1.5 py-1 text-[11px] text-text"
+                >
+                  <Quote className="h-3 w-3 shrink-0 text-accent" aria-hidden="true" />
+                  <span className="min-w-0 truncate" title={quote.text}>
+                    {chipLabel(quote.text)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraft({ quotes: draftQuotes.filter((item) => item.id !== quote.id) })
+                    }
+                    aria-label={t("Remove quote")}
+                    title={t("Remove quote")}
+                    className="shrink-0 rounded p-0.5 text-muted hover:text-danger"
+                  >
+                    <X className="h-3 w-3" aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}          {attachments.length > 0 ? (
             <div className="mb-2 flex flex-wrap gap-1.5">
               {attachments.map((image) => (
                 <div key={image.id} className="relative">
@@ -778,6 +943,24 @@ export default function AcpAgentPanel({ acp }) {
           </div>
         </form>
       </div>
+
+      {/* Quoting lives next to the selection, like a chat app's "ask about
+          this" affordance: pick a paragraph, hit the pill, and it lands in the
+          composer as a blockquote ready for the question. */}
+      {selectionQuote ? (
+        <button
+          type="button"
+          data-quote-popover="true"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={quoteSelection}
+          style={{ left: selectionQuote.x, top: selectionQuote.y }}
+          title={t("Quote in reply")}
+          className="fixed z-40 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border-strong bg-elevated px-2.5 py-1 text-[11px] font-medium text-text shadow-overlay transition-colors hover:bg-hover"
+        >
+          <Quote className="h-3 w-3 text-accent" aria-hidden="true" />
+          {t("Quote in reply")}
+        </button>
+      ) : null}
     </div>
   );
 }

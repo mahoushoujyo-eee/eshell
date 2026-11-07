@@ -94,7 +94,30 @@ const sanitizeEntriesForHistory = (entries) =>
       return entry;
     });
 
-const emptyDraft = () => ({ text: "", attachments: [], shellContext: null });
+// A draft carries what the user staged for the next prompt: typed text, pasted
+// images, a terminal selection, file paths and quoted transcript passages. The
+// last two stay structured so the composer can show chips; they only become
+// text when the prompt is sent.
+const emptyDraft = () => ({
+  text: "",
+  attachments: [],
+  shellContext: null,
+  files: [],
+  quotes: [],
+});
+
+/** The last path segment, for the chip label. */
+const fileNameFromPath = (path) => {
+  const parts = String(path || "").split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || String(path || "");
+};
+
+/** A transcript passage as a markdown quote. */
+const quoteBlock = (text) =>
+  String(text || "")
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
 
 const titleFromTranscript = (transcript) => {
   const firstUser = transcript.find((entry) => entry.type === "user");
@@ -352,10 +375,10 @@ export function useAcpAgent() {
   // Last probe conclusion, so the notice is pushed on the transition only.
   const lastEnvOkRef = useRef(null);
 
-  const refreshRuntimeEnv = useCallback(async () => {
+  const refreshRuntimeEnv = useCallback(async (force = false) => {
     let env = null;
     try {
-      const probed = await api.acpRuntimeEnv();
+      const probed = await api.acpRuntimeEnv(force === true);
       env = probed && typeof probed === "object" ? probed : null;
     } catch {
       setRuntimeEnv(null);
@@ -938,14 +961,31 @@ export function useAcpAgent() {
       const trimmed = String(text || "").trim();
       const attachments = Array.isArray(images) ? images : [];
       const context = conversation.draft?.shellContext ?? null;
-      if ((!trimmed && attachments.length === 0 && !context) || conversation.turnActive) {
+      const files = conversation.draft?.files ?? [];
+      const quotes = conversation.draft?.quotes ?? [];
+      if (
+        (!trimmed && attachments.length === 0 && !context && files.length === 0 && quotes.length === 0) ||
+        conversation.turnActive
+      ) {
         return false;
       }
-      // The staged terminal selection travels as a fenced block appended to
-      // the typed text; the transcript keeps it structured for rendering.
-      const outgoing = context
-        ? `${trimmed}${trimmed ? "\n\n" : ""}Terminal selection from "${context.sessionName}":\n\`\`\`\n${context.content}\n\`\`\``
-        : trimmed;
+      // Staged context travels as text appended to the typed prompt, in the
+      // order it reads: what the user asked, the passage they are asking about,
+      // the files to look at, then the terminal selection. The transcript keeps
+      // all of it structured so it renders as chips rather than raw markers.
+      const blocks = [];
+      if (quotes.length > 0) {
+        blocks.push(quotes.map((quote) => quoteBlock(quote.text)).join("\n\n"));
+      }
+      if (files.length > 0) {
+        blocks.push(files.map((file) => `\`${file.path}\``).join("\n"));
+      }
+      if (context) {
+        blocks.push(
+          `Terminal selection from "${context.sessionName}":\n\`\`\`\n${context.content}\n\`\`\``,
+        );
+      }
+      const outgoing = [trimmed, ...blocks].filter(Boolean).join("\n\n");
       updateConversation(key, (row) => ({
         ...row,
         turnActive: true,
@@ -960,6 +1000,10 @@ export function useAcpAgent() {
               mimeType: image.mimeType,
               previewUrl: image.previewUrl,
             })),
+            ...(files.length > 0
+              ? { files: files.map((file) => ({ path: file.path, name: file.name })) }
+              : {}),
+            ...(quotes.length > 0 ? { quotes: quotes.map((quote) => ({ text: quote.text })) } : {}),
             ...(context
               ? { context: { sessionName: context.sessionName, content: context.content } }
               : {}),
@@ -1126,6 +1170,51 @@ export function useAcpAgent() {
     [updateConversation],
   );
 
+  // Stages the selected files as paths. The path is the payload: the agent runs
+  // on this machine and reads the file itself, so shipping contents through the
+  // transcript would only make the answer stale.
+  const attachFiles = useCallback(
+    (paths) => {
+      const incoming = (Array.isArray(paths) ? paths : [paths]).filter(Boolean);
+      const key = activeKeyRef.current;
+      if (!incoming.length || !key) {
+        return;
+      }
+      updateConversation(key, (row) => {
+        const existing = row.draft?.files ?? [];
+        const seen = new Set(existing.map((file) => file.path));
+        const added = incoming
+          .filter((path) => !seen.has(path))
+          .map((path) => ({ id: nextEntryId(), path, name: fileNameFromPath(path) }));
+        if (added.length === 0) {
+          return row;
+        }
+        return { ...row, draft: { ...row.draft, files: [...existing, ...added] } };
+      });
+    },
+    [updateConversation],
+  );
+
+  // Stages a transcript passage, kept structured so the composer shows a chip
+  // instead of a wall of "> " lines.
+  const attachQuote = useCallback(
+    (text) => {
+      const value = String(text || "").trim();
+      const key = activeKeyRef.current;
+      if (!value || !key) {
+        return;
+      }
+      updateConversation(key, (row) => ({
+        ...row,
+        draft: {
+          ...row.draft,
+          quotes: [...(row.draft?.quotes ?? []), { id: nextEntryId(), text: value }],
+        },
+      }));
+    },
+    [updateConversation],
+  );
+
   const clearShellContext = useCallback(() => {
     const key = activeKeyRef.current;
     if (!key) {
@@ -1224,6 +1313,8 @@ export function useAcpAgent() {
     shellContext: activeConversation?.draft?.shellContext ?? null,
     attachShellContext,
     clearShellContext,
+    attachFiles,
+    attachQuote,
     setDraft,
     start,
     startSession,
