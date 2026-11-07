@@ -119,18 +119,27 @@ impl AcpAgentRegistry {
     }
 }
 
+/// Parses the text of `acp_agents.json`.
+///
+/// Shared by the loader and the config editor: a file the editor accepts is
+/// exactly a file the loader accepts, so saving from the app can never leave a
+/// config the app itself refuses to start an agent from.
+pub fn parse_agent_configs(raw: &str) -> AppResult<Vec<AcpAgentSpawnConfig>> {
+    #[derive(Deserialize)]
+    struct Wrapper {
+        #[serde(default = "default_agents")]
+        agents: Vec<AcpAgentSpawnConfig>,
+    }
+    let wrapper: Wrapper = serde_json::from_str(raw)?;
+    Ok(wrapper.agents)
+}
+
 /// Loads agent configs, creating the default file on first run.
 pub fn load_agent_configs(storage_root: &std::path::Path) -> AppResult<Vec<AcpAgentSpawnConfig>> {
     let path = storage_root.join(ACP_AGENTS_FILE);
     if path.exists() {
         let raw = std::fs::read_to_string(&path).map_err(AppError::Io)?;
-        #[derive(Deserialize)]
-        struct Wrapper {
-            #[serde(default = "default_agents")]
-            agents: Vec<AcpAgentSpawnConfig>,
-        }
-        let wrapper: Wrapper = serde_json::from_str(&raw)?;
-        Ok(wrapper.agents)
+        parse_agent_configs(&raw)
     } else {
         let agents = default_agents();
         if let Some(parent) = path.parent() {

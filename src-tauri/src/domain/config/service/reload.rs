@@ -76,6 +76,60 @@ impl ConfigFile {
             ConfigFile::AgentContext => "agent/AGENTS.md",
         }
     }
+
+    /// Whether the file is JSON (validated on save) or free-form markdown.
+    pub fn is_json(self) -> bool {
+        !matches!(self, ConfigFile::AgentContext)
+    }
+}
+
+/// One config file as text, for the in-app editor.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigFileContent {
+    /// The wire name, so the caller can match it against the row it opened.
+    pub file: String,
+    /// Absolute path, for the editor header.
+    pub path: String,
+    /// `false` when the file does not exist yet; `content` is then a usable
+    /// skeleton so "edit" works on a fresh install.
+    pub exists: bool,
+    pub content: String,
+}
+
+/// The skeleton handed to the editor when the file is missing.
+///
+/// Editing an empty buffer would mean saving invalid JSON, and an empty
+/// `acp_agents.json` deliberately means "keep the current value" — so a new
+/// file starts from an explicit, valid shape instead.
+fn default_content(file: ConfigFile) -> &'static str {
+    match file {
+        ConfigFile::SshConfigs | ConfigFile::Scripts => "[]\n",
+        ConfigFile::AcpAgents => "{\n  \"agents\": []\n}\n",
+        ConfigFile::AgentContext => "",
+    }
+}
+
+/// Rejects content the app would not be able to load.
+///
+/// Validation happens *before* the write: a save with a typo must leave the
+/// previous file — and therefore the running app — untouched, rather than
+/// writing a file the next reload reports as broken.
+fn validate_content(file: ConfigFile, content: &str) -> AppResult<()> {
+    match file {
+        ConfigFile::SshConfigs => {
+            serde_json::from_str::<Vec<crate::domain::ssh::model::SshConfig>>(content)?;
+        }
+        ConfigFile::Scripts => {
+            serde_json::from_str::<Vec<crate::domain::scripts::model::ScriptDefinition>>(content)?;
+        }
+        ConfigFile::AcpAgents => {
+            crate::domain::agent::model::parse_agent_configs(content)?;
+        }
+        // Markdown: any text is a valid AGENTS.md.
+        ConfigFile::AgentContext => {}
+    }
+    Ok(())
 }
 
 /// What one file's reload did.
@@ -205,5 +259,52 @@ impl Storage {
             ConfigFile::AcpAgents => self.data_dir().join("acp_agents.json"),
             ConfigFile::AgentContext => self.agent_context_dir.join("AGENTS.md"),
         }
+    }
+
+    /// Reads one config file for the in-app editor.
+    ///
+    /// A missing file is not an error: the editor gets a valid skeleton and
+    /// `exists: false`, which is also what tells the caller saving is how the
+    /// file comes into being.
+    pub fn read_config_file(&self, file: ConfigFile) -> ConfigFileContent {
+        let path = self.config_path(file);
+        let display = path.to_string_lossy().to_string();
+        match std::fs::read_to_string(&path) {
+            Ok(content) => ConfigFileContent {
+                file: wire_name(file).to_string(),
+                path: display,
+                exists: true,
+                content,
+            },
+            Err(_) => ConfigFileContent {
+                file: wire_name(file).to_string(),
+                path: display,
+                exists: false,
+                content: default_content(file).to_string(),
+            },
+        }
+    }
+
+    /// Validates, writes and re-applies one config file.
+    ///
+    /// The write is atomic (temp file + rename) so an interrupted save cannot
+    /// leave a truncated JSON file behind, and the reload afterwards is what
+    /// makes the edit take effect without a restart.
+    pub fn write_config_file(&self, file: ConfigFile, content: &str) -> AppResult<ReloadOutcome> {
+        validate_content(file, content)?;
+
+        let path = self.config_path(file);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(AppError::Io)?;
+        }
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("config");
+        let temp = path.with_file_name(format!("{name}.tmp"));
+        std::fs::write(&temp, content).map_err(AppError::Io)?;
+        std::fs::rename(&temp, &path).map_err(AppError::Io)?;
+
+        Ok(self.reload_config(file))
     }
 }

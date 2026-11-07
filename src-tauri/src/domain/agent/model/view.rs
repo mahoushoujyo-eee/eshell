@@ -208,6 +208,9 @@ pub struct AcpAgentCapsView {
     pub load_session: bool,
     /// Agent accepts image content blocks in prompts.
     pub prompt_image: bool,
+    /// Agent supports `session/close`, so closing a conversation can actually
+    /// release it instead of leaving it alive for the process lifetime.
+    pub close_session: bool,
 }
 
 /// Result of `start` (and of `authenticate`, once sign-in succeeds).

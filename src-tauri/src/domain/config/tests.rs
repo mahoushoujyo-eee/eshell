@@ -380,3 +380,69 @@ fn reload_rejects_an_unknown_file_name() {
     let error = ConfigFile::parse("nope").expect_err("unknown name must be rejected");
     assert!(format!("{error:?}").contains("nope"), "{error:?}");
 }
+
+/// A file that does not exist yet still opens: the editor gets a valid skeleton
+/// rather than an empty buffer that could only be saved as broken JSON.
+#[test]
+fn reading_a_missing_config_file_returns_a_usable_skeleton() {
+    let storage = Storage::new(temp_dir("read-missing")).expect("create storage");
+
+    let document = storage.read_config_file(ConfigFile::AcpAgents);
+    assert!(!document.exists);
+    assert_eq!(document.file, "acpAgents");
+    assert!(document.path.ends_with("acp_agents.json"));
+    assert!(
+        crate::domain::agent::model::parse_agent_configs(&document.content).is_ok(),
+        "the skeleton must be valid: {}",
+        document.content
+    );
+
+    let markdown = storage.read_config_file(ConfigFile::AgentContext);
+    // The storage seeds `agent/AGENTS.md` on first run, so this one exists; the
+    // point here is only that reading markdown never fabricates a skeleton.
+    assert_eq!(markdown.file, "agentContext");
+    assert!(markdown.path.ends_with("AGENTS.md"));
+}
+
+/// Saving through the editor validates first: a typo must not reach the disk,
+/// because the file it would replace is the running app's only good copy.
+#[test]
+fn writing_invalid_content_is_rejected_and_leaves_the_file_untouched() {
+    let root = temp_dir("write-invalid");
+    let storage = Storage::new(root.clone()).expect("create storage");
+
+    let path = root.join("ssh_configs.json");
+    std::fs::write(&path, "[]").expect("seed a valid file");
+
+    let error = storage
+        .write_config_file(ConfigFile::SshConfigs, "[{ broken")
+        .expect_err("invalid JSON must be rejected");
+    assert!(!format!("{error:?}").is_empty());
+
+    let on_disk = std::fs::read_to_string(&path).expect("read back");
+    assert_eq!(on_disk, "[]", "the previous content must survive");
+}
+
+/// A valid save is written, re-applied in memory, and reported as a change.
+#[test]
+fn writing_valid_content_applies_immediately() {
+    let storage = Storage::new(temp_dir("write-valid")).expect("create storage");
+
+    let outcome = storage
+        .write_config_file(
+            ConfigFile::SshConfigs,
+            r#"[{"id":"s9","name":"written","host":"h","port":22,"username":"u",
+                "authType":"password","password":"p","description":"",
+                "createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}]"#,
+        )
+        .expect("write");
+
+    assert!(outcome.changed, "a new value must be reported as a change");
+    assert!(outcome.error.is_none());
+    assert_eq!(storage.list_ssh_configs().len(), 1);
+    assert_eq!(storage.list_ssh_configs()[0].name, "written");
+    assert_eq!(
+        storage.read_config_file(ConfigFile::SshConfigs).content,
+        std::fs::read_to_string(storage.config_path(ConfigFile::SshConfigs)).expect("read back")
+    );
+}

@@ -39,6 +39,26 @@ pub struct AcpSessionNewInput {
     pub cwd: Option<String>,
 }
 
+/// Input for `acp_session_close`: ends one conversation without stopping the
+/// agent process, so its sibling conversations keep running.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSessionCloseInput {
+    pub agent_id: String,
+    pub session_id: String,
+}
+
+/// Input for `acp_session_load`: reopens an existing conversation on the
+/// already-running agent process (`session/load`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSessionLoadInput {
+    pub agent_id: String,
+    pub session_id: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+}
+
 /// Turns an optional raw path from the frontend into a session cwd, ignoring
 /// blank strings so an empty project field falls back to the agent config.
 pub(crate) fn session_cwd_override(cwd: Option<String>) -> Option<std::path::PathBuf> {
