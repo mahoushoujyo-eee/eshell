@@ -24,12 +24,18 @@ jobs:
         include:
           - platform: windows-latest
             artifact_name: eshell-windows-x64
+            tools_name: eshell-tools-windows-x64
+            tools_archive: zip
             tauri_args: ""
           - platform: ubuntu-latest
             artifact_name: eshell-linux-x64
+            tools_name: eshell-tools-linux-x64
+            tools_archive: tar.gz
             tauri_args: ""
           - platform: macos-latest
             artifact_name: eshell-macos-arm64
+            tools_name: eshell-tools-macos-arm64
+            tools_archive: tar.gz
             tauri_args: ""
 
     runs-on: ${{ matrix.platform }}
@@ -118,6 +124,52 @@ jobs:
           if-no-files-found: error
           path: |
             src-tauri/target/release/bundle/**
+
+      # The desktop bundle is not the only binary in the crate. `eshell-cli` and
+      # `eshell-mcp` run eShell's server operations without the app (a shell and
+      # an MCP server respectively), and people who only want those should not
+      # have to install a GUI to get them.
+      #
+      # On Windows they are already built: staging them is what makes the
+      # installer's `cli\` directory exist. Everywhere else the bundle does not
+      # carry them, so build them here.
+      - name: Build and package the standalone CLI and MCP binaries
+        shell: bash
+        run: |
+          ext=""
+          if [ "${{ matrix.platform }}" = "windows-latest" ]; then ext=".exe"; fi
+          if [ ! -f "src-tauri/target/release/eshell-cli$ext" ]; then
+            cargo build --release --bin eshell-cli --bin eshell-mcp --manifest-path src-tauri/Cargo.toml
+          fi
+
+          rm -rf tools-out staging
+          mkdir -p tools-out staging
+          cp "src-tauri/target/release/eshell-cli$ext" staging/
+          cp "src-tauri/target/release/eshell-mcp$ext" staging/
+          # A binary that cannot even print its help is not worth shipping.
+          "./staging/eshell-cli$ext" --help >/dev/null
+          "./staging/eshell-mcp$ext" --help >/dev/null
+
+          case "${{ matrix.tools_archive }}" in
+            zip)
+              if command -v 7z >/dev/null 2>&1; then
+                7z a -tzip "tools-out/${{ matrix.tools_name }}.zip" ./staging/*
+              else
+                tar -a -c -f "tools-out/${{ matrix.tools_name }}.zip" -C staging .
+              fi
+              ;;
+            *)
+              tar -czf "tools-out/${{ matrix.tools_name }}.tar.gz" -C staging .
+              ;;
+          esac
+          ls -l tools-out
+
+      - name: Upload standalone binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.tools_name }}
+          if-no-files-found: error
+          path: tools-out/*
 
   # Reproduces what a downloading Mac user gets from the .dmg: the Gatekeeper
   # assessment, the codesign/notarization state, and the same artifact scored
@@ -271,5 +323,6 @@ jobs:
             release-artifacts/**/*.rpm
             release-artifacts/**/*.dmg
             release-artifacts/**/*.app.tar.gz
+            release-artifacts/**/*.zip
             release-artifacts/**/*.tar.gz
             release-artifacts/**/latest.json

@@ -4,9 +4,9 @@
   "version": "1.7.3",
   "identifier": "com.eee.eshell",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "node scripts/stage-cli-tools.mjs --debug && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && node scripts/stage-cli-tools.mjs",
     "frontendDist": "../dist"
   },
   "app": {

@@ -46,6 +46,45 @@ cargo build --release --bins
 
 > 二进制仍链接 `tauri`（与桌面应用同 crate），因此在 Linux 上编译需要 `webkit2gtk` 等 Tauri 系统依赖。**运行**它们不需要 GUI，也不需要 WebView。
 
+### 2.1 发布产物
+
+`build-tauri` 工作流在三个平台上各产出一个独立压缩包，和安装包一起发布：
+
+| 平台 | 资产 |
+| --- | --- |
+| Windows x64 | `eshell-tools-windows-x64.zip` |
+| Linux x64 | `eshell-tools-linux-x64.tar.gz` |
+| macOS arm64 | `eshell-tools-macos-arm64.tar.gz` |
+
+每个包里就是 `eshell-cli` 与 `eshell-mcp` 两个可执行文件（Windows 带 `.exe`）。CI 打包前会各跑一次 `--help`——连帮助都打不出来的二进制不会发出去。
+
+### 2.2 Windows 安装包里的选择
+
+Windows 的 NSIS 安装包（`*-setup.exe`）会把这两个二进制一起装进 `<安装目录>\cli\`，并在"选择安装位置"之后多一页询问是否**安装命令行工具并加入 PATH**：
+
+- 勾选（默认）：保留二进制，把 `<安装目录>\cli` 加进 PATH，卸载时移除。
+- 取消：删掉这两个文件；如果**之前装过**并留下了 PATH 条目，这一轮会先把条目摘掉再删文件，不会留下指向空目录的脏条目。
+- 静默安装默认等同于勾选；加 `/NO_CLI_TOOLS` 则不装（同样会摘掉旧条目）。
+
+PATH 的写入走 PowerShell 的 `[Environment]::SetEnvironmentVariable`（它会广播 `WM_SETTINGCHANGE`），所以装完新开的终端就能直接用；已经在跑的终端（尤其是从 Explorer 启动的）仍需重开。
+
+写进 PATH 的是 **`<安装目录>\cli`**，不是安装目录本身——所以只有 `eshell-cli` 和 `eshell-mcp` 变成全局命令，`eshell.exe` 不会。
+
+作用域跟着 `installMode` 走（Tauri 默认 `currentUser`）：默认写在**用户 PATH**（`HKCU\Environment`），不需要管理员；改成 `perMachine` 才会写系统 PATH。
+
+装完自查：
+
+```powershell
+# 应该能看到 …\eshell\cli
+[Environment]::GetEnvironmentVariable('Path','User') -split ';' | Select-String eshell
+
+# 新终端里直接可用
+eshell-cli --help
+eshell-mcp --help
+```
+
+注意：`.msi` 没有自定义向导页，它会把这两个文件放进同样的 `cli\` 目录，但**不会改 PATH**，需要时自己加。要用交互式选择请用 `-setup.exe`。
+
 ---
 
 ## 3. 配置文件位置

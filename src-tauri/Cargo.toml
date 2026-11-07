@@ -4,6 +4,11 @@ version = "1.7.3"
 description = "A Tauri App"
 authors = ["eee"]
 edition = "2021"
+# The crate ships three binaries (`eshell` plus the standalone `eshell-cli` and
+# `eshell-mcp`). Tauri's dev command runs a bare `cargo run`, which refuses to
+# pick one when the package has several; this makes the desktop app the default
+# and leaves the other two explicit (`cargo run --bin eshell-cli`).
+default-run = "eshell"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

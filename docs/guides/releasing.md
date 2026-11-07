@@ -133,3 +133,43 @@ Two things about running this on a runner rather than a laptop:
   directory, and a run that had assessed everything correctly exited `1`. The
   cleanup now detaches unconditionally, disables `set -e` *and* drops the ERR
   trap, because the trap's exit status is the run's verdict.
+
+## The Windows installer is a vendored NSIS template
+
+`src-tauri/installer/installer.nsi` is Tauri's own NSIS template, copied from
+the CLI and patched. It has to be: the install wizard needs a page Tauri does
+not generate — the "also install `eshell-cli` / `eshell-mcp` and add them to
+PATH" checkbox after the directory page — and a wizard page can only be
+declared between the template's own `!insertmacro MUI_PAGE_*` lines. The
+`installerHooks` file that Tauri supports is `!include`d *before* those pages,
+so a hook cannot add one.
+
+Consequences worth knowing:
+
+- `@tauri-apps/cli` is pinned to the exact version the template came from
+  (`2.10.0` in `package.json`). Bumping it means re-extracting the template and
+  re-applying the patch, otherwise a newer bundler and an older template meet
+  silently.
+- Re-extracting: the template is an `include_str!` inside the CLI's native
+  binary. `strings`-style extraction from
+  `node_modules/@tauri-apps/cli-<platform>/*.node` works — the script starts at
+  `Unicode true` and ends before the next control byte — but the upstream file
+  in the `tauri` repository
+  (`crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi`) is easier to
+  read and to diff against.
+- Anything the patch adds is marked with a comment naming the feature
+  (`5b. Optional command line tools`, `Command line tools:` in the install and
+  uninstall sections, and the `WritePathHelper` pair).
+- A template that fails to compile fails the release build, since
+  `npx tauri build` runs `makensis` before anything is uploaded.
+
+The two binaries themselves come from `scripts/stage-cli-tools.mjs`, which
+`beforeDevCommand` / `beforeBuildCommand` run *before* cargo — Tauri validates
+`bundle.resources` paths at compile time, so staging any later is too late.
+
+## Standalone CLI/MCP release assets
+
+`build-tauri` also packages `eshell-cli` and `eshell-mcp` per platform
+(`eshell-tools-<platform>.<zip|tar.gz>`) and smoke-runs `--help` on both before
+archiving. They are unsigned archives, not installers, and they are not part of
+`latest.json`: the updater only ever sees the desktop bundles.
