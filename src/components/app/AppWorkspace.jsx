@@ -73,7 +73,7 @@ export default function AppWorkspace({
       <WindowTitleBar
         showAiPanel={showAiPanel}
         onToggleAiPanel={() => setShowAiPanel((current) => !current)}
-        isAiStreaming={acp.turnActive}
+        isAiStreaming={acp.anyTurnActive}
         isMaximized={isMaximized}
         onSyncMaximized={syncMaximized}
         sessions={sessions}
@@ -138,7 +138,7 @@ export default function AppWorkspace({
         disconnectedSessions={disconnectedSessions}
         busy={busy}
         error={error}
-        isAiStreaming={acp.turnActive}
+        isAiStreaming={acp.anyTurnActive}
       />
 
       {/* Mounted only while open: the modal renders nothing when closed and

@@ -138,6 +138,14 @@ export const api = {
   // a different project directory.
   acpSessionNew: (agentId, cwd = null) =>
     invoke("acp_session_new", { input: { agentId, cwd } }),
+  // Reopens an existing conversation on the running agent process. Unlike
+  // `acpAgentStart` this works while other conversations of the same agent are
+  // live, and it fails rather than silently creating an unrelated session.
+  acpSessionLoad: (agentId, sessionId, cwd = null) =>
+    invoke("acp_session_load", { input: { agentId, sessionId, cwd } }),
+  // Ends one conversation without touching the agent process.
+  acpSessionClose: (agentId, sessionId) =>
+    invoke("acp_session_close", { input: { agentId, sessionId } }),
   acpPermissionRespond: (agentId, requestId, optionId = null) =>
     invoke("acp_permission_respond", { input: { agentId, requestId, optionId } }),
   acpSessionSetMode: (agentId, sessionId, modeId) =>
@@ -165,6 +173,13 @@ export const api = {
   // applied.
   reloadConfig: (file) => invoke("reload_config", { input: file ? { file } : {} }),
   listReloadableConfigs: () => invoke("list_reloadable_configs"),
+  // Raw text of one reloadable config file, for the in-app editor. A missing
+  // file resolves with `exists: false` and a valid skeleton to start from.
+  readConfigFile: (file) => invoke("read_config_file", { input: { file } }),
+  // Validates, writes and re-applies one config file; rejects invalid content
+  // without touching the file on disk.
+  writeConfigFile: (file, content) =>
+    invoke("write_config_file", { input: { file, content } }),
 
   // Builtin extension discovery. `list_extensions` mirrors every field of the
   // shared manifest (`extensions/builtin.json`) per item plus an `enabled`
