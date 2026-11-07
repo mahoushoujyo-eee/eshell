@@ -352,10 +352,10 @@ export function useAcpAgent() {
   // Last probe conclusion, so the notice is pushed on the transition only.
   const lastEnvOkRef = useRef(null);
 
-  const refreshRuntimeEnv = useCallback(async () => {
+  const refreshRuntimeEnv = useCallback(async (force = false) => {
     let env = null;
     try {
-      const probed = await api.acpRuntimeEnv();
+      const probed = await api.acpRuntimeEnv(force === true);
       env = probed && typeof probed === "object" ? probed : null;
     } catch {
       setRuntimeEnv(null);
