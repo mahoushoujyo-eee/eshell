@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   CircleStop,
+  FileText,
   Folder,
   Loader2,
   Maximize2,
   Minimize2,
-  Paperclip,
   Quote,
   Send,
   Square,
@@ -43,6 +42,14 @@ import { useI18n } from "../../lib/i18n";
 // Oversized images are downscaled/re-encoded client-side: Codex-side image
 // preparation silently replaces too-large images with an "omitted" placeholder,
 // and smaller payloads cost fewer tokens anyway.
+/** First line of a quoted passage, for its chip label. */
+const chipLabel = (text) => {
+  const line = String(text || "")
+    .split("\n")[0]
+    .trim();
+  return line.length > 60 ? `${line.slice(0, 60)}…` : line;
+};
+
 const MAX_IMAGE_DIMENSION = 1568;
 const MAX_IMAGE_DATAURL_CHARS = 5 * 1024 * 1024;
 
@@ -160,6 +167,8 @@ export default function AcpAgentPanel({ acp }) {
     setConfigOption,
     respondPermission,
     clearShellContext,
+    attachFiles,
+    attachQuote,
     setDraft,
     authenticate,
     runtimeEnv,
@@ -206,12 +215,18 @@ export default function AcpAgentPanel({ acp }) {
 
   const attachments = draft?.attachments ?? [];
   const shellContext = draft?.shellContext ?? null;
+  const draftFiles = draft?.files ?? [];
+  const draftQuotes = draft?.quotes ?? [];
   const question = draft?.text ?? "";
 
   const canSend =
     ready &&
     !turnActive &&
-    (question.trim().length > 0 || attachments.length > 0 || shellContext != null);
+    (question.trim().length > 0 ||
+      attachments.length > 0 ||
+      shellContext != null ||
+      draftFiles.length > 0 ||
+      draftQuotes.length > 0);
   const usagePercent =
     usage && usage.size > 0 ? Math.min(100, Math.round((usage.used / usage.size) * 100)) : null;
 
@@ -322,71 +337,6 @@ export default function AcpAgentPanel({ acp }) {
     [attachments, canSend, question, sendPrompt],
   );
 
-  /**
-   * Appends a snippet to the draft and focuses the composer.
-   *
-   * Appending — rather than inserting at the caret — because both callers add a
-   * block the user is about to talk about ("here is a file", "about this
-   * paragraph"), and the sentence explaining it comes before the block in the
-   * user's head anyway. Appending never splits text they already typed.
-   */
-  const appendToDraft = useCallback(
-    (snippet) => {
-      const addition = (snippet || "").trim();
-      if (!addition) {
-        return;
-      }
-      const current = question.trimEnd();
-      setDraft({ text: current ? `${current}\n\n${addition}` : addition });
-      // `requestAnimationFrame` lives on the fake window in tests but is not a
-      // global there, so fall back to a timer.
-      const schedule =
-        typeof requestAnimationFrame === "function"
-          ? requestAnimationFrame
-          : (callback) => setTimeout(callback, 0);
-      schedule(() => {
-        const node = textareaRef.current;
-        if (!node) {
-          return;
-        }
-        node.focus();
-        node.setSelectionRange(node.value.length, node.value.length);
-      });
-    },
-    [question, setDraft],
-  );
-
-  // A path, not the file contents: the agent runs on this machine and can read
-  // the file itself, which beats shipping a stale copy through the transcript.
-  const quotePaths = useCallback(
-    (paths) => paths.filter(Boolean).map((path) => `\`${path}\``).join("\n"),
-    [],
-  );
-
-  const attachFiles = useCallback(
-    async (paths) => {
-      const snippet = quotePaths(paths);
-      if (snippet) {
-        appendToDraft(snippet);
-      }
-    },
-    [appendToDraft, quotePaths],
-  );
-
-  const pickFiles = useCallback(async () => {
-    try {
-      const picked = await openDialog({
-        multiple: true,
-        directory: false,
-        title: t("Attach file paths"),
-      });
-      const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
-      await attachFiles(paths);
-    } catch {
-      // The dialog being unavailable (or cancelled) is not worth a notice.
-    }
-  }, [attachFiles, t]);
-
   // Drops are handled at the webview level: the page never receives real file
   // paths, only the shell does, so a plain HTML5 drop handler cannot work here.
   // Only drops inside this panel count — otherwise dragging a file anywhere in
@@ -456,14 +406,10 @@ export default function AcpAgentPanel({ acp }) {
     if (!selectionQuote) {
       return;
     }
-    const quoted = selectionQuote.text
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n");
-    appendToDraft(quoted);
+    attachQuote(selectionQuote.text);
     setSelectionQuote(null);
     window.getSelection?.()?.removeAllRanges?.();
-  }, [appendToDraft, selectionQuote]);
+  }, [attachQuote, selectionQuote]);
 
   const addImageFiles = useCallback(
     async (files) => {
@@ -804,7 +750,54 @@ export default function AcpAgentPanel({ acp }) {
               </button>
             </div>
           ) : null}
-          {attachments.length > 0 ? (
+          {draftFiles.length > 0 || draftQuotes.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {draftFiles.map((file) => (
+                <span
+                  key={file.id}
+                  className="inline-flex max-w-[18rem] items-center gap-1 rounded-md border border-border bg-hover/60 px-1.5 py-1 text-[11px] text-text"
+                >
+                  <FileText className="h-3 w-3 shrink-0 text-accent" aria-hidden="true" />
+                  <span className="min-w-0 truncate" title={file.path}>
+                    {file.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraft({ files: draftFiles.filter((item) => item.id !== file.id) })
+                    }
+                    aria-label={t("Remove file")}
+                    title={t("Remove file")}
+                    className="shrink-0 rounded p-0.5 text-muted hover:text-danger"
+                  >
+                    <X className="h-3 w-3" aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+              {draftQuotes.map((quote) => (
+                <span
+                  key={quote.id}
+                  className="inline-flex max-w-[18rem] items-center gap-1 rounded-md border border-border bg-hover/60 px-1.5 py-1 text-[11px] text-text"
+                >
+                  <Quote className="h-3 w-3 shrink-0 text-accent" aria-hidden="true" />
+                  <span className="min-w-0 truncate" title={quote.text}>
+                    {chipLabel(quote.text)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraft({ quotes: draftQuotes.filter((item) => item.id !== quote.id) })
+                    }
+                    aria-label={t("Remove quote")}
+                    title={t("Remove quote")}
+                    className="shrink-0 rounded p-0.5 text-muted hover:text-danger"
+                  >
+                    <X className="h-3 w-3" aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}          {attachments.length > 0 ? (
             <div className="mb-2 flex flex-wrap gap-1.5">
               {attachments.map((image) => (
                 <div key={image.id} className="relative">
@@ -925,17 +918,6 @@ export default function AcpAgentPanel({ acp }) {
                       setOpenMenu(null);
                     }}
                   />
-                ) : null}
-                {ready ? (
-                  <button
-                    type="button"
-                    onClick={() => void pickFiles()}
-                    title={t("Attach file paths")}
-                    aria-label={t("Attach file paths")}
-                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-muted transition-colors hover:bg-hover hover:text-text"
-                  >
-                    <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
                 ) : null}
               </div>
               {turnActive ? (

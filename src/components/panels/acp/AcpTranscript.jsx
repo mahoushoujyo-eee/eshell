@@ -7,8 +7,10 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  FileText,
   KeyRound,
   ListTodo,
+  Quote,
   Loader2,
   ShieldQuestion,
   TerminalSquare,
@@ -424,9 +426,37 @@ export default function TranscriptEntry({ entry, onRespondPermission }) {
   const { t } = useI18n();
   if (entry.type === "user") {
     const images = Array.isArray(entry.images) ? entry.images : [];
+    const files = Array.isArray(entry.files) ? entry.files : [];
+    const quotes = Array.isArray(entry.quotes) ? entry.quotes : [];
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-xl rounded-br-sm bg-accent-soft px-3 py-2 text-[13.5px] leading-relaxed text-text">
+          {/* Staged context as chips: the prompt carried plain text, but showing
+              the markers back to the user would be noise. */}
+          {files.length > 0 || quotes.length > 0 ? (
+            <div className="mb-1.5 flex flex-wrap gap-1.5">
+              {files.map((file, index) => (
+                <span
+                  key={`file-${index}`}
+                  title={file.path}
+                  className="inline-flex max-w-[16rem] items-center gap-1 rounded border border-border-strong bg-panel/60 px-1.5 py-0.5 text-[10px] text-text/80"
+                >
+                  <FileText className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{file.name}</span>
+                </span>
+              ))}
+              {quotes.map((quote, index) => (
+                <span
+                  key={`quote-${index}`}
+                  title={quote.text}
+                  className="inline-flex max-w-[16rem] items-center gap-1 rounded border border-border-strong bg-panel/60 px-1.5 py-0.5 text-[10px] text-text/80"
+                >
+                  <Quote className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{quote.text.split("\n")[0]}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
           {images.length > 0 ? (
             <div className="mb-1.5 flex flex-wrap gap-1.5">
               {images.map((image, index) =>

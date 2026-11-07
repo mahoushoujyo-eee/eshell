@@ -40,16 +40,17 @@ from the install layout falls back to the per-user directory as before.
 
 Two ways to point the agent at something without retyping it:
 
-- **Attach file paths.** The paperclip in the composer opens the file dialog, and
-  dropping files onto the panel works too — both insert the *paths*, one per
-  line as inline code. The agent runs on the same machine and reads the file
-  itself, which beats shipping a stale copy through the transcript.
+- **Drop files onto the panel.** The file paths are staged as chips above the
+  composer and expanded into the prompt on send — the agent runs on the same
+  machine, so it reads the file itself instead of receiving a copy that is stale
+  by the time it answers.
 - **Quote the transcript.** Select any part of the conversation and a "Quote in
-  reply" pill appears next to the selection; clicking it appends the selection to
-  the composer as a blockquote, ready for the question.
+  reply" pill appears next to the selection; clicking it stages the passage as a
+  chip, and sending turns it into a blockquote of the typed question.
 
-Both append to the end of what is already typed rather than inserting at the
-caret, so a half-written sentence is never split.
+Staged context is a chip, never raw marker text in the input box: each one shows
+what it is (file name, first quoted line), carries the full value in its tooltip,
+and can be removed with a single click before sending.
 
 ## How To Use This File
 

@@ -10,9 +10,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 
-// The dialog is the OS file picker: the panel only needs the paths back.
-const dialogState = vi.hoisted(() => ({ open: vi.fn(async () => []) }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: dialogState.open }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 
 import { createElement } from "react";
@@ -44,7 +41,7 @@ const AGENT_B = {
   cwd: "D:\\proj",
 };
 
-const EMPTY_DRAFT = { text: "", attachments: [], shellContext: null };
+const EMPTY_DRAFT = { text: "", attachments: [], shellContext: null, files: [], quotes: [] };
 
 const conversation = (overrides = {}) => ({
   key: "c1",
@@ -107,6 +104,8 @@ const makeAcp = (overrides = {}) => ({
   setConfigOption: vi.fn(),
   respondPermission: vi.fn(),
   clearShellContext: vi.fn(),
+  attachFiles: vi.fn(),
+  attachQuote: vi.fn(),
   setDraft: vi.fn(),
   authenticate: vi.fn(),
   runtimeEnv: null,
@@ -517,34 +516,46 @@ const readyAcp = (setDraft) => {
     session: { id: "sess-1", modes: null, capabilities: null },
     // The panel renders the hook's derived transcript, not the row's copy.
     transcript: row.transcript,
-    draft: { text: "", attachments: [], shellContext: null },
+    draft: { ...EMPTY_DRAFT },
     setDraft,
   });
 };
 
 describe("AcpAgentPanel composer context", () => {
-  it("adds the chosen file paths to the prompt instead of their contents", async () => {
-    dialogState.open.mockResolvedValue(["C:\\work\\a.ts", "C:\\work\\b.md"]);
+  it("shows staged files and quotes as chips, not as raw text", async () => {
     const setDraft = vi.fn();
-    const { container, unmount } = await mountPanel(readyAcp(setDraft));
+    const acp = readyAcp(setDraft);
+    acp.draft = {
+      ...EMPTY_DRAFT,
+      files: [{ id: "f1", path: "C:\\work\\a.ts", name: "a.ts" }],
+      quotes: [{ id: "q1", text: "Plan: restart nginx\nand reload" }],
+    };
+    const { container, unmount } = await mountPanel(acp);
 
-    const attach = findElement(
+    // Chips carry the basename and the first quoted line; the raw marker text
+    // ("`C:\work\a.ts`", "> Plan: …") must not appear anywhere.
+    expect(container.textContent).toContain("a.ts");
+    expect(container.textContent).toContain("Plan: restart nginx");
+    expect(container.textContent).not.toContain("`C:\\work\\a.ts`");
+    expect(container.textContent).not.toContain("> and reload");
+
+    const removeFile = findElement(
       container,
-      (node) => node.nodeName === "BUTTON" && node.getAttribute("aria-label") === "Attach file paths",
+      (node) => node.nodeName === "BUTTON" && node.getAttribute("aria-label") === "Remove file",
     );
     await act(async () => {
-      fireClick(attach);
+      fireClick(removeFile);
     });
-    await act(async () => {});
+    expect(setDraft).toHaveBeenCalledWith({ files: [] });
 
-    // Paths, not contents: the agent reads the file itself.
-    expect(setDraft).toHaveBeenCalledWith({ text: "`C:\\work\\a.ts`\n`C:\\work\\b.md`" });
     await unmount();
   });
 
-  it("quotes the selected transcript text into the prompt", async () => {
-    const setDraft = vi.fn();
-    const { container, unmount } = await mountPanel(readyAcp(setDraft));
+  it("quotes the selected transcript text into the composer", async () => {
+    const attachQuote = vi.fn();
+    const acp = readyAcp(vi.fn());
+    acp.attachQuote = attachQuote;
+    const { container, unmount } = await mountPanel(acp);
 
     // The deepest node holding the reply: an ancestor would not be "inside" the
     // scroller, and the panel only quotes selections from the transcript.
@@ -586,7 +597,7 @@ describe("AcpAgentPanel composer context", () => {
       fireClick(quote);
     });
 
-    expect(setDraft).toHaveBeenCalledWith({ text: "> Plan: restart nginx\n> and reload" });
+    expect(attachQuote).toHaveBeenCalledWith("Plan: restart nginx\nand reload");
     await unmount();
   });
 });

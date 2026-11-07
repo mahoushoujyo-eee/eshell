@@ -183,9 +183,9 @@ Composer: 终端选中 chip + 附件缩略图 + 输入盒 + 底部条(模式胶�
 ### 其他联动
 
 - 终端选中文本 → 右上角「Add To Agent」浮层（`XtermSelectionAction`）→ `AppMainWorkspace` 调 `acp.attachShellContext(selection)` 并打开 dock → **当前会话**的草稿出现 chip → 发送时以 fenced code block 追加到正文（transcript 条目保留结构化 `context` 字段）。没有活动会话时，选中内容暂存，随下一个新会话带入。
-- **拖入 / 选择文件 → 只把路径写进提示词**，不读内容。`Paperclip` 走 `plugin-dialog`（多选），拖放走 Tauri 的 `onDragDropEvent`——页面拿不到真实路径，只有 shell 拿得到，所以普通 HTML5 `drop` 在 Tauri 里不可用；而且**只接受落在面板矩形内的拖放**（`payload.position` 除以 `devicePixelRatio` 再比 `getBoundingClientRect`），否则在应用任何地方拖文件都会往 agent 输入框里打字。路径以行内代码 `` `C:\path\file.ts` `` 一行一个追加到草稿末尾：agent 就在这台机器上，让它自己读文件比把内容塞进对话更准。
-- **选中 transcript 里的文字 → 「引用到对话」**：在滚动区 `mouseup` 时读 `getSelection()`，确认选择落在 transcript 容器内，用 range 的 `getBoundingClientRect` 把胶囊居中浮在选区下方（再夹到面板边界内）。点击后把选中的每一行加 `> ` 前缀成 blockquote 追加到草稿。超过 2000 字符截断加省略号——引用整段 history 没有意义。滚动、点击别处、切换会话都会收起胶囊（它按视口坐标定位，文本一动就错位）。
-- 两个入口都走同一个 `appendToDraft`：**追加到末尾**而不是插到光标处。调用方加的都是"接下来要聊的那段东西"，追加不会把用户已经写了一半的句子劈开。
+- **拖入文件 → 只暂存路径，不读内容**。拖放走 Tauri 的 `onDragDropEvent`——页面拿不到真实路径，只有 shell 拿得到，所以普通 HTML5 `drop` 在 Tauri 里根本不可用；而且**只接受落在面板矩形内的拖放**（`payload.position` 除以 `devicePixelRatio` 再比 `getBoundingClientRect`），否则在应用任何地方拖文件都会往 agent 输入框里打字。**没有回形针按钮**：路径是给"我正看着这个文件"这种场景用的，拖进来比点两次对话框快。路径以 chip 形式出现（文件名 + 完整路径 tooltip + `×`），发送时才展开成行内代码 `` `C:\path\file.ts` `` 一行一个——agent 就在这台机器上，让它自己读文件比把内容塞进对话更准。
+- **选中 transcript 里的文字 → 「引用到对话」**：在滚动区 `mouseup` 时读 `getSelection()`，确认选择落在 transcript 容器内，用 range 的 `getBoundingClientRect` 把胶囊居中浮在选区下方（再夹到面板边界内）。点击后暂存成 quote chip（显示第一行），发送时展开成 blockquote（每行加 `> `）。超过 2000 字符截断加省略号——引用整段 history 没有意义。滚动、点击别处、切换会话都会收起胶囊（它按视口坐标定位，文本一动就错位）。
+- **staged context 一律以 chip 呈现，不往输入框里塞原始字符**：`draft.files` / `draft.quotes` 是结构化字段，composer 上沿渲染成 chips（`FileText` / `Quote` 图标 + `×`），发送时才由 hook 拼进提示词；transcript 里的用户消息同样渲染成 chips，而不是把 `>` 和反引号还给用户看。终端选中（`shellContext`）用的是同一套思路，只是它一直有自己的 chip。
 - 草稿（文本 / 附件 / 终端选中）是**每个会话独立**的，切走再切回内容还在；发送后整体清空。
 - 行为细节：自动滚动仅在用户位于底部附近（阈值 48px）时生效；切换 tab 会重置到底部。Esc 关闭 dock 在 App.jsx，弹层和展开的 composer 都要先 `stopPropagation`。
 
