@@ -76,11 +76,6 @@ impl ConfigFile {
             ConfigFile::AgentContext => "agent/AGENTS.md",
         }
     }
-
-    /// Whether the file is JSON (validated on save) or free-form markdown.
-    pub fn is_json(self) -> bool {
-        !matches!(self, ConfigFile::AgentContext)
-    }
 }
 
 /// One config file as text, for the in-app editor.
